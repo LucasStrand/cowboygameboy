@@ -42,6 +42,33 @@ local function isOutOfBounds(entity, room)
         or entity.x > room.width + 200
 end
 
+local INTERACT_RANGE = 56
+
+local function isPlayerNearDoor()
+    if not doorOpen or not currentRoom or not currentRoom.door or not player then
+        return false
+    end
+    local door = currentRoom.door
+    local px = player.x + player.w / 2
+    local py = player.y + player.h / 2
+    local dx = (door.x + door.w / 2) - px
+    local dy = (door.y + door.h / 2) - py
+    return (dx * dx + dy * dy) <= INTERACT_RANGE * INTERACT_RANGE
+end
+
+local function tryExitThroughDoor()
+    if transitionTimer > 0 or not isPlayerNearDoor() or not roomManager then
+        return
+    end
+    roomManager:onRoomCleared()
+    if roomManager:isCheckpoint() then
+        local saloon = require("src.states.saloon")
+        Gamestate.push(saloon, player, roomManager)
+    else
+        transitionTimer = 0.5
+    end
+end
+
 local bgImage
 
 function game:init()
@@ -181,6 +208,10 @@ function game:update(dt)
             end
             if isOutOfBounds(e, currentRoom) then
                 e.alive = false
+                e.isEnemy = false
+                if world:hasItem(e) then
+                    world:remove(e)
+                end
             end
             i = i + 1
         else
@@ -237,24 +268,7 @@ function game:update(dt)
         end
     end
 
-    -- Check door collision
-    if doorOpen and currentRoom and currentRoom.door then
-        local door = currentRoom.door
-        local px = player.x + player.w / 2
-        local py = player.y + player.h / 2
-        local dx = (door.x + door.w / 2) - px
-        local dy = (door.y + door.h / 2) - py
-        local dist = math.sqrt(dx * dx + dy * dy)
-        if dist < 40 then
-            roomManager:onRoomCleared()
-            if roomManager:isCheckpoint() then
-                local saloon = require("src.states.saloon")
-                Gamestate.push(saloon, player, roomManager)
-            else
-                transitionTimer = 0.5
-            end
-        end
-    end
+    -- Exit door: use [E] when nearby (see tryExitThroughDoor)
 
     -- Kill plane (fell out of bounds)
     if isOutOfBounds(player, currentRoom) then
@@ -289,8 +303,14 @@ function game:keypressed(key)
     if key == "space" or key == "w" or key == "up" then
         player:jump()
     end
+    if key == "lshift" or key == "rshift" then
+        player:tryDash()
+    end
     if key == "r" then
         player:reload()
+    end
+    if key == "e" then
+        tryExitThroughDoor()
     end
     if key == "escape" then
         local menu = require("src.states.menu")
@@ -392,8 +412,12 @@ function game:draw()
             love.graphics.rectangle("line", door.x, door.y, door.w, door.h)
 
             if doorOpen then
-                love.graphics.setColor(1, 1, 1, 0.8)
-                love.graphics.printf("EXIT", door.x - 10, door.y - 18, door.w + 20, "center")
+                love.graphics.setColor(1, 1, 1, 0.85)
+                if player and isPlayerNearDoor() then
+                    love.graphics.printf("[E] Exit", door.x - 24, door.y - 20, door.w + 48, "center")
+                else
+                    love.graphics.printf("Exit", door.x - 10, door.y - 18, door.w + 20, "center")
+                end
             end
         end
     end

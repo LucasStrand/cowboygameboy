@@ -205,11 +205,15 @@ function Enemy:updateFlying(dt, world, dx, dy, dist, playerX, playerY)
     return nil
 end
 
-function Enemy:takeDamage(amount)
+function Enemy:takeDamage(amount, world)
     self.hp = self.hp - amount
     self.hurtTimer = 0.1
     if self.hp <= 0 then
         self.alive = false
+        self.isEnemy = false
+        if world and world:hasItem(self) then
+            world:remove(self)
+        end
     end
 end
 
@@ -242,6 +246,7 @@ function Enemy.filter(item, other)
 end
 
 function Enemy:draw()
+    if not self.alive then return end
     local c = self.color
     if self.hurtTimer > 0 then
         love.graphics.setColor(1, 1, 1)

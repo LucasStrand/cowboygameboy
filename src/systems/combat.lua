@@ -17,7 +17,7 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
         b:update(dt, world)
 
         if b.hitEnemy then
-            b.hitEnemy:takeDamage(b.damage)
+            b.hitEnemy:takeDamage(b.damage, world)
 
             -- Explosive rounds: AOE damage to nearby enemies
             if b.explosive and not b.fromEnemy then
@@ -32,7 +32,7 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
                         local ey = e.y + e.h / 2
                         local dist = math.sqrt((ex - bx)^2 + (ey - by)^2)
                         if dist <= explosionRadius then
-                            e:takeDamage(aoeDamage)
+                            e:takeDamage(aoeDamage, world)
                             aoeHits = aoeHits + 1
                         end
                     end
@@ -67,17 +67,22 @@ function Combat.onEnemyKilled(enemy, player)
         player:heal(player.stats.lifestealOnKill)
     end
 
+    -- Spawn at feet (pickup is 10×10) so loot sits on the floor, not inside the corpse AABB
+    local pw = 10
+    local baseX = enemy.x + enemy.w / 2 - pw / 2
+    local baseY = enemy.y + enemy.h - pw
+
     table.insert(drops, {
-        x = enemy.x,
-        y = enemy.y,
+        x = baseX,
+        y = baseY,
         type = "xp",
         value = enemy.xpValue,
     })
 
     if enemy.goldValue > 0 and math.random() < 0.7 then
         table.insert(drops, {
-            x = enemy.x + 10,
-            y = enemy.y,
+            x = baseX + 12,
+            y = baseY,
             type = "gold",
             value = enemy.goldValue,
         })
@@ -85,8 +90,8 @@ function Combat.onEnemyKilled(enemy, player)
 
     if math.random() < 0.1 then
         table.insert(drops, {
-            x = enemy.x - 5,
-            y = enemy.y,
+            x = baseX - 12,
+            y = baseY,
             type = "health",
             value = 15,
         })
@@ -138,7 +143,6 @@ end
 function Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
     local px = player.x + player.w / 2
     local py = player.y + player.h / 2
-    local aimX = player.facingRight and 1 or -1
 
     local bestEnemy = nil
     local bestDist = math.huge
@@ -148,8 +152,8 @@ function Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, view
             local ex = e.x + e.w / 2
             local ey = e.y + e.h / 2
             local onScreen = ex >= viewL and ex <= viewR and ey >= viewT and ey <= viewB
-            local dx = ex - px
-            if onScreen and dx * aimX > 0 and hasLineOfSight(world, px, py, ex, ey) then
+            if onScreen and hasLineOfSight(world, px, py, ex, ey) then
+                local dx = ex - px
                 local dist = dx * dx + (ey - py) * (ey - py)
                 if dist < bestDist then
                     bestDist = dist

@@ -66,7 +66,7 @@ function menu:draw()
     -- Controls hint
     love.graphics.setColor(0.5, 0.5, 0.5)
     love.graphics.setFont(fonts.hint)
-    love.graphics.printf("A/D - Move  |  SPACE - Jump  |  Auto-Aim & Fire  |  R - Reload", 0, screenH * 0.75, screenW, "center")
+    love.graphics.printf("A/D - Move  |  SPACE - Jump  |  SHIFT - Dash  |  E - Interact (exit)  |  Auto-Aim & Fire  |  R - Reload", 0, screenH * 0.72, screenW, "center")
     love.graphics.printf("F1 - Debug Mode", 0, screenH * 0.80, screenW, "center")
 
     love.graphics.setColor(1, 1, 1)

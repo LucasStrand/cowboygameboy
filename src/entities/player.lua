@@ -3,8 +3,14 @@ Player.__index = Player
 
 local GRAVITY = 900
 local JUMP_FORCE = -380
-local COYOTE_TIME = 0.08
-local JUMP_BUFFER = 0.1
+local COYOTE_TIME = 0.1
+local JUMP_BUFFER = 0.12
+local DOUBLE_JUMP_MULT = 0.9
+local JUMP_RELEASE_GRAVITY_MULT = 0.95 -- extra gravity while rising if jump not held (short hop)
+
+local DASH_SPEED = 520
+local DASH_DURATION = 0.12
+local DASH_COOLDOWN = 0.52
 
 function Player.new(x, y)
     local self = setmetatable({}, Player)
@@ -19,6 +25,11 @@ function Player.new(x, y)
     self.grounded = false
     self.coyoteTimer = 0
     self.jumpBufferTimer = 0
+    self.jumpCount = 0 -- 0 = can ground/coyote jump, 1 = can double jump, 2 = spent
+
+    self.dashTimer = 0
+    self.dashCooldown = 0
+    self.dashDir = 1
 
     self.stats = {
         maxHP = 100,
@@ -106,6 +117,17 @@ function Player:update(dt, world)
         self.shootCooldown = self.shootCooldown - dt
     end
 
+    -- Dash timers
+    if self.dashTimer > 0 then
+        local prev = self.dashTimer
+        self.dashTimer = self.dashTimer - dt
+        if prev > 0 and self.dashTimer <= 0 then
+            self.dashCooldown = DASH_COOLDOWN
+        end
+    elseif self.dashCooldown > 0 then
+        self.dashCooldown = math.max(0, self.dashCooldown - dt)
+    end
+
     -- Reload
     if self.reloading then
         self.reloadTimer = self.reloadTimer - dt
@@ -118,20 +140,25 @@ function Player:update(dt, world)
         end
     end
 
-    -- Horizontal movement
-    self.vx = 0
-    if love.keyboard.isDown("a") or love.keyboard.isDown("left") then
-        self.vx = -effectiveStats.moveSpeed
-        self.facingRight = false
-    end
-    if love.keyboard.isDown("d") or love.keyboard.isDown("right") then
-        self.vx = effectiveStats.moveSpeed
-        self.facingRight = true
+    -- Horizontal movement (dash overrides walk)
+    if self.dashTimer > 0 then
+        self.vx = self.dashDir * DASH_SPEED
+    else
+        self.vx = 0
+        if love.keyboard.isDown("a") or love.keyboard.isDown("left") then
+            self.vx = -effectiveStats.moveSpeed
+            self.facingRight = false
+        end
+        if love.keyboard.isDown("d") or love.keyboard.isDown("right") then
+            self.vx = effectiveStats.moveSpeed
+            self.facingRight = true
+        end
     end
 
-    -- Coyote time tracking
+    -- Coyote time + jump chain reset while supported
     if self.grounded then
         self.coyoteTimer = COYOTE_TIME
+        self.jumpCount = 0
     else
         self.coyoteTimer = self.coyoteTimer - dt
     end
@@ -145,12 +172,27 @@ function Player:update(dt, world)
     self.vy = self.vy + GRAVITY * dt
     if self.vy > 600 then self.vy = 600 end
 
-    -- Execute buffered jump
-    if self.jumpBufferTimer > 0 and self.coyoteTimer > 0 then
-        self.vy = effectiveStats.jumpForce
-        self.grounded = false
-        self.coyoteTimer = 0
-        self.jumpBufferTimer = 0
+    -- Short hop: stronger fall when jump released while still moving up
+    if self.vy < 0 then
+        local jHeld = love.keyboard.isDown("space") or love.keyboard.isDown("w") or love.keyboard.isDown("up")
+        if not jHeld then
+            self.vy = self.vy + GRAVITY * JUMP_RELEASE_GRAVITY_MULT * dt
+        end
+    end
+
+    -- Buffered jump: ground/coyote first, then one mid-air jump (double jump)
+    if self.jumpBufferTimer > 0 then
+        if self.jumpCount == 0 and self.coyoteTimer > 0 then
+            self.vy = effectiveStats.jumpForce
+            self.grounded = false
+            self.coyoteTimer = 0
+            self.jumpBufferTimer = 0
+            self.jumpCount = 1
+        elseif self.jumpCount == 1 then
+            self.vy = effectiveStats.jumpForce * DOUBLE_JUMP_MULT
+            self.jumpBufferTimer = 0
+            self.jumpCount = 2
+        end
     end
 
     -- Move with collision
@@ -167,6 +209,7 @@ function Player:update(dt, world)
         if col.normal.y == -1 then
             self.grounded = true
             self.vy = 0
+            self.jumpCount = 0
         elseif col.normal.y == 1 then
             self.vy = 0
         end
@@ -175,6 +218,20 @@ end
 
 function Player:jump()
     self.jumpBufferTimer = JUMP_BUFFER
+end
+
+function Player:tryDash()
+    if self.dashCooldown > 0 or self.dashTimer > 0 then
+        return
+    end
+    local dir = 0
+    if love.keyboard.isDown("a") or love.keyboard.isDown("left") then dir = -1 end
+    if love.keyboard.isDown("d") or love.keyboard.isDown("right") then dir = 1 end
+    if dir == 0 then
+        dir = self.facingRight and 1 or -1
+    end
+    self.dashDir = dir
+    self.dashTimer = DASH_DURATION
 end
 
 function Player:shoot(mx, my)
@@ -270,7 +327,12 @@ function Player:applyPerk(perk)
 end
 
 function Player.filter(item, other)
-    if other.isEnemy or other.isPickup or other.isBullet or other.isDoor then
+    -- Pickups use distance collection only; resolving them in bump causes snagging when
+    -- loot spawns on the player or they jump through the drop point.
+    if other.isPickup then
+        return nil
+    end
+    if other.isEnemy or other.isBullet or other.isDoor then
         return "cross"
     end
     return "slide"
