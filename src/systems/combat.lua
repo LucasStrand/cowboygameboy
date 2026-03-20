@@ -126,7 +126,16 @@ function Combat.checkContactDamage(enemies, player)
     end
 end
 
-function Combat.findAutoTarget(enemies, player)
+local function losFilter(item)
+    return item.isPlatform or item.isWall
+end
+
+local function hasLineOfSight(world, x1, y1, x2, y2)
+    local items, len = world:querySegment(x1, y1, x2, y2, losFilter)
+    return len == 0
+end
+
+function Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
     local px = player.x + player.w / 2
     local py = player.y + player.h / 2
     local aimX = player.facingRight and 1 or -1
@@ -138,11 +147,10 @@ function Combat.findAutoTarget(enemies, player)
         if e.alive then
             local ex = e.x + e.w / 2
             local ey = e.y + e.h / 2
+            local onScreen = ex >= viewL and ex <= viewR and ey >= viewT and ey <= viewB
             local dx = ex - px
-            local dy = ey - py
-            -- Only consider enemies in the forward half-plane
-            if dx * aimX > 0 then
-                local dist = dx * dx + dy * dy
+            if onScreen and dx * aimX > 0 and hasLineOfSight(world, px, py, ex, ey) then
+                local dist = dx * dx + (ey - py) * (ey - py)
                 if dist < bestDist then
                     bestDist = dist
                     bestEnemy = e
@@ -153,27 +161,6 @@ function Combat.findAutoTarget(enemies, player)
 
     if bestEnemy then
         return bestEnemy.x + bestEnemy.w / 2, bestEnemy.y + bestEnemy.h / 2
-    end
-
-    -- No valid target — also check behind if nothing is in front
-    local behindBest = nil
-    local behindDist = math.huge
-    for _, e in ipairs(enemies) do
-        if e.alive then
-            local ex = e.x + e.w / 2
-            local ey = e.y + e.h / 2
-            local dx = ex - px
-            local dy = ey - py
-            local dist = dx * dx + dy * dy
-            if dist < behindDist then
-                behindDist = dist
-                behindBest = e
-            end
-        end
-    end
-
-    if behindBest then
-        return behindBest.x + behindBest.w / 2, behindBest.y + behindBest.h / 2
     end
 
     return nil, nil

@@ -46,11 +46,12 @@ function RoomManager:loadRoom(room, world, player)
         table.insert(platforms, p)
     end
 
-    -- Add walls (left, right, top)
+    -- Add walls (left, right, ceiling) — extra tall to cover camera overshoot
     local walls = {}
-    local leftWall = {x = -16, y = 0, w = 16, h = room.height, isWall = true}
-    local rightWall = {x = room.width, y = 0, w = 16, h = room.height, isWall = true}
-    local ceiling = {x = 0, y = -16, w = room.width, h = 16, isWall = true}
+    local wallH = room.height + 400
+    local leftWall  = {x = -32, y = -200, w = 32, h = wallH, isWall = true}
+    local rightWall = {x = room.width, y = -200, w = 32, h = wallH, isWall = true}
+    local ceiling   = {x = -32, y = -32, w = room.width + 64, h = 32, isWall = true}
     world:add(leftWall, leftWall.x, leftWall.y, leftWall.w, leftWall.h)
     world:add(rightWall, rightWall.x, rightWall.y, rightWall.w, rightWall.h)
     world:add(ceiling, ceiling.x, ceiling.y, ceiling.w, ceiling.h)

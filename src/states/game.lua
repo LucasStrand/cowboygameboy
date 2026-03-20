@@ -36,18 +36,25 @@ end
 
 local function isOutOfBounds(entity, room)
     if not room then return false end
-    return entity.y > room.height + 100
-        or entity.y < -200
-        or entity.x < -100
-        or entity.x > room.width + 100
+    return entity.y > room.height + 200
+        or entity.y < -300
+        or entity.x < -200
+        or entity.x > room.width + 200
 end
 
+local bgImage
+
 function game:init()
+    bgImage = love.graphics.newImage("assets/backgrounds/forest.png")
+    bgImage:setWrap("repeat", "clampzero")
 end
+
+local CAM_ZOOM = 2
 
 function game:enter()
     world = bump.newWorld(32)
     camera = Camera(400, 200)
+    camera.scale = CAM_ZOOM
     player = Player.new(50, 300)
     world:add(player, player.x, player.y, player.w, player.h)
     player.isPlayer = true
@@ -140,9 +147,13 @@ function game:update(dt)
     -- Player update
     player:update(dt, world)
 
-    -- Auto-fire at optimal target (only when enemies exist)
+    -- Auto-fire at optimal target (only when enemies are on screen)
     if not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
-        local tx, ty = Combat.findAutoTarget(enemies, player)
+        local camX, camY = camera:position()
+        local halfW = GAME_WIDTH / (2 * CAM_ZOOM)
+        local halfH = GAME_HEIGHT / (2 * CAM_ZOOM)
+        local tx, ty = Combat.findAutoTarget(enemies, player, world,
+            camX - halfW, camY - halfH, camX + halfW, camY + halfH)
         if tx then
             local bulletData = player:shoot(tx, ty)
             if bulletData then
@@ -262,19 +273,14 @@ function game:update(dt)
         return
     end
 
-    -- Camera follow (center on room if room smaller than viewport)
+    -- Camera always follows player, clamped to room edges
     if currentRoom then
-        local cx, cy
-        if currentRoom.width <= GAME_WIDTH then
-            cx = currentRoom.width / 2
-        else
-            cx = math.max(GAME_WIDTH / 2, math.min(currentRoom.width - GAME_WIDTH / 2, player.x + player.w / 2))
-        end
-        if currentRoom.height <= GAME_HEIGHT then
-            cy = currentRoom.height / 2
-        else
-            cy = math.max(GAME_HEIGHT / 2, math.min(currentRoom.height - GAME_HEIGHT / 2, player.y + player.h / 2))
-        end
+        local viewW = GAME_WIDTH / CAM_ZOOM
+        local viewH = GAME_HEIGHT / CAM_ZOOM
+        local px = player.x + player.w / 2
+        local py = player.y + player.h / 2
+        local cx = math.max(viewW / 2, math.min(currentRoom.width - viewW / 2, px))
+        local cy = math.max(viewH / 2, math.min(currentRoom.height - viewH / 2, py))
         camera:lookAt(cx, cy)
     end
 end
@@ -324,14 +330,38 @@ function game:draw()
 
     -- Room background
     if currentRoom then
-        -- Sky — fill entire visible area so no black margins show
-        love.graphics.setColor(0.15, 0.1, 0.08)
         local camX, camY = camera:position()
-        love.graphics.rectangle("fill",
-            camX - GAME_WIDTH, camY - GAME_HEIGHT,
-            GAME_WIDTH * 2, GAME_HEIGHT * 2)
 
-        -- Walls (left, right)
+        -- Parallax background — tiles horizontally, scrolls at 30% of camera speed
+        local viewW = GAME_WIDTH / CAM_ZOOM
+        local viewH = GAME_HEIGHT / CAM_ZOOM
+        if bgImage then
+            love.graphics.setColor(1, 1, 1)
+            local bgW = bgImage:getWidth()
+            local bgH = bgImage:getHeight()
+            local scaleY = viewH / bgH
+            local scaleX = scaleY
+            local scaledW = bgW * scaleX
+
+            local scrollSpeed = 0.3
+            local offsetX = camX * (1 - scrollSpeed)
+
+            local viewLeft  = camX - viewW / 2
+            local viewRight = camX + viewW / 2
+            local drawY     = camY - viewH / 2
+
+            local startX = math.floor((viewLeft - offsetX) / scaledW) * scaledW + offsetX
+            for x = startX, viewRight + scaledW, scaledW do
+                love.graphics.draw(bgImage, x, drawY, 0, scaleX, scaleY)
+            end
+        else
+            love.graphics.setColor(0.15, 0.1, 0.08)
+            love.graphics.rectangle("fill",
+                camX - viewW, camY - viewH,
+                viewW * 2, viewH * 2)
+        end
+
+        -- Walls (left, right, ceiling)
         for _, wall in ipairs(currentRoom.walls) do
             love.graphics.setColor(0.25, 0.16, 0.1)
             love.graphics.rectangle("fill", wall.x, wall.y, wall.w, wall.h)
