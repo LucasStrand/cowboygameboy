@@ -2,6 +2,8 @@
 
 A 2D cowboy roguelike platformer built with [LOVE2D](https://love2d.org/) and Lua.
 
+For current status, vibe, and prompt-friendly context, see [GAME_CONTEXT.md](GAME_CONTEXT.md).
+
 ## How to Run
 
 1. Install [LOVE2D 11.5](https://love2d.org/) for your platform
