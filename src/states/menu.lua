@@ -32,8 +32,8 @@ function menu:keypressed(key)
 end
 
 function menu:draw()
-    local screenW = love.graphics.getWidth()
-    local screenH = love.graphics.getHeight()
+    local screenW = GAME_WIDTH
+    local screenH = GAME_HEIGHT
 
     -- Background
     love.graphics.setColor(0.08, 0.05, 0.03)
@@ -66,7 +66,7 @@ function menu:draw()
     -- Controls hint
     love.graphics.setColor(0.5, 0.5, 0.5)
     love.graphics.setFont(fonts.hint)
-    love.graphics.printf("A/D - Move  |  SPACE - Jump  |  MOUSE - Aim & Shoot  |  R - Reload", 0, screenH * 0.75, screenW, "center")
+    love.graphics.printf("A/D - Move  |  SPACE - Jump  |  Auto-Aim & Fire  |  R - Reload", 0, screenH * 0.75, screenW, "center")
     love.graphics.printf("F1 - Debug Mode", 0, screenH * 0.80, screenW, "center")
 
     love.graphics.setColor(1, 1, 1)

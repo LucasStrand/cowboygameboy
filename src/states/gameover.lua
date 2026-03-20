@@ -33,8 +33,8 @@ function gameover:keypressed(key)
 end
 
 function gameover:draw()
-    local screenW = love.graphics.getWidth()
-    local screenH = love.graphics.getHeight()
+    local screenW = GAME_WIDTH
+    local screenH = GAME_HEIGHT
 
     -- Dark background
     love.graphics.setColor(0.05, 0.02, 0.02)

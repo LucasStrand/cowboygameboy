@@ -17,7 +17,7 @@ function levelup:enter(_, _player, _callback)
 end
 
 function levelup:update(dt)
-    local mx, my = love.mouse.getPosition()
+    local mx, my = windowToGame(love.mouse.getPosition())
     hoveredIndex = PerkCard.getHovered(perks, mx, my)
 end
 

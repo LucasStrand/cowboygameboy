@@ -18,6 +18,29 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
 
         if b.hitEnemy then
             b.hitEnemy:takeDamage(b.damage)
+
+            -- Explosive rounds: AOE damage to nearby enemies
+            if b.explosive and not b.fromEnemy then
+                local explosionRadius = 60
+                local aoeDamage = math.floor(b.damage * 0.5)
+                local bx = b.x + b.w / 2
+                local by = b.y + b.h / 2
+                local aoeHits = 0
+                for _, e in ipairs(enemies) do
+                    if e.alive and e ~= b.hitEnemy then
+                        local ex = e.x + e.w / 2
+                        local ey = e.y + e.h / 2
+                        local dist = math.sqrt((ex - bx)^2 + (ey - by)^2)
+                        if dist <= explosionRadius then
+                            e:takeDamage(aoeDamage)
+                            aoeHits = aoeHits + 1
+                        end
+                    end
+                end
+                if debugLog and aoeHits > 0 then
+                    debugLog("Explosion hit " .. aoeHits .. " nearby")
+                end
+            end
         end
 
         if b.hitPlayer then
@@ -84,21 +107,76 @@ end
 
 function Combat.checkContactDamage(enemies, player)
     for _, enemy in ipairs(enemies) do
-        if enemy.alive then
-            local ex = enemy.x + enemy.w / 2
-            local ey = enemy.y + enemy.h / 2
-            local px = player.x + player.w / 2
-            local py = player.y + player.h / 2
-            local dist = math.sqrt((ex - px)^2 + (ey - py)^2)
-            if dist < (enemy.w + player.w) / 2 then
-                if (enemy.behavior == "melee" or enemy.behavior == "flying") then
+        if enemy.alive and enemy.attackTimer <= 0 then
+            if enemy.behavior == "melee" or enemy.behavior == "flying" then
+                local ex = enemy.x + enemy.w / 2
+                local ey = enemy.y + enemy.h / 2
+                local px = player.x + player.w / 2
+                local py = player.y + player.h / 2
+                local dist = math.sqrt((ex - px)^2 + (ey - py)^2)
+                if dist <= enemy.attackRange then
                     if player:takeDamage(enemy.damage) then
                         enemy:onContactDamage()
+                    else
+                        -- Player has iframes but enemy is in range; don't waste the cooldown
                     end
                 end
             end
         end
     end
+end
+
+function Combat.findAutoTarget(enemies, player)
+    local px = player.x + player.w / 2
+    local py = player.y + player.h / 2
+    local aimX = player.facingRight and 1 or -1
+
+    local bestEnemy = nil
+    local bestDist = math.huge
+
+    for _, e in ipairs(enemies) do
+        if e.alive then
+            local ex = e.x + e.w / 2
+            local ey = e.y + e.h / 2
+            local dx = ex - px
+            local dy = ey - py
+            -- Only consider enemies in the forward half-plane
+            if dx * aimX > 0 then
+                local dist = dx * dx + dy * dy
+                if dist < bestDist then
+                    bestDist = dist
+                    bestEnemy = e
+                end
+            end
+        end
+    end
+
+    if bestEnemy then
+        return bestEnemy.x + bestEnemy.w / 2, bestEnemy.y + bestEnemy.h / 2
+    end
+
+    -- No valid target — also check behind if nothing is in front
+    local behindBest = nil
+    local behindDist = math.huge
+    for _, e in ipairs(enemies) do
+        if e.alive then
+            local ex = e.x + e.w / 2
+            local ey = e.y + e.h / 2
+            local dx = ex - px
+            local dy = ey - py
+            local dist = dx * dx + dy * dy
+            if dist < behindDist then
+                behindDist = dist
+                behindBest = e
+            end
+        end
+    end
+
+    if behindBest then
+        return behindBest.x + behindBest.w / 2, behindBest.y + behindBest.h / 2
+    end
+
+    return nil, nil
 end
 
 function Combat.checkPickups(pickups, player)

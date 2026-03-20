@@ -60,6 +60,11 @@ function Bullet:update(dt, world)
                 elseif col.normal.y ~= 0 then
                     self.angle = -self.angle
                 end
+                self.x = self.x + col.normal.x * 2
+                self.y = self.y + col.normal.y * 2
+                world:update(self, self.x, self.y)
+                if debugLog then debugLog("Ricochet bounce (" .. self.ricochet .. " left)") end
+                return
             else
                 self.alive = false
                 return

@@ -4,8 +4,8 @@ function HUD.draw(player)
     love.graphics.push()
     love.graphics.origin()
 
-    local screenW = love.graphics.getWidth()
-    local screenH = love.graphics.getHeight()
+    local screenW = GAME_WIDTH
+    local screenH = GAME_HEIGHT
     local effectiveStats = player:getEffectiveStats()
 
     -- HP Bar (top left)
@@ -78,9 +78,8 @@ end
 function HUD.drawRoomInfo(roomIndex, totalRooms)
     love.graphics.push()
     love.graphics.origin()
-    local screenW = love.graphics.getWidth()
     love.graphics.setColor(1, 1, 1, 0.7)
-    love.graphics.printf("Room " .. roomIndex .. "/" .. totalRooms, 0, 20, screenW, "center")
+    love.graphics.printf("Room " .. roomIndex .. "/" .. totalRooms, 0, 20, GAME_WIDTH, "center")
     love.graphics.pop()
     love.graphics.setColor(1, 1, 1)
 end

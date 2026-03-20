@@ -43,7 +43,7 @@ function saloon:update(dt)
         messageTimer = messageTimer - dt
     end
     if mode == "perk_selection" and perkOptions then
-        local mx, my = love.mouse.getPosition()
+        local mx, my = windowToGame(love.mouse.getPosition())
         hoveredPerk = PerkCard.getHovered(perkOptions, mx, my)
     end
 end
@@ -120,8 +120,8 @@ function continueGame()
 end
 
 function saloon:draw()
-    local screenW = love.graphics.getWidth()
-    local screenH = love.graphics.getHeight()
+    local screenW = GAME_WIDTH
+    local screenH = GAME_HEIGHT
 
     -- Saloon background
     love.graphics.setColor(0.12, 0.08, 0.05)

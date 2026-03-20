@@ -7,8 +7,8 @@ local CARD_H = 250
 local CARD_SPACING = 40
 
 function PerkCard.draw(perks, selectedIndex, hoveredIndex)
-    local screenW = love.graphics.getWidth()
-    local screenH = love.graphics.getHeight()
+    local screenW = GAME_WIDTH
+    local screenH = GAME_HEIGHT
     local totalW = #perks * CARD_W + (#perks - 1) * CARD_SPACING
     local startX = (screenW - totalW) / 2
     local startY = (screenH - CARD_H) / 2
@@ -66,8 +66,8 @@ function PerkCard.draw(perks, selectedIndex, hoveredIndex)
 end
 
 function PerkCard.getHovered(perks, mx, my)
-    local screenW = love.graphics.getWidth()
-    local screenH = love.graphics.getHeight()
+    local screenW = GAME_WIDTH
+    local screenH = GAME_HEIGHT
     local totalW = #perks * CARD_W + (#perks - 1) * CARD_SPACING
     local startX = (screenW - totalW) / 2
     local startY = (screenH - CARD_H) / 2

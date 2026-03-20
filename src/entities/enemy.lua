@@ -69,12 +69,35 @@ function Enemy:update(dt, world, playerX, playerY)
     return bulletsToSpawn
 end
 
+local function groundFilter(item)
+    return item.isPlatform or item.isWall
+end
+
+function Enemy:hasGroundAhead(world)
+    -- Check for ground support at the leading foot (one step ahead, one tile down)
+    local probeX
+    if self.vx > 0 then
+        probeX = self.x + self.w + 2
+    elseif self.vx < 0 then
+        probeX = self.x - 4
+    else
+        return true
+    end
+    local probeY = self.y + self.h + 2
+    local items, len = world:queryRect(probeX, probeY, 2, 32, groundFilter)
+    return len > 0
+end
+
 function Enemy:updateMelee(dt, world, dx, dy, dist, playerX, playerY)
     if dist > self.attackRange then
         self.state = "chase"
         self.vx = (dx > 0) and self.speed or -self.speed
     else
         self.state = "attack"
+        self.vx = 0
+    end
+
+    if self.grounded and self.vx ~= 0 and not self:hasGroundAhead(world) then
         self.vx = 0
     end
 
@@ -105,6 +128,10 @@ function Enemy:updateRanged(dt, world, dx, dy, dist, playerX, playerY)
         self.vx = (dx > 0) and (self.speed) or (-self.speed)
     else
         self.state = "attack"
+        self.vx = 0
+    end
+
+    if self.grounded and self.vx ~= 0 and not self:hasGroundAhead(world) then
         self.vx = 0
     end
 
