@@ -8,14 +8,16 @@ function Bullet.new(data)
     local self = setmetatable({}, Bullet)
     self.x = data.x
     self.y = data.y
-    self.w = 6
-    self.h = 4
+    -- Small axis-aligned hitbox (visual is drawn along travel direction below).
+    self.w = data.w or 3
+    self.h = data.h or 2
     self.angle = data.angle
     self.speed = data.speed or 500
     self.damage = data.damage or 10
     self.ricochet = data.ricochet or 0
     self.explosive = data.explosive or false
     self.fromEnemy = data.fromEnemy or false
+    self.ultBullet = data.ultBullet or false
     self.isBullet = true
     self.alive = true
     self.lifetime = 3
@@ -96,13 +98,35 @@ function Bullet.filter(item, other)
     return "cross"
 end
 
+--- Procedural pistol slug: elongated capsule along +x after rotation (no bullet sprites in assets).
 function Bullet:draw()
-    if self.fromEnemy then
-        love.graphics.setColor(1, 0.3, 0.3)
+    local cx = self.x + self.w * 0.5
+    local cy = self.y + self.h * 0.5
+    local len = self.ultBullet and 8.5 or 5.5
+    local halfW = self.ultBullet and 1.15 or 0.95
+
+    love.graphics.push()
+    love.graphics.translate(cx, cy)
+    love.graphics.rotate(self.angle)
+
+    if self.ultBullet then
+        love.graphics.setColor(0.95, 0.72, 0.2)
+        love.graphics.rectangle("fill", -len * 0.5 + 0.4, -halfW, len - 1.2, halfW * 2, 0.45, 0.45)
+        love.graphics.setColor(1, 0.95, 0.55)
+        love.graphics.rectangle("fill", len * 0.5 - 1.6, -halfW * 0.7, 1.6, halfW * 1.4, 0.35, 0.35)
+    elseif self.fromEnemy then
+        love.graphics.setColor(0.55, 0.14, 0.12)
+        love.graphics.rectangle("fill", -len * 0.5 + 0.4, -halfW, len - 1.2, halfW * 2, 0.45, 0.45)
+        love.graphics.setColor(1, 0.45, 0.38)
+        love.graphics.rectangle("fill", len * 0.5 - 1.35, -halfW * 0.72, 1.35, halfW * 1.44, 0.3, 0.3)
     else
-        love.graphics.setColor(1, 0.9, 0.3)
+        love.graphics.setColor(0.5, 0.38, 0.14)
+        love.graphics.rectangle("fill", -len * 0.5 + 0.4, -halfW, len - 1.2, halfW * 2, 0.45, 0.45)
+        love.graphics.setColor(0.92, 0.88, 0.78)
+        love.graphics.rectangle("fill", len * 0.5 - 1.35, -halfW * 0.72, 1.35, halfW * 1.44, 0.3, 0.3)
     end
-    love.graphics.rectangle("fill", self.x, self.y, self.w, self.h)
+
+    love.graphics.pop()
     love.graphics.setColor(1, 1, 1)
 end
 

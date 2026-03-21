@@ -33,7 +33,12 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
             local hitY = b.y + b.h / 2
             b.hitEnemy:takeDamage(b.damage, world)
             DamageNumbers.spawn(hitX, hitY, b.damage, "out")
-            ImpactFX.spawn(hitX, hitY, "hit_enemy")
+            -- Ult bullets get a massive explosion effect
+            local fxScale = b.ultBullet and 2.0 or nil
+            ImpactFX.spawn(hitX, hitY, "hit_enemy", fxScale)
+            if b.ultBullet then
+                ImpactFX.spawn(hitX, hitY - 8, "melee", fxScale)
+            end
             if not b.fromEnemy then
                 Sfx.play("hit_enemy")
             end
@@ -87,6 +92,9 @@ end
 
 function Combat.onEnemyKilled(enemy, player)
     local drops = {}
+
+    -- Build ultimate charge
+    player:addUltCharge()
 
     if player.stats.lifestealOnKill > 0 then
         player:heal(player.stats.lifestealOnKill)
@@ -269,7 +277,7 @@ function Combat.checkPlayerMelee(player, enemies)
                hy < e.y + e.h and hy + hh > e.y then
                 e:takeDamage(dmg, nil)
                 DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, dmg, "out")
-                ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee")
+                ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee", nil, player.meleeAimAngle)
                 Sfx.play("melee_hit")
                 player.meleeHitEnemies[e] = true
                 player.meleeHitFlashTimer = 0.2

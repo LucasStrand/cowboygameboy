@@ -20,6 +20,7 @@ local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
 local TileRenderer = require("src.systems.tile_renderer")
+local Worlds = require("src.data.worlds")
 local ImpactFX = require("src.systems.impact_fx")
 local Sfx = require("src.systems.sfx")
 
@@ -52,6 +53,11 @@ local pauseSettingsSliderDragKey = nil
 local characterSheetOpen = false
 --- Set in update when death completes; next draw captures world → game over (see pendingGameOver block after camera:detach).
 local pendingGameOver = nil
+--- When true, we're in editor test-play mode — death/door returns to editor.
+local editorTestMode = false
+
+-- Ultimate: Dead Man's Hand (single table to avoid upvalue bloat)
+local ult = { flashAlpha = 0, shotFlashScreen = 0, vignetteAlpha = 0, rings = {}, pulseTimer = 0 }
 local devPanelOpen = false
 local devPanelScroll = 0
 local devPanelHover = nil
@@ -355,6 +361,12 @@ local function tryExitThroughDoor()
     if transitionTimer > 0 or not isPlayerNearDoor() or not roomManager then
         return
     end
+    -- Editor test-play: return to editor on door exit
+    if editorTestMode then
+        local editorState = require("src.states.editor")
+        Gamestate.switch(editorState)
+        return
+    end
     roomManager:onRoomCleared()
     if roomManager:isCheckpoint() then
         local saloon = require("src.states.saloon")
@@ -365,6 +377,7 @@ local function tryExitThroughDoor()
 end
 
 local bgImage
+local currentTheme   -- tile theme for current world (passed to TileRenderer)
 
 -- Saloon door sprite (384×48, 8 frames of 48×48)
 local doorSheet
@@ -374,9 +387,6 @@ local DOOR_FRAMES = 8
 local DOOR_FPS = 12
 
 function game:init()
-    bgImage = love.graphics.newImage("assets/backgrounds/forest.png")
-    bgImage:setWrap("repeat", "clampzero")
-
     doorSheet = love.graphics.newImage("assets/SaloonDoor.png")
     doorSheet:setFilter("nearest", "nearest")
     local sw, sh = doorSheet:getDimensions()
@@ -587,6 +597,9 @@ local function devApplyAction(id)
     elseif id == "toggle_god" then
         player.devGodMode = not player.devGodMode
         DevLog.push("sys", "[dev] god mode " .. tostring(player.devGodMode))
+    elseif id == "ult_full" then
+        player.ultCharge = 1
+        DevLog.push("sys", "[dev] ult charge full")
     elseif id == "gold_100" then
         player:addGold(100)
         DevLog.push("sys", "[dev] +100 gold")
@@ -713,18 +726,33 @@ function game:enter(_, opts)
     devShowHitboxes = true
     devPanelRows = DevPanel.buildRows(devShowHitboxes)
 
-    roomManager = RoomManager.new()
-    roomManager:generateSequence()
-    DevLog.init()
-    DevLog.push("sys", "Run started")
-    if opts and opts.fakeSession then
-        player.gold = 1000
-        local saloon = require("src.states.saloon")
-        Gamestate.push(saloon, player, roomManager)
-        return
-    end
+    local worldId = (opts and opts.worldId) or "forest"
+    roomManager = RoomManager.new(worldId)
+    currentTheme = roomManager:getTheme()
 
-    loadNextRoom()
+    -- Load background from world definition
+    local worldDef = Worlds.get(worldId)
+    local bgPath = worldDef and worldDef.background or "assets/backgrounds/forest.png"
+    bgImage = love.graphics.newImage(bgPath)
+    bgImage:setWrap("repeat", "clampzero")
+
+    -- Editor test-play mode: load a single room directly
+    local editorRoom = opts and opts.editorRoom
+    editorTestMode = (editorRoom ~= nil)
+    if editorRoom then
+        roomManager:generateSequence()  -- still needed for internal state
+        DevLog.init()
+        DevLog.push("sys", "Editor test play")
+        -- Load the editor room directly instead of using the sequence
+        currentRoom = roomManager:loadRoom(editorRoom, world, player)
+        enemies = currentRoom.enemies
+        updateCamera(0, true)
+    else
+        roomManager:generateSequence()
+        DevLog.init()
+        DevLog.push("sys", string.format("Run started — World: %s", worldDef and worldDef.name or worldId))
+        loadNextRoom()
+    end
 
     if opts and opts.introCountdown and Gamestate.current() == game then
         introCountdownActive = true
@@ -762,6 +790,11 @@ function loadNextRoom()
     doorAnimFrame = 1
     doorAnimTimer = 0
     offScreenEnemyHintActive = false
+    ult.flashAlpha = 0
+    ult.shotFlashScreen = 0
+    ult.vignetteAlpha = 0
+    ult.rings = {}
+    ult.pulseTimer = 0
 
     world:add(player, player.x, player.y, player.w, player.h)
 
@@ -827,9 +860,87 @@ function game:update(dt)
         dt = dt * timeMult
     end
 
+    -- ── Ultimate: Dead Man's Hand state machine ──
+    if player.ultActive then
+        -- Fade activation flash
+        ult.flashAlpha = math.max(0, ult.flashAlpha - love.timer.getDelta() * 4)
+
+        if player.ultPhase == "barrage" then
+            -- Rapid-fire at marked targets (real-time pacing; world is slowed via dt below)
+            player.ultShotTimer = player.ultShotTimer - love.timer.getDelta()
+            if player.ultShotTimer <= 0 and player.ultShotIndex <= #player.ultTargets then
+                local target = player.ultTargets[player.ultShotIndex]
+                if target and target.alive then
+                    local px = player.x + player.w / 2
+                    local py = player.y + player.h / 2
+                    local tx = target.x + target.w / 2
+                    local ty = target.y + target.h / 2
+                    local angle = math.atan2(ty - py, tx - px)
+                    local effectiveStats = player:getEffectiveStats()
+                    local b = Combat.spawnBullet(world, {
+                        x = px, y = py,
+                        angle = angle,
+                        speed = effectiveStats.bulletSpeed * 2.0,
+                        damage = effectiveStats.bulletDamage * 3,
+                        explosive = true,
+                        ricochet = 0,
+                        ultBullet = true,
+                    })
+                    table.insert(bullets, b)
+                    Sfx.play("ult_shot", { volume = 0.7 })
+                    shakeTimer = 0.1
+                    shakeIntensity = 4
+                    -- Shockwave ring + screen flash per shot
+                    table.insert(ult.rings, { x = px, y = py, r = 0, alpha = 0.9 })
+                    ult.shotFlashScreen = 0.85
+                end
+                player.ultShotIndex = player.ultShotIndex + 1
+                player.ultShotTimer = 0.28
+            end
+            if player.ultShotIndex > #player.ultTargets then
+                player.ultPhase = "cooldown"
+                player.ultTimer = 0.6
+                if #player.ultTargets > 0 then
+                    Sfx.play("ult_explosion")
+                    shakeTimer = 0.6
+                    shakeIntensity = 10
+                end
+            end
+            -- Slow the world during barrage (ult timers use getDelta() so they're unaffected)
+            dt = dt * 0.2
+
+        elseif player.ultPhase == "cooldown" then
+            player.ultTimer = player.ultTimer - love.timer.getDelta()
+            ult.vignetteAlpha = math.max(0, player.ultTimer / 0.6)
+            if player.ultTimer <= 0 then
+                player.ultActive = false
+                player.ultPhase = "none"
+                ult.vignetteAlpha = 0
+            end
+        end
+    end
+
     -- Shake
     if shakeTimer > 0 then
         shakeTimer = shakeTimer - dt
+    end
+
+    -- Ult visual updates (use real delta so visuals aren't stuck in slow-mo)
+    local rdt = love.timer.getDelta()
+    ult.pulseTimer = ult.pulseTimer + rdt
+    if ult.shotFlashScreen > 0 then
+        ult.shotFlashScreen = math.max(0, ult.shotFlashScreen - rdt * 7)
+    end
+    local ri = 1
+    while ri <= #ult.rings do
+        local ring = ult.rings[ri]
+        ring.r = ring.r + rdt * 220
+        ring.alpha = ring.alpha - rdt * 1.8
+        if ring.alpha <= 0 then
+            table.remove(ult.rings, ri)
+        else
+            ri = ri + 1
+        end
     end
 
     -- Transition
@@ -1044,6 +1155,11 @@ function game:update(dt)
 
     -- Player death (after collapse animation); snapshot taken in draw after world is rendered
     if player.dying and player.deathTimer >= Player.DEATH_DURATION then
+        if editorTestMode then
+            local editorState = require("src.states.editor")
+            Gamestate.switch(editorState)
+            return
+        end
         if not pendingGameOver then
             DevLog.push("sys", string.format("Player died  lv%d  %d rooms  $%d",
                 player.level, roomManager.totalRoomsCleared, player.gold))
@@ -1166,7 +1282,26 @@ function game:keypressed(key)
         return
     end
     if Keybinds.matches("ult", key) then
-        player:tryActivateUlt()
+        if player:tryActivateUlt() then
+            -- Mark all alive on-screen enemies as targets
+            local camX, camY = camera:position()
+            local halfW = GAME_WIDTH / (2 * camera.scale)
+            local halfH = GAME_HEIGHT / (2 * camera.scale)
+            for _, e in ipairs(enemies) do
+                if e.alive then
+                    local ex = e.x + e.w / 2
+                    local ey = e.y + e.h / 2
+                    if ex > camX - halfW and ex < camX + halfW and ey > camY - halfH and ey < camY + halfH then
+                        table.insert(player.ultTargets, e)
+                    end
+                end
+            end
+            ult.flashAlpha = 1
+            ult.vignetteAlpha = 1
+            Sfx.play("ult_activate")
+            shakeTimer = 0.55
+            shakeIntensity = 8
+        end
         return
     end
 
@@ -1320,18 +1455,25 @@ function game:mousepressed(x, y, button)
     if button == 1 and player and not player.blocking then
         local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
         if player:getActiveGun() then
-            -- Manual shot at cursor; player:shoot cooldown blocks double-tap with auto-fire in update
-            local bulletData = player:shoot(mx, my)
-            if bulletData then
-                for _, data in ipairs(bulletData) do
-                    local b = Combat.spawnBullet(world, data)
-                    table.insert(bullets, b)
+            -- With auto-fire OFF, primary click swings melee toward cursor (omnidirectional test).
+            -- Hold Shift + click to shoot manually while auto-fire is off.
+            local es = player:getEffectiveStats()
+            local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+            if not player.autoGun and es.meleeDamage > 0 and not shiftShoot then
+                player:meleeAttack(mx, my)
+            else
+                local bulletData = player:shoot(mx, my)
+                if bulletData then
+                    for _, data in ipairs(bulletData) do
+                        local b = Combat.spawnBullet(world, data)
+                        table.insert(bullets, b)
+                    end
+                    local gun = player:getActiveGun()
+                    local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+                    local shakeMult = math.min(1, cooldown / 0.38)
+                    shakeTimer = 0.08
+                    shakeIntensity = 2 * shakeMult
                 end
-                local gun = player:getActiveGun()
-                local cooldown = gun and gun.baseStats.shootCooldown or 0.38
-                local shakeMult = math.min(1, cooldown / 0.38)
-                shakeTimer = 0.08
-                shakeIntensity = 2 * shakeMult
             end
         else
             -- Melee stance (no gun in active slot): left-click swings toward cursor
@@ -1414,15 +1556,15 @@ function game:draw()
 
         -- Walls (left, right, ceiling)
         for _, wall in ipairs(currentRoom.walls) do
-            TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h)
+            TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h, currentTheme)
         end
 
         -- Platforms
         for _, plat in ipairs(currentRoom.platforms) do
             if plat.h >= 32 then
-                TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h)
+                TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme)
             else
-                TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h)
+                TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme)
             end
         end
 
@@ -1480,6 +1622,52 @@ function game:draw()
 
     ImpactFX.draw()
     DamageNumbers.draw()
+
+    -- Ult world-space effects: shockwave rings + target reticles
+    if (player.ultActive and player.ultPhase ~= "cooldown") or #ult.rings > 0 then
+        local t = ult.pulseTimer
+        -- Shockwave rings
+        for _, ring in ipairs(ult.rings) do
+            local px2 = player.x + player.w / 2
+            local py2 = player.y + player.h / 2
+            love.graphics.setLineWidth(3)
+            love.graphics.setColor(1, 0.75, 0.15, ring.alpha * 0.9)
+            love.graphics.circle("line", px2, py2, ring.r)
+            love.graphics.setLineWidth(1.5)
+            love.graphics.setColor(1, 1, 1, ring.alpha * 0.4)
+            love.graphics.circle("line", px2, py2, ring.r * 0.85)
+        end
+        love.graphics.setLineWidth(1)
+        -- Target reticles on marked enemies
+        if player.ultActive then
+            for i, e in ipairs(player.ultTargets) do
+                if e.alive then
+                    local ex = e.x + e.w / 2
+                    local ey = e.y + e.h / 2
+                    local pulse = math.sin(t * 9 + i * 1.3)
+                    local sz = 16 + pulse * 3
+                    local ra = 0.7 + pulse * 0.3
+                    -- Outer circle
+                    love.graphics.setColor(1, 0.1, 0.05, ra * 0.6)
+                    love.graphics.setLineWidth(2)
+                    love.graphics.circle("line", ex, ey, sz)
+                    -- Inner dot
+                    love.graphics.setColor(1, 0.3, 0.1, ra)
+                    love.graphics.circle("fill", ex, ey, 2.5)
+                    -- Crosshair lines (with gap)
+                    local gap = sz * 0.35
+                    love.graphics.setColor(1, 0.15, 0.05, ra)
+                    love.graphics.setLineWidth(1.5)
+                    love.graphics.line(ex - sz, ey, ex - gap, ey)
+                    love.graphics.line(ex + gap, ey, ex + sz, ey)
+                    love.graphics.line(ex, ey - sz, ex, ey - gap)
+                    love.graphics.line(ex, ey + gap, ex, ey + sz)
+                end
+            end
+        end
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1)
+    end
 
     -- Debug: bump collision AABBs (toggle in dev panel when DEBUG); omit from death snapshot
     if DEBUG and devShowHitboxes and not pendingGameOver then
@@ -1549,6 +1737,47 @@ function game:draw()
         end
 
         HUD.drawDeadEye(player)
+
+        -- ── Ultimate: Dead Man's Hand overlay ──
+        if player.ultActive or ult.flashAlpha > 0 or ult.shotFlashScreen > 0 or ult.vignetteAlpha > 0 then
+            love.graphics.push()
+            love.graphics.origin()
+
+            -- Warm sepia during barrage — tints the world without blocking it
+            if player.ultActive and player.ultPhase == "barrage" then
+                love.graphics.setColor(0.55, 0.25, 0.05, 0.22)
+                love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            end
+
+            -- Red vignette edges (persists through barrage and fades in cooldown)
+            if ult.vignetteAlpha > 0 then
+                local va = ult.vignetteAlpha
+                for vi = 1, 5 do
+                    local vr = vi / 5
+                    love.graphics.setColor(0.7, 0.05, 0.0, 0.14 * (1 - vr * 0.5) * va)
+                    love.graphics.setLineWidth(GAME_WIDTH * 0.09 * vr)
+                    love.graphics.rectangle("line",
+                        GAME_WIDTH * 0.045 * vr, GAME_HEIGHT * 0.045 * vr,
+                        GAME_WIDTH * (1 - 0.09 * vr), GAME_HEIGHT * (1 - 0.09 * vr))
+                end
+                love.graphics.setLineWidth(1)
+            end
+
+            -- Bright flash on activation
+            if ult.flashAlpha > 0 then
+                love.graphics.setColor(1, 0.88, 0.65, ult.flashAlpha * 0.9)
+                love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            end
+
+            -- Orange flash per barrage shot
+            if ult.shotFlashScreen > 0 then
+                love.graphics.setColor(1, 0.42, 0.0, ult.shotFlashScreen * 0.28)
+                love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            end
+
+            love.graphics.pop()
+            love.graphics.setColor(1, 1, 1)
+        end
 
         if characterSheetOpen and not paused then
             love.graphics.setColor(0, 0, 0, 0.35)

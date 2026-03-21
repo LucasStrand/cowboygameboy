@@ -31,6 +31,7 @@ function DevPanel.buildRows(showHitboxes)
     rows[#rows + 1] = rowAction("full_heal", "Full heal")
     rows[#rows + 1] = rowAction("hurt_1", "Hurt 1 HP")
     rows[#rows + 1] = rowAction("toggle_god", "Toggle god mode")
+    rows[#rows + 1] = rowAction("ult_full", "Full ult charge")
 
     rows[#rows + 1] = rowHeader("Resources")
     rows[#rows + 1] = rowAction("gold_100", "+$100 gold")
