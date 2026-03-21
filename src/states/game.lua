@@ -141,7 +141,58 @@ end
 local DOOR_INTERACT_PAD = 10
 
 -- Must be declared before any helper that reads it (Lua local scope starts at declaration)
-local CAM_ZOOM = 2
+local CAM_ZOOM = 3
+
+-- Dead Cells-style camera settings
+local CAM_LERP_SPEED   = 5      -- how fast camera catches up (higher = snappier)
+local CAM_LOOK_AHEAD_X = 60     -- pixels ahead in movement direction
+local CAM_LOOK_AHEAD_Y = 30     -- pixels down when falling
+local CAM_GROUNDED_Y   = -15    -- slight upward bias when grounded (see more floor ahead)
+local camTargetX, camTargetY = 400, 200
+local camCurrentX, camCurrentY = 400, 200
+
+local function updateCamera(dt, snap)
+    if not currentRoom or not camera or not player then return end
+    local viewW = GAME_WIDTH / CAM_ZOOM
+    local viewH = GAME_HEIGHT / CAM_ZOOM
+    local px = player.x + player.w / 2
+    local py = player.y + player.h / 2
+
+    -- Look-ahead: lead camera in the direction the player is moving/facing
+    local lookX = 0
+    if player.vx > 10 then
+        lookX = CAM_LOOK_AHEAD_X
+    elseif player.vx < -10 then
+        lookX = -CAM_LOOK_AHEAD_X
+    elseif player.facingRight then
+        lookX = CAM_LOOK_AHEAD_X * 0.5
+    else
+        lookX = -CAM_LOOK_AHEAD_X * 0.5
+    end
+
+    -- Vertical bias: look down when falling, slight up when grounded
+    local lookY = 0
+    if player.grounded then
+        lookY = CAM_GROUNDED_Y
+    elseif player.vy > 50 then
+        lookY = CAM_LOOK_AHEAD_Y
+    end
+
+    -- Target with look-ahead, clamped to room edges
+    camTargetX = math.max(viewW / 2, math.min(currentRoom.width - viewW / 2, px + lookX))
+    camTargetY = math.max(viewH / 2, math.min(currentRoom.height - viewH / 2, py + lookY))
+
+    if snap then
+        camCurrentX, camCurrentY = camTargetX, camTargetY
+    else
+        -- Smooth lerp (frame-rate independent)
+        local t = 1 - math.exp(-CAM_LERP_SPEED * dt)
+        camCurrentX = camCurrentX + (camTargetX - camCurrentX) * t
+        camCurrentY = camCurrentY + (camTargetY - camCurrentY) * t
+    end
+
+    camera:lookAt(camCurrentX, camCurrentY)
+end
 
 local function playerOverlapsDoorAABB()
     if not currentRoom or not currentRoom.door or not player then
@@ -366,6 +417,8 @@ function game:enter(_, opts)
     world = bump.newWorld(32)
     camera = Camera(400, 200)
     camera.scale = CAM_ZOOM
+    camCurrentX, camCurrentY = 400, 200
+    camTargetX, camTargetY = 400, 200
     player = Player.new(50, 300)
     player.autoGun = Settings.getDefaultAutoGun()
     world:add(player, player.x, player.y, player.w, player.h)
@@ -443,6 +496,8 @@ function loadNextRoom()
 
     currentRoom = roomManager:loadRoom(roomData, world, player)
     enemies = currentRoom.enemies
+    -- Snap camera to player on room load (no lerp lag)
+    updateCamera(0, true)
     DevLog.push("sys", string.format("Room %d/%d loaded  (diff %.1f)",
         roomManager.currentRoomIndex, #roomManager.roomSequence,
         roomManager.difficulty or 1))
@@ -471,15 +526,7 @@ function game:update(dt)
                 introCountdownActive = false
             end
         end
-        if currentRoom and camera and player then
-            local viewW = GAME_WIDTH / CAM_ZOOM
-            local viewH = GAME_HEIGHT / CAM_ZOOM
-            local px = player.x + player.w / 2
-            local py = player.y + player.h / 2
-            local cx = math.max(viewW / 2, math.min(currentRoom.width - viewW / 2, px))
-            local cy = math.max(viewH / 2, math.min(currentRoom.height - viewH / 2, py))
-            camera:lookAt(cx, cy)
-        end
+        updateCamera(dt, false)
         return
     end
 
@@ -701,16 +748,8 @@ function game:update(dt)
         return
     end
 
-    -- Camera always follows player, clamped to room edges
-    if currentRoom then
-        local viewW = GAME_WIDTH / CAM_ZOOM
-        local viewH = GAME_HEIGHT / CAM_ZOOM
-        local px = player.x + player.w / 2
-        local py = player.y + player.h / 2
-        local cx = math.max(viewW / 2, math.min(currentRoom.width - viewW / 2, px))
-        local cy = math.max(viewH / 2, math.min(currentRoom.height - viewH / 2, py))
-        camera:lookAt(cx, cy)
-    end
+    -- Dead Cells-style smooth camera with look-ahead
+    updateCamera(dt, false)
 end
 
 function game:keypressed(key)

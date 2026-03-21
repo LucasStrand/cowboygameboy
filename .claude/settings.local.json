@@ -16,7 +16,9 @@
       "Bash(file:*)",
       "Bash(py --version)",
       "Bash(where python:*)",
-      "Bash(where py:*)"
+      "Bash(where py:*)",
+      "Bash(lua -p src/states/game.lua)",
+      "Bash(luac -p src/states/game.lua)"
     ]
   }
 }
