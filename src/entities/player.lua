@@ -76,6 +76,7 @@ function Player.new(x, y)
     self.dashTimer = 0
     self.dashCooldown = 0
     self.dashDir = 1
+    self.combatDisabled = false
 
     self.stats = {
         maxHP = 100,
@@ -601,6 +602,7 @@ function Player:tryDropThrough()
 end
 
 function Player:tryDash()
+    if self.combatDisabled then return end
     local s = self:getEffectiveStats()
     if self.blocking and s.blockMobility <= 0 then
         return
@@ -707,6 +709,7 @@ function Player:shootFromSlot(slotIndex, mx, my)
 end
 
 function Player:shoot(mx, my)
+    if self.combatDisabled then return nil end
     if self:isAkimbo() then
         local allBullets = {}
         local any = false
@@ -799,6 +802,7 @@ function Player:spinHolster()
 end
 
 function Player:meleeAttack(aimX, aimY)
+    if self.combatDisabled then return false end
     local s = self:getEffectiveStats()
     if self.meleeCooldown > 0 or s.meleeDamage <= 0 then return false end
     local cx = self.x + self.w * 0.5

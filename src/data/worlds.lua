@@ -97,6 +97,35 @@ Worlds.definitions = {
         parallaxSpeed = 0.5,
         roomsPerCheckpoint = 5,
     },
+
+    saloon = {
+        id = "saloon",
+        name = "Saloon",
+        background = "assets/backgrounds/saloonLobby.png",
+        tileAtlas = "assets/Tiles/Tiles/Assets/Assets.png",
+        theme = {
+            -- Use forest atlas plank tiles for wooden saloon interior
+            grass_l   = {7, 9},
+            grass_m   = {8, 9},
+            grass_r   = {9, 9},
+            grass_bl  = {7, 9},
+            grass_bm  = {8, 9},
+            grass_br  = {9, 9},
+            dirt      = {4, 4},
+            dirt2     = {3, 4},
+            dirt3     = {5, 4},
+            dirt_l    = {2, 3},
+            dirt_r    = {6, 3},
+            dirt_bl   = {3, 6},
+            dirt_bm   = {4, 6},
+            dirt_br   = {5, 6},
+            plank_l   = {7, 9},
+            plank_m   = {8, 9},
+            plank_r   = {9, 9},
+        },
+        skyColor = {0.12, 0.08, 0.05},
+        parallaxSpeed = 0,
+    },
 }
 
 --- Get the world definition by ID.

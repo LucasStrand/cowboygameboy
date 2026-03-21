@@ -751,7 +751,9 @@ function game:enter(_, opts)
         roomManager:generateSequence()
         DevLog.init()
         DevLog.push("sys", string.format("Run started — World: %s", worldDef and worldDef.name or worldId))
-        loadNextRoom()
+        -- Start in the saloon hub before the first combat rooms
+        local saloonState = require("src.states.saloon")
+        Gamestate.push(saloonState, player, roomManager)
     end
 
     if opts and opts.introCountdown and Gamestate.current() == game then
