@@ -100,6 +100,7 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
         rows[3] = { key = "debug_saloon", kind = "action", label = "Debug: enter saloon", value = "Go >", rect = rowRect(screenW, contentTop + (rowH + 6) * 2, rowH) }
         rows[4] = { key = "debug_add_gold", kind = "action", label = "Debug: add gold", value = "+10", rect = rowRect(screenW, contentTop + (rowH + 6) * 3, rowH) }
         rows[5] = { key = "debug_sub_gold", kind = "action", label = "Debug: subtract gold", value = "-10", rect = rowRect(screenW, contentTop + (rowH + 6) * 4, rowH) }
+        rows[6] = { key = "fake_session", kind = "action", label = "Fake session", value = "Start >", rect = rowRect(screenW, contentTop + (rowH + 6) * 5, rowH) }
     elseif activeTabId == "audio" then
         local y = contentTop
         for i, spec in ipairs({

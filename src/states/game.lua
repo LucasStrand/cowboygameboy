@@ -389,6 +389,13 @@ function game:enter(_, opts)
     roomManager:generateSequence()
     DevLog.init()
     DevLog.push("sys", "Run started")
+    if opts and opts.fakeSession then
+        player.gold = 1000
+        local saloon = require("src.states.saloon")
+        Gamestate.push(saloon, player, roomManager)
+        return
+    end
+
     loadNextRoom()
 
     if opts and opts.introCountdown and Gamestate.current() == game then

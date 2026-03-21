@@ -32,6 +32,11 @@ local function beginGameWithIntroCountdown()
     Gamestate.switch(game, { introCountdown = true })
 end
 
+local function beginFakeSession()
+    local game = require("src.states.game")
+    Gamestate.switch(game, { fakeSession = true })
+end
+
 local function menuButtons()
     return {
         { id = "start", label = "Start game" },
@@ -191,6 +196,7 @@ function menu:mousepressed(x, y, button)
         if r then
             if r.setTab then settingsTab = r.setTab end
             if r.goBack then view = "main" end
+            if r.action == "fake_session" then beginFakeSession() end
         end
     end
 end
