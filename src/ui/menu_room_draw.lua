@@ -1,7 +1,25 @@
 -- Shared first-room rendering for the main menu (matches game parallax + geometry).
+local TileRenderer = require("src.systems.tile_renderer")
 local CAM_ZOOM = 2
 
 local M = {}
+
+-- Door sprite (shared with game state)
+local doorSheet
+local doorQuads = {}
+local DOOR_FRAME_SIZE = 48
+
+local function ensureDoorLoaded()
+    if doorSheet then return end
+    doorSheet = love.graphics.newImage("assets/SaloonDoor.png")
+    doorSheet:setFilter("nearest", "nearest")
+    local sw, sh = doorSheet:getDimensions()
+    for i = 0, 7 do
+        doorQuads[i + 1] = love.graphics.newQuad(
+            i * DOOR_FRAME_SIZE, 0, DOOR_FRAME_SIZE, DOOR_FRAME_SIZE, sw, sh
+        )
+    end
+end
 
 --- @param camera hump.camera
 --- @param currentRoom table from RoomManager:loadRoom
@@ -42,29 +60,28 @@ function M.draw(camera, currentRoom, bgImage, doorOpen, showLockedLabel)
     end
 
     for _, wall in ipairs(currentRoom.walls) do
-        love.graphics.setColor(0.25, 0.16, 0.1)
-        love.graphics.rectangle("fill", wall.x, wall.y, wall.w, wall.h)
-        love.graphics.setColor(0.35, 0.22, 0.14)
-        love.graphics.rectangle("fill", wall.x, wall.y, wall.w, 4)
+        TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h)
     end
 
     for _, plat in ipairs(currentRoom.platforms) do
-        love.graphics.setColor(0.55, 0.35, 0.2)
-        love.graphics.rectangle("fill", plat.x, plat.y, plat.w, 4)
-        love.graphics.setColor(0.35, 0.22, 0.12)
-        love.graphics.rectangle("fill", plat.x, plat.y + 4, plat.w, plat.h - 4)
+        if plat.h >= 32 then
+            TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h)
+        else
+            TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h)
+        end
     end
 
     local door = currentRoom.door
     if door then
-        if doorOpen then
-            love.graphics.setColor(0.2, 0.8, 0.2)
-        else
-            love.graphics.setColor(0.5, 0.1, 0.1)
+        ensureDoorLoaded()
+        local frame = doorOpen and 8 or 1
+        local quad = doorQuads[frame]
+        if quad and doorSheet then
+            love.graphics.setColor(1, 1, 1)
+            local drawX = door.x + door.w / 2 - DOOR_FRAME_SIZE / 2
+            local drawY = door.y + door.h - DOOR_FRAME_SIZE
+            love.graphics.draw(doorSheet, quad, drawX, drawY)
         end
-        love.graphics.rectangle("fill", door.x, door.y, door.w, door.h)
-        love.graphics.setColor(0.8, 0.7, 0.4)
-        love.graphics.rectangle("line", door.x, door.y, door.w, door.h)
 
         if not doorOpen and showLockedLabel then
             love.graphics.setColor(1, 0.85, 0.35, 0.75)

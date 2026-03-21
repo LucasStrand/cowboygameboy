@@ -12,7 +12,11 @@
       "Bash(timeout 5 love .)",
       "Bash(identify \"C:/github/cowboygameboy/assets/Cowboy \\(Animated Pixel Art\\)/Bandit pixel art/BanditWalking.png\")",
       "Bash(python3 -c \"from PIL import Image; img=Image.open\\(''C:/github/cowboygameboy/assets/Cowboy \\(Animated Pixel Art\\)/Bandit pixel art/BanditWalking.png''\\); print\\(img.size\\)\")",
-      "Bash(love --version)"
+      "Bash(love --version)",
+      "Bash(file:*)",
+      "Bash(py --version)",
+      "Bash(where python:*)",
+      "Bash(where py:*)"
     ]
   }
 }
