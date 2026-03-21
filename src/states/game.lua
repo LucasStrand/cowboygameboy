@@ -47,13 +47,16 @@ local doorAnimFrame
 local doorAnimTimer
 local transitionTimer
 local paused
-local pauseMenuView = "main" -- "main" | "settings"
-local pauseSelectedIndex = 1
-local pauseHoverIndex = nil
-local pauseSettingsTab = "video"
-local pauseSettingsHover = nil
-local pauseSettingsBindCapture = nil -- action name while waiting for a key (Controls tab)
-local pauseSettingsSliderDragKey = nil
+-- Single table: LuaJIT limits closures to 60 upvalues (game:enter was over limit).
+local pauseMenu = {
+    view = "main", -- "main" | "settings"
+    selectedIndex = 1,
+    hoverIndex = nil,
+    settingsTab = "video",
+    settingsHover = nil,
+    settingsBindCapture = nil, -- action name while waiting for a key (Controls tab)
+    settingsSliderDragKey = nil,
+}
 local characterSheetOpen = false
 --- Set in update when death completes; next draw captures world → game over (see pendingGameOver block after camera:detach).
 local pendingGameOver = nil
@@ -62,11 +65,13 @@ local editorTestMode = false
 
 -- Ultimate: Dead Man's Hand (single table to avoid upvalue bloat)
 local ult = { flashAlpha = 0, shotFlashScreen = 0, vignetteAlpha = 0, rings = {}, pulseTimer = 0 }
-local devPanelOpen = false
-local devPanelScroll = 0
-local devPanelHover = nil
-local devPanelRows = nil
-local devPanelSections = nil
+local devPanelState = {
+    open = false,
+    scroll = 0,
+    hover = nil,
+    rows = nil,
+    sections = nil,
+}
 local devNpcSpawn = nil
 --- Green bump AABB overlay (only when DEBUG); toggled from dev panel
 local devShowHitboxes = true
@@ -110,9 +115,9 @@ local function handleDebugAction(action)
     if action == "debug_saloon" then
         local saloon = require("src.states.saloon")
         paused = false
-        pauseMenuView = "main"
-        pauseSelectedIndex = 1
-        pauseHoverIndex = nil
+        pauseMenu.view = "main"
+        pauseMenu.selectedIndex = 1
+        pauseMenu.hoverIndex = nil
         Gamestate.push(saloon, player, roomManager)
         DevLog.push("sys", "Debug: Entered saloon")
     elseif action == "debug_add_gold" then
@@ -125,10 +130,7 @@ local function handleDebugAction(action)
 end
 
 -- Intro countdown (3→2→1) after menu: room + enemies loaded; gameplay frozen until done.
-local introCountdownActive = false
-local introCountdownN = 0
-local introCountdownSegT = 0
-local introCountdownOverlayFade = 0
+local introCD = { active = false, n = 0, segT = 0, overlayFade = 0 }
 local INTRO_COUNTDOWN_SEGMENT = 0.88
 local INTRO_COUNTDOWN_OVERLAY_FADE_SEC = 0.42
 
@@ -310,7 +312,7 @@ local function updateDevSpawnPreview(worldX, worldY)
     local previousX = devNpcSpawn.preview and devNpcSpawn.preview.worldX or nil
     local previousY = devNpcSpawn.preview and devNpcSpawn.preview.worldY or nil
     devNpcSpawn.preview = preview
-    if devPanelOpen and preview and (previousValid ~= preview.validCount or previousX ~= preview.worldX or previousY ~= preview.worldY) then
+    if devPanelState.open and preview and (previousValid ~= preview.validCount or previousX ~= preview.worldX or previousY ~= preview.worldY) then
         devRebuildPanelRows()
         devClampScroll()
     end
@@ -384,7 +386,7 @@ local function commitDevNpcPlacement(worldX, worldY)
         DevLog.push("sys", string.format("[dev] spawned %s x%d%s", preview.label or preview.typeId, spawned, suffix))
     end
     updateDevSpawnPreview(worldX, worldY)
-    if devPanelOpen then
+    if devPanelState.open then
         devRebuildPanelRows()
         devClampScroll()
     end
@@ -450,7 +452,7 @@ local function drawActiveDevSpawnPreview()
 end
 
 local function drawDevPanelOverlay()
-    if not DEBUG or not devPanelOpen or not devPanelRows or not player then
+    if not DEBUG or not devPanelState.open or not devPanelState.rows or not player then
         return
     end
 
@@ -464,7 +466,7 @@ local function drawDevPanelOverlay()
     end
     devClampScroll()
     local px, py, pw, ph = getDevPanelLayout()
-    DevPanel.draw(devPanelRows, devPanelScroll, px, py, pw, ph, devPanelHover, {
+    DevPanel.draw(devPanelState.rows, devPanelState.scroll, px, py, pw, ph, devPanelState.hover, {
         title = game.devPanelTitleFont,
         row = game.devPanelRowFont,
     })
@@ -517,7 +519,7 @@ local function buildMusicSnapshot()
     local maxHP = player:getEffectiveStats().maxHP
     local hpRatio = maxHP > 0 and (player.hp / maxHP) or 1
     return {
-        introCountdownActive = introCountdownActive,
+        introCountdownActive = introCD.active,
         paused = paused,
         roomHasThreat = roomHasLivingThreat(),
         enemyCount = #enemies + pending,
@@ -878,12 +880,12 @@ end
 
 local function pauseRestartRun()
     paused = false
-    pauseMenuView = "main"
-    pauseSettingsBindCapture = nil
-    pauseSettingsSliderDragKey = nil
-    devPanelOpen = false
-    devPanelScroll = 0
-    devPanelHover = nil
+    pauseMenu.view = "main"
+    pauseMenu.settingsBindCapture = nil
+    pauseMenu.settingsSliderDragKey = nil
+    devPanelState.open = false
+    devPanelState.scroll = 0
+    devPanelState.hover = nil
     devShowHitboxes = true
     pendingGameOver = nil
     if devArenaMode then
@@ -895,12 +897,12 @@ end
 
 local function pauseGoToMainMenu()
     paused = false
-    pauseMenuView = "main"
-    pauseSettingsBindCapture = nil
-    pauseSettingsSliderDragKey = nil
-    devPanelOpen = false
-    devPanelScroll = 0
-    devPanelHover = nil
+    pauseMenu.view = "main"
+    pauseMenu.settingsBindCapture = nil
+    pauseMenu.settingsSliderDragKey = nil
+    devPanelState.open = false
+    devPanelState.scroll = 0
+    devPanelState.hover = nil
     pendingGameOver = nil
     local menu = require("src.states.menu")
     Gamestate.switch(menu)
@@ -985,13 +987,13 @@ local function devPlayerHasPerk(pid)
 end
 
 devClampScroll = function()
-    if not devPanelRows then return end
+    if not devPanelState.rows then return end
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Font.new(16)
     end
     local _, _, _, ph = getDevPanelLayout()
-    local maxS = DevPanel.maxScroll(devPanelRows, game.devPanelTitleFont, ph)
-    devPanelScroll = math.max(0, math.min(maxS, devPanelScroll))
+    local maxS = DevPanel.maxScroll(devPanelState.rows, game.devPanelTitleFont, ph)
+    devPanelState.scroll = math.max(0, math.min(maxS, devPanelState.scroll))
 end
 
 local function syncCurrentRoomNightMode()
@@ -1030,12 +1032,12 @@ local function syncCurrentRoomNightMode()
 end
 
 devRebuildPanelRows = function()
-    devPanelRows = DevPanel.buildRows({
+    devPanelState.rows = DevPanel.buildRows({
         showHitboxes = devShowHitboxes,
         nightOverride = roomManager and roomManager.nightVisualsOverride,
         bossFightActive = currentRoom and currentRoom.bossFight,
         inDevArena = devArenaMode,
-        sections = devPanelSections,
+        sections = devPanelState.sections,
         npc = {
             peaceful = devNpcSpawn and devNpcSpawn.peaceful,
             unarmed = devNpcSpawn and devNpcSpawn.unarmed,
@@ -1048,15 +1050,15 @@ end
 
 local function openDevPanel()
     if not DEBUG then return end
-    if not devPanelSections then
-        devPanelSections = defaultDevPanelSections()
+    if not devPanelState.sections then
+        devPanelState.sections = defaultDevPanelSections()
     end
     if not devNpcSpawn then
         devNpcSpawn = defaultDevNpcSpawn()
     end
-    devPanelOpen = true
+    devPanelState.open = true
     characterSheetOpen = false
-    devPanelScroll = 0
+    devPanelState.scroll = 0
     devRebuildPanelRows()
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Font.new(16)
@@ -1068,8 +1070,8 @@ local function devApplyAction(id)
     if not DEBUG or not player or not id then return end
     if id:sub(1, 8) == "section:" then
         local sectionId = id:sub(9)
-        if devPanelSections and devPanelSections[sectionId] ~= nil then
-            devPanelSections[sectionId] = not devPanelSections[sectionId]
+        if devPanelState.sections and devPanelState.sections[sectionId] ~= nil then
+            devPanelState.sections[sectionId] = not devPanelState.sections[sectionId]
             devRebuildPanelRows()
             devClampScroll()
         end
@@ -1102,7 +1104,7 @@ local function devApplyAction(id)
         devClampScroll()
         return
     elseif id == "kill_player" then
-        devPanelOpen = false
+        devPanelState.open = false
         characterSheetOpen = false
         clearDevNpcPlacement(false)
         player:beginDeath()
@@ -1151,7 +1153,7 @@ local function devApplyAction(id)
         spawnCheatGoldDrops(500)
         DevLog.push("sys", "[dev] +500 gold (drops)")
     elseif id == "xp_50" then
-        devPanelOpen = false
+        devPanelState.open = false
         characterSheetOpen = false
         clearDevNpcPlacement(false)
         if player:addXP(50) then
@@ -1159,7 +1161,7 @@ local function devApplyAction(id)
             Gamestate.push(levelup, player, function() end)
         end
     elseif id == "xp_200" then
-        devPanelOpen = false
+        devPanelState.open = false
         characterSheetOpen = false
         clearDevNpcPlacement(false)
         if player:addXP(200) then
@@ -1167,7 +1169,7 @@ local function devApplyAction(id)
             Gamestate.push(levelup, player, function() end)
         end
     elseif id == "force_levelup" then
-        devPanelOpen = false
+        devPanelState.open = false
         characterSheetOpen = false
         clearDevNpcPlacement(false)
         local levelup = require("src.states.levelup")
@@ -1214,8 +1216,8 @@ local function devApplyAction(id)
             DevLog.push("sys", "[dev] boss fight " .. (currentRoom.bossFight and "on" or "off"))
         end
     elseif id == "goto_dev_arena" then
-        devPanelOpen = false
-        devPanelHover = nil
+        devPanelState.open = false
+        devPanelState.hover = nil
         clearDevNpcPlacement(false)
         DevLog.push("sys", "[dev] go to dev arena (new run)")
         Gamestate.switch(game, { devArena = true, introCountdown = false })
@@ -1243,10 +1245,10 @@ local function devApplyAction(id)
 end
 
 function game:enter(_, opts)
-    introCountdownActive = false
-    introCountdownN = 0
-    introCountdownSegT = 0
-    introCountdownOverlayFade = 0
+    introCD.active = false
+    introCD.n = 0
+    introCD.segT = 0
+    introCD.overlayFade = 0
 
     world = bump.newWorld(32)
     camera = Camera(400, 200)
@@ -1270,19 +1272,19 @@ function game:enter(_, opts)
     doorAnimTimer = 0
     transitionTimer = 0
     paused = false
-    pauseMenuView = "main"
-    pauseSelectedIndex = 1
-    pauseHoverIndex = nil
-    pauseSettingsTab = "video"
-    pauseSettingsHover = nil
-    pauseSettingsBindCapture = nil
-    pauseSettingsSliderDragKey = nil
+    pauseMenu.view = "main"
+    pauseMenu.selectedIndex = 1
+    pauseMenu.hoverIndex = nil
+    pauseMenu.settingsTab = "video"
+    pauseMenu.settingsHover = nil
+    pauseMenu.settingsBindCapture = nil
+    pauseMenu.settingsSliderDragKey = nil
     characterSheetOpen = false
     pendingGameOver = nil
-    devPanelOpen = false
-    devPanelScroll = 0
-    devPanelHover = nil
-    devPanelSections = defaultDevPanelSections()
+    devPanelState.open = false
+    devPanelState.scroll = 0
+    devPanelState.hover = nil
+    devPanelState.sections = defaultDevPanelSections()
     devNpcSpawn = defaultDevNpcSpawn()
     devShowHitboxes = true
 
@@ -1321,10 +1323,10 @@ function game:enter(_, opts)
     devRebuildPanelRows()
 
     if opts and opts.introCountdown and Gamestate.current() == game then
-        introCountdownActive = true
-        introCountdownN = 3
-        introCountdownSegT = 0
-        introCountdownOverlayFade = 0
+        introCD.active = true
+        introCD.n = 3
+        introCD.segT = 0
+        introCD.overlayFade = 0
         if not game.introCountdownFont then
             game.introCountdownFont = Font.new(120)
         end
@@ -1408,24 +1410,24 @@ function game:update(dt)
 
     if paused then return end
 
-    if devPanelOpen then
+    if devPanelState.open then
         if player and player.dying then
-            devPanelOpen = false
+            devPanelState.open = false
             clearDevNpcPlacement(false)
         else
             return
         end
     end
 
-    if introCountdownActive then
+    if introCD.active then
         processPendingEnemySpawns(dt)
-        introCountdownOverlayFade = math.min(1, introCountdownOverlayFade + dt / INTRO_COUNTDOWN_OVERLAY_FADE_SEC)
-        introCountdownSegT = introCountdownSegT + dt
-        if introCountdownSegT >= INTRO_COUNTDOWN_SEGMENT then
-            introCountdownSegT = 0
-            introCountdownN = introCountdownN - 1
-            if introCountdownN <= 0 then
-                introCountdownActive = false
+        introCD.overlayFade = math.min(1, introCD.overlayFade + dt / INTRO_COUNTDOWN_OVERLAY_FADE_SEC)
+        introCD.segT = introCD.segT + dt
+        if introCD.segT >= INTRO_COUNTDOWN_SEGMENT then
+            introCD.segT = 0
+            introCD.n = introCD.n - 1
+            if introCD.n <= 0 then
+                introCD.active = false
             end
         end
         updateCamera(dt, false)
@@ -1787,7 +1789,7 @@ function game:update(dt)
 end
 
 function game:keypressed(key)
-    if introCountdownActive then
+    if introCD.active then
         if key == "f2" and DEBUG then
             openDevPanel()
             return
@@ -1799,19 +1801,19 @@ function game:keypressed(key)
         return
     end
 
-    if DEBUG and devPanelOpen then
+    if DEBUG and devPanelState.open then
         if key == "escape" then
             if devNpcSpawn and devNpcSpawn.placement then
                 clearDevNpcPlacement(true)
                 devRebuildPanelRows()
                 devClampScroll()
             else
-                devPanelOpen = false
-                devPanelHover = nil
+                devPanelState.open = false
+                devPanelState.hover = nil
             end
         elseif key == "f2" then
-            devPanelOpen = false
-            devPanelHover = nil
+            devPanelState.open = false
+            devPanelState.hover = nil
             clearDevNpcPlacement(false)
         end
         return
@@ -1824,14 +1826,14 @@ function game:keypressed(key)
 
     if player and player.dying then return end
 
-    if paused and pauseMenuView == "settings" and pauseSettingsBindCapture then
+    if paused and pauseMenu.view == "settings" and pauseMenu.settingsBindCapture then
         if key == "escape" then
-            pauseSettingsBindCapture = nil
+            pauseMenu.settingsBindCapture = nil
         else
             local normalized = Keybinds.normalizeCapturedKey(key)
-            Settings.setKeybind(pauseSettingsBindCapture, normalized)
+            Settings.setKeybind(pauseMenu.settingsBindCapture, normalized)
             Settings.save()
-            pauseSettingsBindCapture = nil
+            pauseMenu.settingsBindCapture = nil
         end
         return
     end
@@ -1842,51 +1844,51 @@ function game:keypressed(key)
             return
         end
         if paused then
-            if pauseMenuView == "settings" then
-                pauseMenuView = "main"
-                pauseSettingsBindCapture = nil
-                pauseSettingsSliderDragKey = nil
+            if pauseMenu.view == "settings" then
+                pauseMenu.view = "main"
+                pauseMenu.settingsBindCapture = nil
+                pauseMenu.settingsSliderDragKey = nil
             else
                 paused = false
-                pauseMenuView = "main"
-                pauseSettingsSliderDragKey = nil
+                pauseMenu.view = "main"
+                pauseMenu.settingsSliderDragKey = nil
             end
         else
             paused = true
-            pauseMenuView = "main"
-            pauseSelectedIndex = 1
-            pauseHoverIndex = nil
+            pauseMenu.view = "main"
+            pauseMenu.selectedIndex = 1
+            pauseMenu.hoverIndex = nil
         end
         return
     end
 
     if paused then
-        if pauseMenuView == "settings" then
+        if pauseMenu.view == "settings" then
             if key == "backspace" then
-                pauseMenuView = "main"
-                pauseSettingsBindCapture = nil
-                pauseSettingsSliderDragKey = nil
+                pauseMenu.view = "main"
+                pauseMenu.settingsBindCapture = nil
+                pauseMenu.settingsSliderDragKey = nil
             elseif key == "[" then
-                pauseSettingsTab = SettingsPanel.cycleTab(pauseSettingsTab, -1)
+                pauseMenu.settingsTab = SettingsPanel.cycleTab(pauseMenu.settingsTab, -1)
             elseif key == "]" then
-                pauseSettingsTab = SettingsPanel.cycleTab(pauseSettingsTab, 1)
+                pauseMenu.settingsTab = SettingsPanel.cycleTab(pauseMenu.settingsTab, 1)
             end
             return
         end
         local list = pauseMenuEntries()
         if key == "up" or key == "w" then
-            pauseSelectedIndex = pauseSelectedIndex - 1
-            if pauseSelectedIndex < 1 then pauseSelectedIndex = #list end
+            pauseMenu.selectedIndex = pauseMenu.selectedIndex - 1
+            if pauseMenu.selectedIndex < 1 then pauseMenu.selectedIndex = #list end
         elseif key == "down" or key == "s" then
-            pauseSelectedIndex = pauseSelectedIndex + 1
-            if pauseSelectedIndex > #list then pauseSelectedIndex = 1 end
+            pauseMenu.selectedIndex = pauseMenu.selectedIndex + 1
+            if pauseMenu.selectedIndex > #list then pauseMenu.selectedIndex = 1 end
         elseif key == "return" or key == "space" or key == "kpenter" then
-            local id = list[pauseSelectedIndex].id
+            local id = list[pauseMenu.selectedIndex].id
             if id == "resume" then
                 paused = false
-                pauseMenuView = "main"
+                pauseMenu.view = "main"
             elseif id == "settings" then
-                pauseMenuView = "settings"
+                pauseMenu.view = "settings"
             elseif id == "restart" then
                 pauseRestartRun()
             elseif id == "main_menu" then
@@ -1958,15 +1960,15 @@ end
 
 function game:mousemoved(x, y, dx, dy)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelOpen and devPanelRows then
+    if DEBUG and devPanelState.open and devPanelState.rows then
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Font.new(16)
         end
         local px, py, pw, ph = getDevPanelLayout()
         if pointInRect(gx, gy, px, py, pw, ph) then
-            devPanelHover = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, game.devPanelTitleFont)
+            devPanelState.hover = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont)
         else
-            devPanelHover = nil
+            devPanelState.hover = nil
         end
         if devNpcSpawn and devNpcSpawn.placement and camera then
             local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
@@ -1974,27 +1976,27 @@ function game:mousemoved(x, y, dx, dy)
         end
         return
     end
-    if introCountdownActive then return end
+    if introCD.active then return end
     if player and player.dying then return end
     if paused then
-        if pauseMenuView == "settings" and pauseSettingsSliderDragKey and game.pauseMenuButtonFont then
+        if pauseMenu.view == "settings" and pauseMenu.settingsSliderDragKey and game.pauseMenuButtonFont then
             local v = SettingsPanel.sliderValueFromPointerX(
-                GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, game.pauseMenuButtonFont,
-                pauseSettingsSliderDragKey, gx
+                GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, game.pauseMenuButtonFont,
+                pauseMenu.settingsSliderDragKey, gx
             )
             if v then
-                Settings.setVolumeKey(pauseSettingsSliderDragKey, v)
+                Settings.setVolumeKey(pauseMenu.settingsSliderDragKey, v)
                 Settings.save()
                 Settings.apply()
             end
             return
         end
-        pauseHoverIndex = nil
-        if pauseMenuView == "main" then
+        pauseMenu.hoverIndex = nil
+        if pauseMenu.view == "main" then
             for i, r in ipairs(pauseMenuButtonLayout()) do
                 if pauseHitRect(gx, gy, r) then
-                    pauseHoverIndex = i
-                    pauseSelectedIndex = i
+                    pauseMenu.hoverIndex = i
+                    pauseMenu.selectedIndex = i
                     break
                 end
             end
@@ -2002,19 +2004,19 @@ function game:mousemoved(x, y, dx, dy)
             if not game.pauseMenuButtonFont then
                 game.pauseMenuButtonFont = Font.new(22)
             end
-            local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, game.pauseMenuButtonFont)
+            local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, gx, gy, game.pauseMenuButtonFont)
             if h then
                 if h.kind == "tab" then
-                    pauseSettingsHover = { kind = "tab", id = h.id }
+                    pauseMenu.settingsHover = { kind = "tab", id = h.id }
                 elseif h.kind == "back" then
-                    pauseSettingsHover = { kind = "back" }
+                    pauseMenu.settingsHover = { kind = "back" }
                 elseif h.kind == "row" then
-                    pauseSettingsHover = { kind = "row", index = h.index }
+                    pauseMenu.settingsHover = { kind = "row", index = h.index }
                 elseif h.kind == "slider" then
-                    pauseSettingsHover = { kind = "slider", index = h.index, key = h.key }
+                    pauseMenu.settingsHover = { kind = "slider", index = h.index, key = h.key }
                 end
             else
-                pauseSettingsHover = nil
+                pauseMenu.settingsHover = nil
             end
         end
         return
@@ -2027,7 +2029,7 @@ end
 
 function game:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelOpen and devPanelRows then
+    if DEBUG and devPanelState.open and devPanelState.rows then
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Font.new(16)
         end
@@ -2035,7 +2037,7 @@ function game:mousepressed(x, y, button)
         local insidePanel = pointInRect(gx, gy, px, py, pw, ph)
         if insidePanel then
             if button == 1 then
-                local hit = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, game.devPanelTitleFont)
+                local hit = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont)
                 if hit then
                     devApplyAction(hit)
                 end
@@ -2056,18 +2058,18 @@ function game:mousepressed(x, y, button)
         end
         return
     end
-    if introCountdownActive then return end
+    if introCD.active then return end
     if player and player.dying then return end
     if paused then
         if button ~= 1 then return end
-        if pauseMenuView == "main" then
+        if pauseMenu.view == "main" then
             for _, r in ipairs(pauseMenuButtonLayout()) do
                 if pauseHitRect(gx, gy, r) then
                     if r.id == "resume" then
                         paused = false
-                        pauseMenuView = "main"
+                        pauseMenu.view = "main"
                     elseif r.id == "settings" then
-                        pauseMenuView = "settings"
+                        pauseMenu.view = "settings"
                     elseif r.id == "restart" then
                         pauseRestartRun()
                     elseif r.id == "main_menu" then
@@ -2080,16 +2082,16 @@ function game:mousepressed(x, y, button)
             if not game.pauseMenuButtonFont then
                 game.pauseMenuButtonFont = Font.new(22)
             end
-            local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, game.pauseMenuButtonFont)
+            local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, gx, gy, game.pauseMenuButtonFont)
             local r = SettingsPanel.applyHit(h, player)
             if h and h.kind == "slider" then
-                pauseSettingsSliderDragKey = h.key
+                pauseMenu.settingsSliderDragKey = h.key
             end
             if r then
-                if r.setTab then pauseSettingsTab = r.setTab end
+                if r.setTab then pauseMenu.settingsTab = r.setTab end
                 if r.goBack then
-                    pauseMenuView = "main"
-                    pauseSettingsSliderDragKey = nil
+                    pauseMenu.view = "main"
+                    pauseMenu.settingsSliderDragKey = nil
                 end
                 if r.action then handleDebugAction(r.action) end
             end
@@ -2148,13 +2150,13 @@ end
 
 function game:mousereleased(x, y, button)
     if button == 1 then
-        pauseSettingsSliderDragKey = nil
+        pauseMenu.settingsSliderDragKey = nil
     end
 end
 
 function game:wheelmoved(x, y)
-    if not DEBUG or not devPanelOpen then return end
-    devPanelScroll = devPanelScroll - y * 36
+    if not DEBUG or not devPanelState.open then return end
+    devPanelState.scroll = devPanelState.scroll - y * 36
     devClampScroll()
 end
 
@@ -2279,7 +2281,7 @@ function game:draw()
 
     -- Player
     player:draw()
-    if not introCountdownActive then
+    if not introCD.active then
         drawAimCrosshair()
     end
 
@@ -2407,7 +2409,7 @@ function game:draw()
         return
     end
 
-    if not introCountdownActive then
+    if not introCD.active then
         -- Near locked exit + surviving enemies off-screen: blink arrows on viewport edge (screen space)
         drawExitBlockedOffscreenArrows()
         drawExitArrow()
@@ -2492,14 +2494,14 @@ function game:draw()
                 game.pauseSettingsBodyFont = Font.new(16)
             end
 
-            if pauseMenuView == "main" then
+            if pauseMenu.view == "main" then
                 love.graphics.setFont(game.pauseTitleFont)
                 love.graphics.setColor(1, 0.86, 0.28, 0.95)
                 love.graphics.printf("PAUSED", 0, GAME_HEIGHT * 0.16, GAME_WIDTH, "center")
 
                 local rects = pauseMenuButtonLayout()
                 for i, r in ipairs(rects) do
-                    local hover = (pauseHoverIndex == i) or (pauseHoverIndex == nil and pauseSelectedIndex == i)
+                    local hover = (pauseMenu.hoverIndex == i) or (pauseMenu.hoverIndex == nil and pauseMenu.selectedIndex == i)
                     if hover then
                         love.graphics.setColor(0.22, 0.14, 0.08, 0.92)
                     else
@@ -2525,32 +2527,32 @@ function game:draw()
                 love.graphics.setColor(0.45, 0.45, 0.48)
                 love.graphics.printf("Arrows / mouse  ·  Enter  ·  ESC to resume", 0, GAME_HEIGHT * 0.88, GAME_WIDTH, "center")
             else
-                SettingsPanel.draw(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, {
+                SettingsPanel.draw(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, {
                     title = game.pauseTitleFont,
                     tab = game.pauseMenuButtonFont,
                     row = game.pauseSettingsBodyFont,
                     hint = game.pauseHintFont,
-                }, pauseSettingsHover, pauseSettingsBindCapture)
+                }, pauseMenu.settingsHover, pauseMenu.settingsBindCapture)
             end
         end
     else
-        love.graphics.setColor(0.02, 0.02, 0.04, 0.52 + (0.74 - 0.52) * introCountdownOverlayFade)
+        love.graphics.setColor(0.02, 0.02, 0.04, 0.52 + (0.74 - 0.52) * introCD.overlayFade)
         love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
 
-        local sc, a = introCountdownDigitStyle(introCountdownSegT)
+        local sc, a = introCountdownDigitStyle(introCD.segT)
         love.graphics.push()
         love.graphics.translate(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.48)
         love.graphics.scale(sc)
         love.graphics.setColor(1, 0.86, 0.28, a)
         love.graphics.setFont(game.introCountdownFont)
         local fh = game.introCountdownFont:getHeight()
-        love.graphics.printf(tostring(introCountdownN), -GAME_WIDTH * 0.5, -fh * 0.5, GAME_WIDTH, "center")
+        love.graphics.printf(tostring(introCD.n), -GAME_WIDTH * 0.5, -fh * 0.5, GAME_WIDTH, "center")
         love.graphics.pop()
 
         if not game.introHintFont then
             game.introHintFont = Font.new(14)
         end
-        love.graphics.setColor(0.5, 0.5, 0.55, 0.85 * introCountdownOverlayFade)
+        love.graphics.setColor(0.5, 0.5, 0.55, 0.85 * introCD.overlayFade)
         love.graphics.setFont(game.introHintFont)
         love.graphics.printf("ESC to cancel · Enemies ready", 0, GAME_HEIGHT * 0.88, GAME_WIDTH, "center")
     end
