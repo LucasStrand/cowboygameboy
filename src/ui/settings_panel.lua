@@ -99,15 +99,13 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
     if activeTabId == "video" then
         rows[1] = { key = "fullscreen", kind = "toggle", label = "Fullscreen", rect = rowRect(screenW, contentTop, rowH) }
         rows[2] = { key = "vsync", kind = "toggle", label = "VSync", rect = rowRect(screenW, contentTop + rowH + 6, rowH) }
-        rows[3] = { key = "debug_saloon", kind = "action", label = "Debug: enter saloon", value = "Go >", rect = rowRect(screenW, contentTop + (rowH + 6) * 2, rowH) }
-        rows[4] = { key = "debug_add_gold", kind = "action", label = "Debug: add gold", value = "+10", rect = rowRect(screenW, contentTop + (rowH + 6) * 3, rowH) }
-        rows[5] = { key = "debug_sub_gold", kind = "action", label = "Debug: subtract gold", value = "-10", rect = rowRect(screenW, contentTop + (rowH + 6) * 4, rowH) }
     elseif activeTabId == "audio" then
         local y = contentTop
         for i, spec in ipairs({
             { key = "masterVolume", label = "Master volume" },
             { key = "musicVolume", label = "Music" },
             { key = "sfxVolume", label = "Sound effects" },
+            { key = "vfxVolume", label = "Visual effects" },
         }) do
             local r = rowRect(screenW, y, rowH)
             local labelReserve = math.min(210, math.floor(r.w * 0.48))
@@ -193,6 +191,18 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
         tabY = tabY,
         contentTop = contentTop,
     }
+end
+
+--- While dragging a slider: map pointer X to 0..1 along that slider's track (by key).
+function SettingsPanel.sliderValueFromPointerX(screenW, screenH, activeTabId, tabFont, key, gx)
+    local L = SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
+    for _, row in ipairs(L.rows) do
+        if row.kind == "slider" and row.key == key and row.track then
+            local tr = row.track
+            local u = (gx - tr.x) / tr.w
+            return math.max(0, math.min(1, u))
+        end
+    end
 end
 
 function SettingsPanel.hitTest(screenW, screenH, activeTabId, gx, gy, tabFont)
@@ -297,8 +307,6 @@ function SettingsPanel.draw(screenW, screenH, activeTabId, fonts, hover, bindCap
                 vt = "…"
             end
             drawRowLabelValue(fonts.row, row, vt)
-        elseif row.kind == "action" then
-            drawRowLabelValue(fonts.row, row, row.value or "Run >")
         elseif row.kind == "slider" then
             local v = d[row.key] or 0
             local r = row.rect
@@ -345,7 +353,13 @@ function SettingsPanel.draw(screenW, screenH, activeTabId, fonts, hover, bindCap
     if bindCaptureAction then
         love.graphics.printf("Press a key to bind  ·  ESC to cancel", 0, screenH * 0.88, screenW, "center")
     else
-        love.graphics.printf("Click rows to change  ·  [ / ] switch tabs  ·  ESC or Back", 0, screenH * 0.88, screenW, "center")
+        love.graphics.printf(
+            "Click or drag sliders  ·  [ / ] switch tabs  ·  ESC or Back",
+            0,
+            screenH * 0.88,
+            screenW,
+            "center"
+        )
     end
 end
 
@@ -381,9 +395,7 @@ function SettingsPanel.applyHit(hit, player)
             end
             return {}
         end
-        if row.kind == "action" then
-            return { action = row.key }
-        elseif row.kind == "toggle" then
+        if row.kind == "toggle" then
             if row.key == "fullscreen" then Settings.toggleFullscreen()
             elseif row.key == "vsync" then Settings.toggleVsync()
             elseif row.key == "defaultAutoGun" then Settings.toggleDefaultAutoGun()

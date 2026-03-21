@@ -1,6 +1,8 @@
 -- Impact visual effects — animated sprite sheet particles that play once and die.
 -- Uses "Retro Impact Effect Pack 1 A.png" (512×1536, 64×64 frames, 8 cols × 24 rows).
 
+local Settings = require("src.systems.settings")
+
 local ImpactFX = {}
 
 local FRAME_SIZE = 64
@@ -71,7 +73,9 @@ end
 
 function ImpactFX.draw()
     if not sheet then return end
-    love.graphics.setColor(1, 1, 1)
+    local a = Settings.getVfxMul()
+    if a <= 0.001 then return end
+    love.graphics.setColor(1, 1, 1, a)
     for _, fx in ipairs(active) do
         local q = quads[fx.row] and quads[fx.row][fx.frame]
         if q then

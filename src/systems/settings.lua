@@ -12,6 +12,8 @@ local defaults = {
     masterVolume = 1,
     musicVolume = 1,
     sfxVolume = 1,
+    --- Impact sprites, damage popups, etc. (0 = off, 1 = full)
+    vfxVolume = 1,
     screenShake = 1,
     defaultAutoGun = true,
     mouseAimIdleSec = 1.0,
@@ -92,6 +94,7 @@ function Settings.save()
         string.format("  masterVolume = %.4f,", d.masterVolume),
         string.format("  musicVolume = %.4f,", d.musicVolume),
         string.format("  sfxVolume = %.4f,", d.sfxVolume),
+        string.format("  vfxVolume = %.4f,", d.vfxVolume),
         string.format("  screenShake = %.4f,", d.screenShake),
         string.format("  defaultAutoGun = %s,", d.defaultAutoGun and "true" or "false"),
         string.format("  mouseAimIdleSec = %.4f,", d.mouseAimIdleSec),
@@ -122,6 +125,11 @@ end
 --- Multiply when setting volume on SFX `Source` objects.
 function Settings.getSfxVolumeMul()
     return Settings.data.sfxVolume
+end
+
+--- Multiply visual effect intensity (particles, floating numbers, etc.).
+function Settings.getVfxMul()
+    return Settings.data.vfxVolume
 end
 
 function Settings.getShowCrosshair()
@@ -200,7 +208,7 @@ end
 
 function Settings.setVolumeKey(key, t)
     t = math.max(0, math.min(1, t))
-    if key == "masterVolume" or key == "musicVolume" or key == "sfxVolume" then
+    if key == "masterVolume" or key == "musicVolume" or key == "sfxVolume" or key == "vfxVolume" then
         Settings.data[key] = t
     end
 end

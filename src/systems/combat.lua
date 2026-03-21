@@ -3,6 +3,7 @@ local Pickup = require("src.entities.pickup")
 local Guns   = require("src.data.guns")
 local DamageNumbers = require("src.ui.damage_numbers")
 local ImpactFX = require("src.systems.impact_fx")
+local Sfx = require("src.systems.sfx")
 
 local Combat = {}
 
@@ -33,9 +34,13 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
             b.hitEnemy:takeDamage(b.damage, world)
             DamageNumbers.spawn(hitX, hitY, b.damage, "out")
             ImpactFX.spawn(hitX, hitY, "hit_enemy")
+            if not b.fromEnemy then
+                Sfx.play("hit_enemy")
+            end
 
             -- Explosive rounds: AOE damage to nearby enemies
             if b.explosive and not b.fromEnemy then
+                Sfx.play("explosion")
                 local explosionRadius = 60
                 local aoeDamage = math.floor(b.damage * 0.5)
                 local bx = b.x + b.w / 2
@@ -263,6 +268,7 @@ function Combat.checkPlayerMelee(player, enemies)
                 e:takeDamage(dmg, nil)
                 DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, dmg, "out")
                 ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee")
+                Sfx.play("melee_hit")
                 player.meleeHitEnemies[e] = true
                 player.meleeHitFlashTimer = 0.2
                 -- Knockback along melee aim (same axis as the swing / shot)
@@ -311,12 +317,15 @@ function Combat.checkPickups(pickups, player, world)
             if p.pickupType == "xp" then
                 leveledUp = player:addXP(p.value) or leveledUp
                 DamageNumbers.spawnPickup(cx, cy, p.value, "xp")
+                Sfx.play("pickup_xp")
             elseif p.pickupType == "gold" then
                 player:addGold(p.value)
                 DamageNumbers.spawnPickup(cx, cy, p.value, "gold")
+                Sfx.play("pickup_gold")
             elseif p.pickupType == "health" then
                 player:heal(p.value)
                 DamageNumbers.spawnPickup(cx, cy, p.value, "health")
+                Sfx.play("pickup_health")
             end
             collected = true
         end

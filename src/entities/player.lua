@@ -3,6 +3,7 @@ local Guns    = require("src.data.guns")
 local PlatformCollision = require("src.systems.platform_collision")
 local Animator = require("src.systems.animation")
 local Keybinds = require("src.systems.keybinds")
+local Sfx = require("src.systems.sfx")
 
 local Player = {}
 Player.__index = Player
@@ -380,6 +381,7 @@ function Player:update(dt, world, enemies)
         if self.reloadTimer <= 0 then
             self.reloading = false
             self.ammo = effectiveStats.cylinderSize
+            Sfx.play("reload")
             if self.stats.deadEye then
                 self.deadEyeTimer = 3.0
             end
@@ -476,10 +478,12 @@ function Player:update(dt, world, enemies)
             self.coyoteTimer = 0
             self.jumpBufferTimer = 0
             self.jumpCount = 1
+            Sfx.play("jump")
         elseif self.jumpCount == 1 then
             self.vy = effectiveStats.jumpForce * DOUBLE_JUMP_MULT
             self.jumpBufferTimer = 0
             self.jumpCount = 2
+            Sfx.play("jump")
         end
     end
 
@@ -567,6 +571,7 @@ function Player:tryDash()
     self.dashDir = dir
     self.dashTimer = DASH_DURATION
     self.iframes = math.max(self.iframes, 0.2)
+    Sfx.play("dash")
 
     -- Dash strike: active melee hitbox for the full dash, aimed in dash direction
     local s = self:getEffectiveStats()
@@ -631,6 +636,7 @@ function Player:shootFromSlot(slotIndex, mx, my)
             explosive = effectiveStats.explosiveRounds,
         })
     end
+    Sfx.play("shoot")
 
     if gun.onShoot then
         gun.onShoot(self, angle)
@@ -756,6 +762,7 @@ function Player:meleeAttack(aimX, aimY)
     self.meleeSwingTimer = 0.15
     self.meleeHitEnemies = {}
     self.anim:play("melee", true)
+    Sfx.play("melee_swing")
     return true
 end
 
@@ -826,6 +833,7 @@ function Player:takeDamage(amount)
     local finalDamage = math.max(1, amount - es.armor)
     self.hp = self.hp - finalDamage
     self.iframes = 0.5
+    Sfx.play("hurt")
 
     if debugLog then
         local suffix = self.blocking and " [blocked]" or ""
