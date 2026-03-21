@@ -1,3 +1,5 @@
+local Sfx = require("src.systems.sfx")
+
 local Blackjack = {}
 Blackjack.__index = Blackjack
 
@@ -151,6 +153,7 @@ function Blackjack:deal(wager)
     self:buildDeck()
     self.wager = wager
     self.state = "playing"
+    Sfx.play("casino_shuffle")
 
     local hand = {
         cards = {},

@@ -1,6 +1,7 @@
 -- Floating damage / heal-style popups in world space (drawn with camera attached).
 
 local Font = require("src.ui.font")
+local Settings = require("src.systems.settings")
 
 local DamageNumbers = {}
 
@@ -79,13 +80,15 @@ end
 
 function DamageNumbers.draw()
     if #items == 0 then return end
+    local vfx = Settings.getVfxMul()
+    if vfx <= 0.001 then return end
 
     local f = getFont()
     local prev = love.graphics.getFont()
     love.graphics.setFont(f)
 
     for _, p in ipairs(items) do
-        local fade = math.max(0, 1 - (p.t / p.life) ^ 1.15)
+        local fade = math.max(0, 1 - (p.t / p.life) ^ 1.15) * vfx
         local r, g, b = 1, 0.92, 0.38
         if p.kind == "in" then
             r, g, b = 1, 0.42, 0.38

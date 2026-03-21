@@ -10,6 +10,8 @@ local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
+local BootIntroData = require("src.data.boot_intro")
+local MenuBgm = require("src.systems.menu_bgm")
 
 local menu = {}
 
@@ -21,6 +23,9 @@ local player
 local roomManager
 local currentRoom
 local bgImage
+--- Cached from BootIntroData.titleBackgroundImage (same art as boot title); nil = use room preview
+local menuBgImg = nil
+local menuBgLoadAttempted = false
 local fonts = {}
 local view = "main" -- "main" | "settings"
 local selectedIndex = 1
@@ -28,8 +33,14 @@ local hoverIndex = nil
 local settingsTab = "video"
 local settingsHover = nil
 local settingsBindCapture = nil
+--- While LMB is held on a volume slider (enables drag)
+local settingsSliderDragKey = nil
+
+--- 1 = full black overlay; lerps to 0 after boot handoff
+local introFadeAlpha = 0
 
 local function beginGameWithIntroCountdown()
+    MenuBgm.stop()
     local game = require("src.states.game")
     Gamestate.switch(game, { introCountdown = true })
 end
@@ -57,7 +68,14 @@ local function clearPreview()
     currentRoom = nil
 end
 
-function menu:enter()
+function menu:enter(_, opts)
+    if opts and opts.fromIntro then
+        introFadeAlpha = 1
+    else
+        introFadeAlpha = 0
+        MenuBgm.play(BootIntroData.menuMusicPath)
+    end
+
     view = "main"
     selectedIndex = 1
     hoverIndex = nil
@@ -73,24 +91,46 @@ function menu:enter()
     Cursor.setDefault()
 
     clearPreview()
-    world = bump.newWorld(32)
-    camera = Camera(400, 200)
-    camera.scale = CAM_ZOOM
-    player = Player.new(50, 300)
-    world:add(player, player.x, player.y, player.w, player.h)
-    player.isPlayer = true
-    player.keyboardAimMode = true
 
-    roomManager = RoomManager.new()
-    roomManager:generateSequence()
-    local roomData = roomManager:nextRoom()
-    if roomData then
-        currentRoom = roomManager:loadRoom(roomData, world, player, { skipEnemies = true })
+    if not menuBgLoadAttempted then
+        menuBgLoadAttempted = true
+        local path = BootIntroData.titleBackgroundImage
+        if path and path ~= "" then
+            local ok, img = pcall(love.graphics.newImage, path)
+            if ok and img then
+                img:setFilter("nearest", "nearest")
+                menuBgImg = img
+            end
+        end
     end
 
-    if not bgImage then
-        bgImage = love.graphics.newImage("assets/backgrounds/forest.png")
-        bgImage:setWrap("repeat", "clampzero")
+    if menuBgImg then
+        -- Static backdrop (matches boot); no room preview — settings still need a Player instance.
+        player = Player.new(50, 300)
+        world = nil
+        camera = nil
+        roomManager = nil
+        currentRoom = nil
+    else
+        world = bump.newWorld(32)
+        camera = Camera(400, 200)
+        camera.scale = CAM_ZOOM
+        player = Player.new(50, 300)
+        world:add(player, player.x, player.y, player.w, player.h)
+        player.isPlayer = true
+        player.keyboardAimMode = true
+
+        roomManager = RoomManager.new()
+        roomManager:generateSequence()
+        local roomData = roomManager:nextRoom()
+        if roomData then
+            currentRoom = roomManager:loadRoom(roomData, world, player, { skipEnemies = true })
+        end
+
+        if not bgImage then
+            bgImage = love.graphics.newImage("assets/backgrounds/forest.png")
+            bgImage:setWrap("repeat", "clampzero")
+        end
     end
 end
 
@@ -110,6 +150,13 @@ local function updateCamera()
 end
 
 function menu:update(dt)
+    MenuBgm.updateVolume()
+    if introFadeAlpha > 0 then
+        introFadeAlpha = math.max(
+            0,
+            introFadeAlpha - dt / math.max(0.05, BootIntroData.menuFadeInDuration)
+        )
+    end
     if world and player and currentRoom then
         player:update(dt, world, {})
         updateCamera()
@@ -155,6 +202,17 @@ function menu:mousemoved(x, y, dx, dy)
             end
         end
     elseif view == "settings" then
+        if settingsSliderDragKey and fonts.button then
+            local v = SettingsPanel.sliderValueFromPointerX(
+                GAME_WIDTH, GAME_HEIGHT, settingsTab, fonts.button, settingsSliderDragKey, gx
+            )
+            if v then
+                Settings.setVolumeKey(settingsSliderDragKey, v)
+                Settings.save()
+                Settings.apply()
+            end
+            return
+        end
         local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, settingsTab, gx, gy, fonts.button)
         if h then
             if h.kind == "tab" then
@@ -191,14 +249,24 @@ function menu:mousepressed(x, y, button)
     elseif view == "settings" then
         local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, settingsTab, gx, gy, fonts.button)
         local r = SettingsPanel.applyHit(h, player)
+        if h and h.kind == "slider" then
+            settingsSliderDragKey = h.key
+        end
         if r then
             if r.setTab then settingsTab = r.setTab end
             if r.goBack then
                 view = "main"
                 settingsBindCapture = nil
+                settingsSliderDragKey = nil
             end
             if r.startBind then settingsBindCapture = r.startBind end
         end
+    end
+end
+
+function menu:mousereleased(x, y, button)
+    if button == 1 then
+        settingsSliderDragKey = nil
     end
 end
 
@@ -218,6 +286,7 @@ function menu:keypressed(key)
         if key == "escape" or key == "backspace" then
             view = "main"
             settingsBindCapture = nil
+            settingsSliderDragKey = nil
         elseif key == "[" then
             settingsTab = SettingsPanel.cycleTab(settingsTab, -1)
         elseif key == "]" then
@@ -249,8 +318,14 @@ function menu:draw()
     local screenW = GAME_WIDTH
     local screenH = GAME_HEIGHT
 
-    -- First room preview (world space)
-    if camera and currentRoom and player then
+    -- Same full-screen art as boot title when configured; otherwise first-room preview.
+    if menuBgImg then
+        local iw, ih = menuBgImg:getDimensions()
+        local scale = math.max(screenW / iw, screenH / ih)
+        local sw, sh = iw * scale, ih * scale
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(menuBgImg, (screenW - sw) * 0.5, (screenH - sh) * 0.5, 0, scale, scale)
+    elseif camera and currentRoom and player then
         camera:attach(0, 0, GAME_WIDTH, GAME_HEIGHT)
         MenuRoomDraw.draw(camera, currentRoom, bgImage, false, false)
         player:draw()
@@ -306,6 +381,11 @@ function menu:draw()
             row = fonts.settingsBody,
             hint = fonts.hint,
         }, settingsHover, settingsBindCapture)
+    end
+
+    if introFadeAlpha > 0 then
+        love.graphics.setColor(0, 0, 0, introFadeAlpha)
+        love.graphics.rectangle("fill", 0, 0, screenW, screenH)
     end
 
     love.graphics.setColor(1, 1, 1)

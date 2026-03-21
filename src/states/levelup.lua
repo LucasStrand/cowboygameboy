@@ -4,6 +4,7 @@ local PerkCard = require("src.ui.perk_card")
 local BlurBG = require("src.ui.blur_bg")
 local Cursor = require("src.ui.cursor")
 local game = require("src.states.game")
+local Sfx = require("src.systems.sfx")
 
 local levelup = {}
 
@@ -18,6 +19,7 @@ function levelup:enter(_, _player, _callback)
     perks = Progression.rollLevelUpPerks(player)
     hoveredIndex = nil
     Cursor.setDefault()
+    Sfx.play("level_up")
 end
 
 function levelup:update(dt)
@@ -41,6 +43,7 @@ end
 function selectPerk(index)
     local perk = perks[index]
     if perk then
+        Sfx.play("ui_confirm")
         Progression.applyPerk(player, perk)
         Gamestate.pop()
         if callback then
