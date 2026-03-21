@@ -30,7 +30,10 @@
       "Bash(lua -e \"loadfile\\(''src/states/game.lua''\\)\")",
       "Bash(magick identify:*)",
       "Bash(find /c/github/cowboygameboy/assets -type f \\\\\\(-iname *.png -o -iname *.jpg -o -iname *.jpeg \\\\\\))",
-      "Bash(find /c/github/cowboygameboy/assets/sounds -type f -name *.wav -o -name *.ogg)"
+      "Bash(find /c/github/cowboygameboy/assets/sounds -type f -name *.wav -o -name *.ogg)",
+      "Bash(find /c/github/cowboygameboy/assets -path */Tiles/Tiles/* -o -path */Tiles/Assets/*)",
+      "Bash(love . --fused)",
+      "Bash(timeout 6 love .)"
     ]
   }
 }

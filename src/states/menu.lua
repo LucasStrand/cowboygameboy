@@ -48,6 +48,7 @@ end
 local function menuButtons()
     return {
         { id = "start", label = "Start game" },
+        { id = "editor", label = "Level Editor" },
         { id = "settings", label = "Settings" },
         { id = "quit", label = "Quit" },
     }
@@ -238,6 +239,10 @@ function menu:mousepressed(x, y, button)
             if hitRect(gx, gy, r) then
                 if r.id == "start" then
                     beginGameWithIntroCountdown()
+                elseif r.id == "editor" then
+                    MenuBgm.stop()
+                    local editorState = require("src.states.editor")
+                    Gamestate.switch(editorState)
                 elseif r.id == "settings" then
                     view = "settings"
                 elseif r.id == "quit" then
@@ -306,6 +311,10 @@ function menu:keypressed(key)
         local id = list[selectedIndex].id
         if id == "start" then
             beginGameWithIntroCountdown()
+        elseif id == "editor" then
+            MenuBgm.stop()
+            local editorState = require("src.states.editor")
+            Gamestate.switch(editorState)
         elseif id == "settings" then
             view = "settings"
         elseif id == "quit" then

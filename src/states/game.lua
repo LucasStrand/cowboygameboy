@@ -20,6 +20,7 @@ local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
 local TileRenderer = require("src.systems.tile_renderer")
+local Worlds = require("src.data.worlds")
 local ImpactFX = require("src.systems.impact_fx")
 local Sfx = require("src.systems.sfx")
 
@@ -52,6 +53,8 @@ local pauseSettingsSliderDragKey = nil
 local characterSheetOpen = false
 --- Set in update when death completes; next draw captures world → game over (see pendingGameOver block after camera:detach).
 local pendingGameOver = nil
+--- When true, we're in editor test-play mode — death/door returns to editor.
+local editorTestMode = false
 
 -- Ultimate: Dead Man's Hand (single table to avoid upvalue bloat)
 local ult = { flashAlpha = 0, shotFlashScreen = 0, vignetteAlpha = 0, rings = {}, pulseTimer = 0 }
@@ -339,6 +342,12 @@ local function tryExitThroughDoor()
     if transitionTimer > 0 or not isPlayerNearDoor() or not roomManager then
         return
     end
+    -- Editor test-play: return to editor on door exit
+    if editorTestMode then
+        local editorState = require("src.states.editor")
+        Gamestate.switch(editorState)
+        return
+    end
     roomManager:onRoomCleared()
     if roomManager:isCheckpoint() then
         local saloon = require("src.states.saloon")
@@ -349,6 +358,7 @@ local function tryExitThroughDoor()
 end
 
 local bgImage
+local currentTheme   -- tile theme for current world (passed to TileRenderer)
 
 -- Saloon door sprite (384×48, 8 frames of 48×48)
 local doorSheet
@@ -358,9 +368,6 @@ local DOOR_FRAMES = 8
 local DOOR_FPS = 12
 
 function game:init()
-    bgImage = love.graphics.newImage("assets/backgrounds/forest.png")
-    bgImage:setWrap("repeat", "clampzero")
-
     doorSheet = love.graphics.newImage("assets/SaloonDoor.png")
     doorSheet:setFilter("nearest", "nearest")
     local sw, sh = doorSheet:getDimensions()
@@ -700,11 +707,33 @@ function game:enter(_, opts)
     devShowHitboxes = true
     devPanelRows = DevPanel.buildRows(devShowHitboxes)
 
-    roomManager = RoomManager.new()
-    roomManager:generateSequence()
-    DevLog.init()
-    DevLog.push("sys", "Run started")
-    loadNextRoom()
+    local worldId = (opts and opts.worldId) or "forest"
+    roomManager = RoomManager.new(worldId)
+    currentTheme = roomManager:getTheme()
+
+    -- Load background from world definition
+    local worldDef = Worlds.get(worldId)
+    local bgPath = worldDef and worldDef.background or "assets/backgrounds/forest.png"
+    bgImage = love.graphics.newImage(bgPath)
+    bgImage:setWrap("repeat", "clampzero")
+
+    -- Editor test-play mode: load a single room directly
+    local editorRoom = opts and opts.editorRoom
+    editorTestMode = (editorRoom ~= nil)
+    if editorRoom then
+        roomManager:generateSequence()  -- still needed for internal state
+        DevLog.init()
+        DevLog.push("sys", "Editor test play")
+        -- Load the editor room directly instead of using the sequence
+        currentRoom = roomManager:loadRoom(editorRoom, world, player)
+        enemies = currentRoom.enemies
+        updateCamera(0, true)
+    else
+        roomManager:generateSequence()
+        DevLog.init()
+        DevLog.push("sys", string.format("Run started — World: %s", worldDef and worldDef.name or worldId))
+        loadNextRoom()
+    end
 
     if opts and opts.introCountdown and Gamestate.current() == game then
         introCountdownActive = true
@@ -1107,6 +1136,11 @@ function game:update(dt)
 
     -- Player death (after collapse animation); snapshot taken in draw after world is rendered
     if player.dying and player.deathTimer >= Player.DEATH_DURATION then
+        if editorTestMode then
+            local editorState = require("src.states.editor")
+            Gamestate.switch(editorState)
+            return
+        end
         if not pendingGameOver then
             DevLog.push("sys", string.format("Player died  lv%d  %d rooms  $%d",
                 player.level, roomManager.totalRoomsCleared, player.gold))
@@ -1495,15 +1529,15 @@ function game:draw()
 
         -- Walls (left, right, ceiling)
         for _, wall in ipairs(currentRoom.walls) do
-            TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h)
+            TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h, currentTheme)
         end
 
         -- Platforms
         for _, plat in ipairs(currentRoom.platforms) do
             if plat.h >= 32 then
-                TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h)
+                TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme)
             else
-                TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h)
+                TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme)
             end
         end
 
