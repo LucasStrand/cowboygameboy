@@ -1135,23 +1135,39 @@ function Player:draw()
         end
     end
 
-    -- Melee swipe (oriented like gun fire direction)
+    -- Melee swipe: arc slash drawn from player centre outward
     if not self.dying and self.meleeSwingTimer > 0 then
-        local midx, midy, angle, range, thick = self:getMeleeSwingDrawParams()
-        local alpha = self.meleeSwingTimer / 0.15
-        love.graphics.push()
-        love.graphics.translate(midx, midy)
-        love.graphics.rotate(angle)
-        love.graphics.setColor(1, 0.9, 0.3, alpha * 0.5)
-        love.graphics.rectangle("fill", -range * 0.5, -thick * 0.5, range, thick)
-        love.graphics.setColor(1, 0.9, 0.3, alpha)
-        love.graphics.rectangle("line", -range * 0.5, -thick * 0.5, range, thick)
+        local s    = self:getEffectiveStats()
+        local ang  = self.meleeAimAngle
+        local pcx  = self.x + self.w * 0.5
+        local pcy  = self.y + self.h * 0.5
+        local innerR = 6                      -- MELEE_INNER_DIST
+        local outerR = innerR + s.meleeRange
+        local spread = 0.52                   -- ~30° each side of aim angle
+        local alpha  = self.meleeSwingTimer / 0.15
+
+        -- Filled pie-slice trail
+        love.graphics.setColor(1, 0.82, 0.18, alpha * 0.25)
+        love.graphics.arc("fill", pcx, pcy, outerR, ang - spread, ang + spread)
+
+        -- Bright outer arc edge
+        love.graphics.setColor(1, 0.95, 0.42, alpha * 0.85)
+        love.graphics.setLineWidth(4)
+        love.graphics.arc("line", "open", pcx, pcy, outerR, ang - spread, ang + spread)
+
+        -- Fainter inner arc edge
+        love.graphics.setColor(1, 0.78, 0.15, alpha * 0.45)
         love.graphics.setLineWidth(2)
-        love.graphics.setColor(1, 1, 0.85, alpha * 0.9)
-        love.graphics.line(-range * 0.5, 0, range * 0.5, 0)
-        love.graphics.line(-range * 0.5 + 4, -thick * 0.45, range * 0.5 - 4, thick * 0.45)
+        love.graphics.arc("line", "open", pcx, pcy, innerR + 3, ang - spread, ang + spread)
+
+        -- Leading-edge slash line through the centre of the arc
+        love.graphics.setColor(1, 1, 0.88, alpha)
+        love.graphics.setLineWidth(2)
+        love.graphics.line(
+            pcx + math.cos(ang) * innerR, pcy + math.sin(ang) * innerR,
+            pcx + math.cos(ang) * outerR, pcy + math.sin(ang) * outerR)
+
         love.graphics.setLineWidth(1)
-        love.graphics.pop()
     end
     if self.meleeHitFlashTimer > 0 then
         local f = self.meleeHitFlashTimer / 0.2

@@ -277,7 +277,7 @@ function Combat.checkPlayerMelee(player, enemies)
                hy < e.y + e.h and hy + hh > e.y then
                 e:takeDamage(dmg, nil)
                 DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, dmg, "out")
-                ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee")
+                ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee", nil, player.meleeAimAngle)
                 Sfx.play("melee_hit")
                 player.meleeHitEnemies[e] = true
                 player.meleeHitFlashTimer = 0.2

@@ -28,7 +28,9 @@
       "Bash(find C:/github/cowboygameboy/assets -type f -name *.wav -o -name *.ogg -o -name *.mp3 -o -name *.flac)",
       "Bash(find C:/github/cowboygameboy/assets -type f \\\\\\(-name *.png -o -name *.jpg -o -name *.jpeg \\\\\\))",
       "Bash(lua -e \"loadfile\\(''src/states/game.lua''\\)\")",
-      "Bash(magick identify:*)"
+      "Bash(magick identify:*)",
+      "Bash(find /c/github/cowboygameboy/assets -type f \\\\\\(-iname *.png -o -iname *.jpg -o -iname *.jpeg \\\\\\))",
+      "Bash(find /c/github/cowboygameboy/assets/sounds -type f -name *.wav -o -name *.ogg)"
     ]
   }
 }
