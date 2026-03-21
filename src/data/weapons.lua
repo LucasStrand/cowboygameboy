@@ -1,3 +1,5 @@
+local Guns = require("src.data.guns")
+
 local Weapons = {}
 
 -- Default weapons equipped at game start.
@@ -5,6 +7,7 @@ local Weapons = {}
 -- hat/vest/boots: values are added on top of the player's base stats in
 -- getEffectiveStats().
 Weapons.defaults = {
+    gun = Guns.default,
     melee = {
         id      = "dagger",
         name    = "Dagger",

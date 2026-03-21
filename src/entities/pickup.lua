@@ -1,7 +1,15 @@
 local PlatformCollision = require("src.systems.platform_collision")
+local Font = require("src.ui.font")
+local Guns = require("src.data.guns")
 
 local Pickup = {}
 Pickup.__index = Pickup
+
+local RARITY_COLORS = {
+    common   = {0.85, 0.85, 0.85},
+    uncommon = {0.2, 0.8, 0.2},
+    rare     = {1.0, 0.6, 0.1},
+}
 
 local GRAVITY = 600
 
@@ -26,6 +34,15 @@ function Pickup.new(x, y, pickupType, value)
     self.attractSpeed = ATTRACT_SPEED_MIN
     self.bobTimer = math.random() * math.pi * 2
     self.bobOffset = 0
+
+    -- Weapon pickup extras
+    if pickupType == "weapon" then
+        self.gunDef = value        -- value holds the gun definition table
+        self.w = 14
+        self.h = 14
+        self.lifetime = 30         -- weapons stay longer
+    end
+
     return self
 end
 
@@ -98,6 +115,44 @@ function Pickup:draw()
         love.graphics.setColor(0.9, 0.2, 0.2)
         love.graphics.rectangle("fill", self.x + 2, self.y + dy, 6, self.h)
         love.graphics.rectangle("fill", self.x, self.y + 2 + dy, self.w, 6)
+    elseif self.pickupType == "weapon" and self.gunDef then
+        local t = love.timer.getTime()
+        local pulse = 0.7 + 0.3 * math.sin(t * 4)
+        local rc = RARITY_COLORS[self.gunDef.rarity] or RARITY_COLORS.common
+        local cx, cy = self.x + self.w / 2, self.y + self.h / 2 + dy
+
+        -- Glow
+        love.graphics.setColor(rc[1], rc[2], rc[3], 0.22 * pulse)
+        love.graphics.circle("fill", cx, cy, 16)
+        love.graphics.setColor(rc[1], rc[2], rc[3], 0.35 * pulse)
+        love.graphics.circle("line", cx, cy, 16)
+
+        -- Draw actual weapon sprite if available
+        local sprite = Guns.getSprite(self.gunDef)
+        if sprite then
+            local sw, sh = sprite:getDimensions()
+            local scale = 0.55
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sprite, cx, cy, 0, scale, scale, sw / 2, sh / 2)
+        else
+            -- Fallback: colored rectangle
+            love.graphics.setColor(rc[1], rc[2], rc[3], 0.9)
+            love.graphics.rectangle("fill", self.x + 1, self.y + 3 + dy, self.w - 2, self.h - 6)
+        end
+
+        -- Floating name label
+        if not Pickup._weaponFont then
+            Pickup._weaponFont = Font.new(8)
+        end
+        local prevFont = love.graphics.getFont()
+        love.graphics.setFont(Pickup._weaponFont)
+        local label = self.gunDef.name
+        local tw = Pickup._weaponFont:getWidth(label)
+        love.graphics.setColor(0, 0, 0, 0.7)
+        love.graphics.print(label, cx - tw / 2 + 1, self.y - 12 + dy + 1)
+        love.graphics.setColor(rc[1], rc[2], rc[3], 1)
+        love.graphics.print(label, cx - tw / 2, self.y - 12 + dy)
+        love.graphics.setFont(prevFont)
     end
 
     -- Flash when about to expire

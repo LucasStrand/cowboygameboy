@@ -1,4 +1,5 @@
 local Weapons = require("src.data.weapons")
+local Guns    = require("src.data.guns")
 local PlatformCollision = require("src.systems.platform_collision")
 local Animator = require("src.systems.animation")
 local Keybinds = require("src.systems.keybinds")
@@ -23,6 +24,17 @@ local JUMP_RELEASE_GRAVITY_MULT = 0.95 -- extra gravity while rising if jump not
 local DASH_SPEED = 520
 local DASH_DURATION = 0.12
 local DASH_COOLDOWN = 0.52
+
+-- Original player base gun stats — used to compute perk deltas when a
+-- non-default weapon is equipped.  These MUST match the values in Player.new().
+local PLAYER_BASE_GUN_STATS = {
+    cylinderSize  = 6,
+    reloadSpeed   = 1.2,
+    bulletSpeed   = 500,
+    bulletDamage  = 10,
+    bulletCount   = 1,
+    spreadAngle   = 0,
+}
 
 -- Face sprite toward horizontal aim; small deadzone only when aim is ~through torso
 local AIM_FACE_DEADZONE = 3
@@ -78,6 +90,7 @@ function Player.new(x, y)
         ricochetCount = 0,
         explosiveRounds = false,
         deadEye = false,
+        akimbo = false,
         -- Melee
         meleeDamage    = 0,
         meleeRange     = 0,
@@ -110,6 +123,14 @@ function Player.new(x, y)
         melee  = Weapons.defaults.melee,
         shield = Weapons.defaults.shield,
     }
+
+    -- Weapon slots: [1] = primary (always ranged), [2] = secondary (ranged or nil for melee)
+    self.weapons = {
+        [1] = { gun = Guns.default, ammo = Guns.default.baseStats.cylinderSize,
+                reloading = false, reloadTimer = 0, shootCooldown = 0 },
+        [2] = nil,  -- nil = melee/shield mode (legacy)
+    }
+    self.activeWeaponSlot = 1
 
     -- Crouch / platform-drop
     self.crouching        = false
@@ -174,6 +195,25 @@ function Player:shieldAllowsAutoBlock()
     return st and st.allowAutoBlock and true or false
 end
 
+--- Returns the gun definition for the active weapon slot, or nil if melee.
+function Player:getActiveGun()
+    local slot = self.weapons[self.activeWeaponSlot]
+    return slot and slot.gun or nil
+end
+
+--- Returns the gun definition for the off-hand weapon slot, or nil.
+function Player:getOffhandGun()
+    local otherSlot = self.activeWeaponSlot == 1 and 2 or 1
+    local slot = self.weapons[otherSlot]
+    return slot and slot.gun or nil
+end
+
+--- True when akimbo perk is active AND both slots have ranged weapons.
+function Player:isAkimbo()
+    return self.stats.akimbo and self.weapons[1] and self.weapons[1].gun
+           and self.weapons[2] and self.weapons[2].gun
+end
+
 function Player:getEffectiveStats()
     local s = {}
     for k, v in pairs(self.stats) do
@@ -188,6 +228,20 @@ function Player:getEffectiveStats()
                 end
             end
         end
+    end
+
+    -- Gun stats: replace with active weapon base + perk delta
+    local gun = self:getActiveGun()
+    if gun then
+        for stat, baseDefault in pairs(PLAYER_BASE_GUN_STATS) do
+            local perkDelta = self.stats[stat] - baseDefault
+            s[stat] = gun.baseStats[stat] + perkDelta
+        end
+        s.shootCooldown = gun.baseStats.shootCooldown
+        s.inaccuracy    = gun.baseStats.inaccuracy or 0
+    else
+        s.shootCooldown = 0.38
+        s.inaccuracy    = 0
     end
 
     return s
@@ -217,6 +271,28 @@ function Player:update(dt, world, enemies)
     -- Shoot cooldown
     if self.shootCooldown > 0 then
         self.shootCooldown = self.shootCooldown - dt
+    end
+
+    -- Akimbo: tick off-hand weapon's cooldown and reload independently
+    if self:isAkimbo() then
+        local offSlotIdx = self.activeWeaponSlot == 1 and 2 or 1
+        local off = self.weapons[offSlotIdx]
+        if off then
+            if off.shootCooldown > 0 then
+                off.shootCooldown = off.shootCooldown - dt
+            end
+            if off.reloading then
+                off.reloadTimer = off.reloadTimer - dt
+                if off.reloadTimer <= 0 then
+                    off.reloading = false
+                    -- Compute off-hand capacity using perk delta
+                    local gunBase = off.gun.baseStats.cylinderSize
+                    local perkDelta = self.stats.cylinderSize - PLAYER_BASE_GUN_STATS.cylinderSize
+                    off.ammo = gunBase + perkDelta
+                    off.reloadTimer = 0
+                end
+            end
+        end
     end
 
     -- Melee cooldown + swing window
@@ -281,6 +357,13 @@ function Player:update(dt, world, enemies)
             self.ammo = effectiveStats.cylinderSize
             if self.stats.deadEye then
                 self.deadEyeTimer = 3.0
+            end
+            -- Sync to weapon slot
+            local slot = self.weapons[self.activeWeaponSlot]
+            if slot then
+                slot.ammo = self.ammo
+                slot.reloading = false
+                slot.reloadTimer = 0
             end
         end
     end
@@ -478,15 +561,24 @@ function Player:shoot(mx, my)
         return nil
     end
 
+    local effectiveStats = self:getEffectiveStats()
+    local firedOffHand = false
+
     self.ammo = self.ammo - 1
-    self.shootCooldown = 0.38
-    self.anim:play("shoot", true)
+    if not self:isAkimbo() then
+        self.anim:play("shoot", true)
+    end
 
     local cx = self.x + self.w / 2
     local cy = self.y + self.h / 2
     local angle = math.atan2(my - cy, mx - cx)
 
-    local effectiveStats = self:getEffectiveStats()
+    -- Per-shot inaccuracy (e.g. AK-47)
+    local inacc = effectiveStats.inaccuracy or 0
+    if inacc > 0 then
+        angle = angle + (math.random() - 0.5) * 2 * inacc
+    end
+
     local bullets = {}
     local count = effectiveStats.bulletCount
 
@@ -507,8 +599,87 @@ function Player:shoot(mx, my)
         })
     end
 
+    -- Weapon-specific on-shoot callback (e.g. blunderbuss recoil)
+    local gun = self:getActiveGun()
+    if gun and gun.onShoot then
+        gun.onShoot(self, angle)
+    end
+
+    -- Sync ammo back to weapon slot state
+    local slot = self.weapons[self.activeWeaponSlot]
+    if slot then slot.ammo = self.ammo end
+
     if self.ammo <= 0 then
         self:reload()
+    end
+
+    -- Akimbo: also fire the off-hand weapon (same volley as primary; pair cooldown is max of both below)
+    if self:isAkimbo() then
+        local offSlotIdx = self.activeWeaponSlot == 1 and 2 or 1
+        local off = self.weapons[offSlotIdx]
+        if off and off.ammo > 0 and not off.reloading then
+            local offGun = off.gun
+            -- Compute off-hand effective stats via perk delta
+            local offDmg = offGun.baseStats.bulletDamage + (self.stats.bulletDamage - PLAYER_BASE_GUN_STATS.bulletDamage)
+            local offSpd = offGun.baseStats.bulletSpeed + (self.stats.bulletSpeed - PLAYER_BASE_GUN_STATS.bulletSpeed)
+            local offCnt = offGun.baseStats.bulletCount + (self.stats.bulletCount - PLAYER_BASE_GUN_STATS.bulletCount)
+            local offSpread = offGun.baseStats.spreadAngle + (self.stats.spreadAngle - PLAYER_BASE_GUN_STATS.spreadAngle)
+            local offInacc = offGun.baseStats.inaccuracy or 0
+
+            off.ammo = off.ammo - 1
+            firedOffHand = true
+
+            -- Off-hand aim angle (same target, slight offset for visual flair)
+            local offAngle = angle
+            if offInacc > 0 then
+                offAngle = offAngle + (math.random() - 0.5) * 2 * offInacc
+            end
+
+            for i = 1, offCnt do
+                local a = offAngle
+                if offCnt > 1 then
+                    a = offAngle - offSpread / 2 + offSpread * ((i - 1) / (offCnt - 1))
+                end
+                table.insert(bullets, {
+                    x = cx,
+                    y = cy,
+                    angle = a,
+                    speed = offSpd,
+                    damage = math.floor(offDmg * effectiveStats.damageMultiplier),
+                    ricochet = effectiveStats.ricochetCount,
+                    explosive = effectiveStats.explosiveRounds,
+                })
+            end
+
+            -- Off-hand on-shoot callback
+            if offGun.onShoot then
+                offGun.onShoot(self, offAngle)
+            end
+
+            -- Auto-reload off-hand when empty
+            if off.ammo <= 0 then
+                off.reloading = true
+                local reloadDelta = self.stats.reloadSpeed - PLAYER_BASE_GUN_STATS.reloadSpeed
+                off.reloadTimer = offGun.baseStats.reloadSpeed + reloadDelta
+            end
+        end
+    end
+
+    -- Akimbo: one volley timer so a fast primary does not outpace a slow off-hand (both always fire together when able)
+    local primaryCd = effectiveStats.shootCooldown or 0.38
+    if self:isAkimbo() then
+        local activeGun = self:getActiveGun()
+        local offSlotIdx = self.activeWeaponSlot == 1 and 2 or 1
+        local off = self.weapons[offSlotIdx]
+        local offGun = off and off.gun
+        if firedOffHand and activeGun and offGun then
+            self.shootCooldown = math.max(activeGun.baseStats.shootCooldown, offGun.baseStats.shootCooldown)
+            if off then off.shootCooldown = self.shootCooldown end
+        else
+            self.shootCooldown = primaryCd
+        end
+    else
+        self.shootCooldown = primaryCd
     end
 
     return bullets
@@ -624,10 +795,17 @@ end
 
 function Player:reload()
     if self.reloading then return end
+    if not self:getActiveGun() then return end  -- melee slot, no reload
     if self.ammo >= self:getEffectiveStats().cylinderSize then return end
     self.reloading = true
     self.reloadTimer = self:getEffectiveStats().reloadSpeed
     self.anim:play("holster_spin", true)
+    -- Sync to weapon slot
+    local slot = self.weapons[self.activeWeaponSlot]
+    if slot then
+        slot.reloading = true
+        slot.reloadTimer = self.reloadTimer
+    end
 end
 
 --- Dead Eye ult (same duration as post-reload proc); only if Dead Eye perk is active.
@@ -697,6 +875,72 @@ function Player:applyPerk(perk)
     perk.apply(self)
 end
 
+--- Save active slot state from live fields, then restore the target slot.
+function Player:switchWeapon()
+    -- Save current slot state
+    local cur = self.weapons[self.activeWeaponSlot]
+    if cur then
+        cur.ammo         = self.ammo
+        cur.reloading    = self.reloading
+        cur.reloadTimer  = self.reloadTimer
+        cur.shootCooldown = self.shootCooldown
+    end
+
+    -- Toggle between slot 1 and 2
+    local newSlot = self.activeWeaponSlot == 1 and 2 or 1
+    local target = self.weapons[newSlot]
+    if not target then return end  -- slot 2 has no ranged weapon
+
+    -- Cancel any active reload on old weapon
+    if self.reloading then
+        -- Keep reload progress saved in the slot (resume later)
+    end
+
+    self.activeWeaponSlot = newSlot
+
+    -- Restore new slot state
+    self.ammo          = target.ammo
+    self.reloading     = target.reloading
+    self.reloadTimer   = target.reloadTimer
+    self.shootCooldown = target.shootCooldown
+
+    -- Visual feedback
+    self.anim:play("holster", true)
+end
+
+--- Equip a gun definition into a weapon slot (1 or 2). Resets ammo to full.
+--- Auto-switches to the new weapon slot for immediate feedback.
+function Player:equipWeapon(gunDef, slotIndex)
+    slotIndex = slotIndex or 2
+
+    -- Save current active slot state before switching
+    local curSlot = self.weapons[self.activeWeaponSlot]
+    if curSlot then
+        curSlot.ammo         = self.ammo
+        curSlot.reloading    = self.reloading
+        curSlot.reloadTimer  = self.reloadTimer
+        curSlot.shootCooldown = self.shootCooldown
+    end
+
+    self.weapons[slotIndex] = {
+        gun          = gunDef,
+        ammo         = gunDef.baseStats.cylinderSize,
+        reloading    = false,
+        reloadTimer  = 0,
+        shootCooldown = 0,
+    }
+
+    -- Auto-switch to the newly equipped weapon
+    self.activeWeaponSlot = slotIndex
+    self.ammo         = gunDef.baseStats.cylinderSize
+    self.reloading    = false
+    self.reloadTimer  = 0
+    self.shootCooldown = 0
+
+    -- If equipping a ranged weapon to any slot that previously held melee, remove melee gear
+    self.gear.melee = nil
+end
+
 function Player.filter(item, other)
     -- Pickups use distance collection only; resolving them in bump causes snagging when
     -- loot spawns on the player or they jump through the drop point.
@@ -723,23 +967,44 @@ end
 
 function Player:draw()
     -- Reload progress: thin bar above the cowboy (world space)
-    if not self.dying and self.reloading then
-        local es = self:getEffectiveStats()
-        local total = es.reloadSpeed
-        local pct = (total > 0) and (1 - self.reloadTimer / total) or 1
-        pct = math.max(0, math.min(1, pct))
-        local bw, bh = 48, 3
-        local bx = self.x + self.w * 0.5 - bw * 0.5
-        local by = self.y - 16
+    local function drawReloadBar(bx, by, bw, bh, pct, r, g, b)
         love.graphics.setColor(0, 0, 0, 0.28)
         love.graphics.rectangle("fill", bx - 1, by - 1, bw + 2, bh + 2)
         love.graphics.setColor(0.2, 0.18, 0.16, 0.45)
         love.graphics.rectangle("fill", bx, by, bw, bh)
-        love.graphics.setColor(0.42, 0.36, 0.26, 0.55)
+        love.graphics.setColor(r or 0.42, g or 0.36, b or 0.26, 0.55)
         love.graphics.rectangle("fill", bx, by, bw * pct, bh)
         love.graphics.setColor(0.65, 0.58, 0.42, 0.35)
         love.graphics.rectangle("line", bx, by, bw, bh)
         love.graphics.setColor(1, 1, 1)
+    end
+
+    if not self.dying then
+        local bw, bh = 48, 3
+        local barX = self.x + self.w * 0.5 - bw * 0.5
+        local barY = self.y - 16
+
+        -- Active weapon reload bar
+        if self.reloading then
+            local es = self:getEffectiveStats()
+            local total = es.reloadSpeed
+            local pct = (total > 0) and (1 - self.reloadTimer / total) or 1
+            pct = math.max(0, math.min(1, pct))
+            drawReloadBar(barX, barY, bw, bh, pct)
+        end
+
+        -- Akimbo off-hand reload bar (second bar, slightly above)
+        if self:isAkimbo() then
+            local offSlotIdx = self.activeWeaponSlot == 1 and 2 or 1
+            local off = self.weapons[offSlotIdx]
+            if off and off.reloading then
+                local reloadDelta = self.stats.reloadSpeed - PLAYER_BASE_GUN_STATS.reloadSpeed
+                local total = off.gun.baseStats.reloadSpeed + reloadDelta
+                local pct = (total > 0) and (1 - off.reloadTimer / total) or 1
+                pct = math.max(0, math.min(1, pct))
+                drawReloadBar(barX, barY - 6, bw, bh, pct, 0.35, 0.45, 0.55)
+            end
+        end
     end
 
     local t = love.timer.getTime()
@@ -784,6 +1049,38 @@ function Player:draw()
         self.anim:drawCentered(cx, footY, self.facingRight)
     end
 
+    -- Weapon sprite overlay (draw equipped gun on top of cowboy)
+    if not self.dying then
+        local aimAngle = self:getAimAngle()
+        local handX = cx + (self.facingRight and 2 or -2)
+        local baseHandY = self.y + self.h * 0.42
+
+        local function drawGunSprite(gun, yOff)
+            if gun.id == "revolver" then return end  -- cowboy animation already has a revolver
+            local sprite = Guns.getSprite(gun)
+            if not sprite then return end
+            local scale = gun.spriteScale or 0.7
+            local origin = gun.spriteOrigin or { x = 0.25, y = 0.5 }
+            local sw, sh = sprite:getDimensions()
+            local ox = sw * origin.x
+            local oy = sh * origin.y
+            local sy = scale
+            if not self.facingRight then sy = -scale end
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sprite, handX, baseHandY + yOff, aimAngle, scale, sy, ox, oy)
+        end
+
+        if self:isAkimbo() then
+            -- Draw both weapons offset vertically
+            local gun1 = self.weapons[1] and self.weapons[1].gun
+            local gun2 = self.weapons[2] and self.weapons[2].gun
+            if gun1 then drawGunSprite(gun1, -4) end
+            if gun2 then drawGunSprite(gun2, 4) end
+        else
+            local gun = self:getActiveGun()
+            if gun then drawGunSprite(gun, 0) end
+        end
+    end
 
     -- Melee swipe (oriented like gun fire direction)
     if not self.dying and self.meleeSwingTimer > 0 then

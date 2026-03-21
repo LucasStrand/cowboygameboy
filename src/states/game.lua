@@ -524,7 +524,8 @@ local function drawCharacterSheet()
 end
 
 local function devPerkById(pid)
-    for _, p in ipairs(PerksData.pool) do
+    local Perks = require("src.data.perks")
+    for _, p in ipairs(Perks.pool) do
         if p.id == pid then return p end
     end
 end
@@ -642,6 +643,15 @@ local function devApplyAction(id)
             world:add(e, e.x, e.y, e.w, e.h)
             table.insert(enemies, e)
             DevLog.push("sys", "[dev] spawn " .. t)
+        end
+    elseif id:sub(1, 4) == "gun:" then
+        local gunId = id:sub(5)
+        local Guns = require("src.data.guns")
+        local gunDef = Guns.getById(gunId)
+        if gunDef then
+            local slot = player.weapons[2] and player.weapons[2].gun and player.activeWeaponSlot or 2
+            player:equipWeapon(gunDef, slot)
+            DevLog.push("sys", "[dev] equipped " .. gunDef.name .. " to slot " .. slot)
         end
     elseif id:sub(1, 5) == "perk:" then
         local pid = id:sub(6)
@@ -860,7 +870,7 @@ function game:update(dt)
     if not player.dying then
     local i, leveledUp -- hoisted for goto (cannot jump over `local` in same block)
     -- Auto-fire only when findAutoTarget finds someone (on-screen + LOS). Mouse overrides *direction* to cursor, but never fires into empty space.
-    if player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
+    if player:getActiveGun() and player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
         local tx, ty
         if not autoTx then
             tx, ty = nil, nil
@@ -876,8 +886,12 @@ function game:update(dt)
                     local b = Combat.spawnBullet(world, data)
                     table.insert(bullets, b)
                 end
+                -- Scale shake by fire rate (rapid weapons get less shake per shot)
+                local gun = player:getActiveGun()
+                local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+                local shakeMult = math.min(1, cooldown / 0.38)
                 shakeTimer = 0.08
-                shakeIntensity = 2
+                shakeIntensity = 2 * shakeMult
             end
         end
     end
@@ -946,7 +960,7 @@ function game:update(dt)
     end
 
     -- Check pickup collection
-    leveledUp = Combat.checkPickups(pickups, player)
+    leveledUp = Combat.checkPickups(pickups, player, world)
 
     -- Level up
     if leveledUp then
@@ -1142,6 +1156,9 @@ function game:keypressed(key)
     if key == "h" then
         player:spinHolster()
     end
+    if key == "tab" then
+        player:switchWeapon()
+    end
     if key == "e" then
         tryExitThroughDoor()
     end
@@ -1250,7 +1267,7 @@ function game:mousepressed(x, y, button)
     if player then
         player.mouseAimOverrideUntil = love.timer.getTime() + Settings.getMouseAimIdleSec()
     end
-    if button == 1 and player and not player.blocking then
+    if button == 1 and player and not player.blocking and player:getActiveGun() then
         -- Manual shot at cursor; player:shoot cooldown blocks double-tap with auto-fire in update
         local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
         local bulletData = player:shoot(mx, my)
@@ -1259,8 +1276,11 @@ function game:mousepressed(x, y, button)
                 local b = Combat.spawnBullet(world, data)
                 table.insert(bullets, b)
             end
+            local gun = player:getActiveGun()
+            local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+            local shakeMult = math.min(1, cooldown / 0.38)
             shakeTimer = 0.08
-            shakeIntensity = 2
+            shakeIntensity = 2 * shakeMult
         end
     end
     if button == 2 then

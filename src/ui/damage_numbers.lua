@@ -34,20 +34,29 @@ end
 
 -- typ: "xp" | "gold" | "health"
 function DamageNumbers.spawnPickup(x, y, amount, typ)
-    if not amount or amount <= 0 then return end
-    local text = "+" .. tostring(math.floor(amount))
-    if typ == "xp" then
-        text = text .. " XP"
-    elseif typ == "gold" then
-        text = text .. " $"
-    elseif typ == "health" then
-        text = text .. " HP"
+    if not amount then return end
+    local text
+    local kind
+    if typ == "weapon" then
+        text = tostring(amount)  -- amount is the weapon name string
+        kind = "weapon"
+    else
+        if amount <= 0 then return end
+        text = "+" .. tostring(math.floor(amount))
+        if typ == "xp" then
+            text = text .. " XP"
+        elseif typ == "gold" then
+            text = text .. " $"
+        elseif typ == "health" then
+            text = text .. " HP"
+        end
+        kind = typ == "gold" and "gold" or (typ == "health" and "health" or "xp")
     end
     table.insert(items, {
         x = x + (math.random() - 0.5) * 10,
         y = y,
         text = text,
-        kind = typ == "gold" and "gold" or (typ == "health" and "health" or "xp"),
+        kind = kind,
         t = 0,
         life = 0.85,
         vy = -32 - math.random() * 14,
@@ -86,8 +95,10 @@ function DamageNumbers.draw()
             r, g, b = 1, 0.88, 0.28
         elseif p.kind == "health" then
             r, g, b = 0.4, 0.95, 0.45
+        elseif p.kind == "weapon" then
+            r, g, b = 1.0, 0.6, 0.1
         end
-        local w = (p.kind == "xp" or p.kind == "gold" or p.kind == "health") and 96 or 72
+        local w = (p.kind == "xp" or p.kind == "gold" or p.kind == "health" or p.kind == "weapon") and 96 or 72
         local tx = p.x - w * 0.5
         love.graphics.setColor(r * 0.15, g * 0.15, b * 0.15, fade * 0.95)
         love.graphics.printf(p.text, tx, p.y + 1, w, "center")
