@@ -1,6 +1,7 @@
 local Bullet = require("src.entities.bullet")
 local Pickup = require("src.entities.pickup")
 local Guns   = require("src.data.guns")
+local Vision = require("src.data.vision")
 local DamageNumbers = require("src.ui.damage_numbers")
 local ImpactFX = require("src.systems.impact_fx")
 local Sfx = require("src.systems.sfx")
@@ -189,9 +190,11 @@ local function hasLineOfSight(world, x1, y1, x2, y2)
     return len == 0
 end
 
-function Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
+function Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB, camera, nightMode, shakeX, shakeY)
     local px = player.x + player.w / 2
     local py = player.y + player.h / 2
+    shakeX = shakeX or 0
+    shakeY = shakeY or 0
 
     local bestEnemy = nil
     local bestDist = math.huge
@@ -200,13 +203,16 @@ function Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, view
         if e.alive then
             local ex = e.x + e.w / 2
             local ey = e.y + e.h / 2
-            local onScreen = ex >= viewL and ex <= viewR and ey >= viewT and ey <= viewB
-            if onScreen and hasLineOfSight(world, px, py, ex, ey) then
-                local dx = ex - px
-                local dist = dx * dx + (ey - py) * (ey - py)
-                if dist < bestDist then
-                    bestDist = dist
-                    bestEnemy = e
+            local inLamp = not nightMode or Vision.isInLightVision(player, ex, ey, camera, shakeX, shakeY)
+            if inLamp then
+                local onScreen = ex >= viewL and ex <= viewR and ey >= viewT and ey <= viewB
+                if onScreen and hasLineOfSight(world, px, py, ex, ey) then
+                    local dx = ex - px
+                    local dist = dx * dx + (ey - py) * (ey - py)
+                    if dist < bestDist then
+                        bestDist = dist
+                        bestEnemy = e
+                    end
                 end
             end
         end
@@ -231,12 +237,12 @@ local function enemyListOverlapsMeleeAABB(enemies, hx, hy, hw, hh)
     return false
 end
 
-function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB)
+function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB, camera, nightMode, shakeX, shakeY)
     if not player.autoMelee or player.blocking then return end
     local s = player:getEffectiveStats()
     if s.meleeDamage <= 0 then return end
     if player.meleeCooldown > 0 or player.meleeSwingTimer > 0 then return end
-    local tx, ty = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
+    local tx, ty = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB, camera, nightMode, shakeX, shakeY)
     if not tx then
         return
     end
@@ -247,7 +253,7 @@ function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB)
     if not enemyListOverlapsMeleeAABB(enemies, hx, hy, hw, hh) then
         return
     end
-    player:meleeAttack(tx, ty)
+    return player:meleeAttack(tx, ty)
 end
 
 -- Called every frame while a melee swing is active.  Hits each enemy at most

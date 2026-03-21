@@ -1,7 +1,7 @@
 local PlatformCollision = require("src.systems.platform_collision")
 local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
-local DropShadow = require("src.ui.drop_shadow")
+local Vision = require("src.data.vision")
 
 local Pickup = {}
 Pickup.__index = Pickup
@@ -102,12 +102,15 @@ function Pickup:update(dt, world, playerX, playerY)
     end
 end
 
-function Pickup:draw()
+function Pickup:draw(player, camera, shakeX, shakeY, room)
+    if player and camera then
+        local cx = self.x + self.w * 0.5
+        local cy = self.y + self.h * 0.5
+        if not Vision.isEntityVisibleToPlayer(room, player, cx, cy, camera, shakeX, shakeY) then
+            return
+        end
+    end
     local dy = self.bobOffset or 0
-    local cx = self.x + self.w / 2
-    local floorY = self.y + self.h
-    DropShadow.drawEllipse(cx, floorY, 7, 2.5, 0.22)
-
     if self.pickupType == "xp" then
         love.graphics.setColor(0.3, 0.7, 1.0)
         love.graphics.circle("fill", self.x + self.w/2, self.y + self.h/2 + dy, 5)

@@ -2,6 +2,9 @@ local RoomData = {}
 
 RoomData.ROOMS_PER_CHECKPOINT = 5
 
+--- Pool entries may set `night = true` for player lamp, fog-of-war, and WorldLighting shader.
+--- Omit or `false` for full daylight (default). `RoomManager.nightVisualsOverride` can force all rooms.
+
 RoomData.pool = {
     {
         id = "canyon_run",
@@ -37,6 +40,12 @@ RoomData.pool = {
         },
         playerSpawn = {x = 80, y = 680},
         exitDoor = {x = 2340, y = 704, w = 32, h = 32},
+        --- Warm map lights (sprites later); radius ≈ screen px at 1:1 canvas
+        staticLights = {
+            { x = 420,  y = 560, radius = 230, rgb = { 0.95, 0.78, 0.5 } },
+            { x = 1100, y = 500, radius = 200, rgb = { 0.88, 0.72, 0.55 } },
+            { x = 1950, y = 580, radius = 220, rgb = { 0.92, 0.75, 0.48 } },
+        },
     },
     {
         id = "cliffside",
@@ -79,9 +88,16 @@ RoomData.pool = {
         },
         playerSpawn = {x = 80, y = 780},
         exitDoor = {x = 2740, y = 804, w = 32, h = 32},
+        staticLights = {
+            { x = 700,  y = 620, radius = 210, rgb = { 0.9, 0.74, 0.5 } },
+            { x = 1600, y = 580, radius = 240, rgb = { 0.85, 0.7, 0.52 } },
+            { x = 2400, y = 640, radius = 200, rgb = { 0.88, 0.72, 0.48 } },
+        },
     },
     {
         id = "underground",
+        --- QA: night visuals; remove or rely on day/night cycle instead
+        night = true,
         width = 2200,
         height = 850,
         platforms = {
@@ -120,6 +136,10 @@ RoomData.pool = {
         },
         playerSpawn = {x = 80, y = 730},
         exitDoor = {x = 2140, y = 754, w = 32, h = 32},
+        staticLights = {
+            { x = 500,  y = 560, radius = 190, rgb = { 0.75, 0.82, 1.0 } },
+            { x = 1200, y = 520, radius = 220, rgb = { 0.8, 0.78, 0.95 } },
+        },
     },
     {
         id = "mesa_heights",
@@ -168,8 +188,36 @@ RoomData.pool = {
     },
 }
 
+--- Sandbox: not in `pool`; used when `RoomManager.devArenaMode` is set.
+RoomData.devArena = {
+    id = "dev_arena",
+    devArena = true,
+    width = 1600,
+    height = 800,
+    platforms = {
+        { x = 0,    y = 736, w = 700,  h = 64 },
+        { x = 800,  y = 736, w = 800,  h = 64 },
+        { x = 180,  y = 580, w = 200, h = 16 },
+        { x = 480,  y = 500, w = 160, h = 16 },
+        { x = 780,  y = 540, w = 220, h = 16 },
+        { x = 1100, y = 460, w = 140, h = 16 },
+        { x = 320,  y = 380, w = 120, h = 16 },
+        { x = 900,  y = 340, w = 160, h = 16 },
+    },
+    spawns = {},
+    playerSpawn = { x = 120, y = 680 },
+}
+
 -- Foot height per type (must match src/data/enemies.lua)
-local TYPE_H = { bandit = 28, gunslinger = 28, buzzard = 16 }
+local TYPE_H = {
+    bandit = 28,
+    gunslinger = 28,
+    buzzard = 16,
+    necromancer = 34,
+    nightborne = 30,
+    ogreboss = 44,
+    blackkid = 40,
+}
 local PLAYER_FEET_H = 28
 
 -- Match room_manager jump tier (~double-jump vertical budget)
@@ -307,13 +355,25 @@ end
 -- More rushers (bandits), fewer shooters / flyers as difficulty rises slowly
 local function pickEnemyType(difficulty, playerLevel)
     local tier = math.min(1, (difficulty - 1) * 0.18 + (playerLevel - 1) * 0.05)
+    local nightborneChance = 0.08 + tier * 0.14
+    local necromancerChance = 0.03 + tier * 0.10
+    local buzzardChance = 0.10 + tier * 0.04
+    local gunslingerChance = 0.18
+    local banditChance = math.max(0.22, 1 - nightborneChance - necromancerChance - buzzardChance - gunslingerChance)
     local r = math.random()
-    local bCut = 0.74 - tier * 0.14
-    local gCut = bCut + 0.20
-    if r < bCut then
+    local banditCut = banditChance
+    local nightborneCut = banditCut + nightborneChance
+    local gunslingerCut = nightborneCut + gunslingerChance
+    local necromancerCut = gunslingerCut + necromancerChance
+
+    if r < banditCut then
         return "bandit"
-    elseif r < gCut then
+    elseif r < nightborneCut then
+        return "nightborne"
+    elseif r < gunslingerCut then
         return "gunslinger"
+    elseif r < necromancerCut then
+        return "necromancer"
     else
         return "buzzard"
     end

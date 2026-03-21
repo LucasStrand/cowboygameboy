@@ -1,4 +1,5 @@
 local RoomData = require("src.data.rooms")
+local Vision = require("src.data.vision")
 local Enemy = require("src.entities.enemy")
 local bump = require("lib.bump")
 
@@ -13,10 +14,22 @@ function RoomManager.new()
     self.roomsCleared = 0
     self.totalRoomsCleared = 0
     self.checkpointReached = false
+    --- nil = use `room.night` in data; true/false = whole cycle/segment override
+    self.nightVisualsOverride = nil
+    --- When true, `generateSequence` uses only `RoomData.devArena` (sandbox).
+    self.devArenaMode = false
     return self
 end
 
 function RoomManager:generateSequence()
+    if self.devArenaMode then
+        self.roomSequence = { RoomData.devArena }
+        self.currentRoomIndex = 0
+        self.roomsCleared = 0
+        self.checkpointReached = false
+        self.difficulty = 1
+        return
+    end
     self.roomSequence = {}
     local pool = RoomData.pool
     for i = 1, RoomData.ROOMS_PER_CHECKPOINT do
@@ -209,7 +222,7 @@ function RoomManager:loadRoom(room, world, player, opts)
     -- Spawn enemies (extra spawns + staggered arrivals handled in game state)
     local enemies = {}
     local pendingEnemySpawns = {}
-    if not (opts and opts.skipEnemies) then
+    if not (opts and opts.skipEnemies) and not room.devArena then
         local plan = RoomData.buildSpawnPlan(room, self.difficulty, player.level or 1)
         for _, spawn in ipairs(plan.immediate) do
             local enemy = Enemy.new(spawn.type, spawn.x, spawn.y, self.difficulty, { elite = spawn.elite })
@@ -229,16 +242,19 @@ function RoomManager:loadRoom(room, world, player, opts)
         end
     end
 
-    -- Exit door
-    local door = {
-        x = room.exitDoor.x,
-        y = room.exitDoor.y,
-        w = room.exitDoor.w,
-        h = room.exitDoor.h,
-        isDoor = true,
-        locked = true,
-    }
-    world:add(door, door.x, door.y, door.w, door.h)
+    -- Exit door (dev arena has no exit / saloon progression)
+    local door = nil
+    if not room.devArena and room.exitDoor then
+        door = {
+            x = room.exitDoor.x,
+            y = room.exitDoor.y,
+            w = room.exitDoor.w,
+            h = room.exitDoor.h,
+            isDoor = true,
+            locked = true,
+        }
+        world:add(door, door.x, door.y, door.w, door.h)
+    end
 
     -- Position player
     player.x = room.playerSpawn.x
@@ -247,7 +263,16 @@ function RoomManager:loadRoom(room, world, player, opts)
     player.vy = 0
     world:update(player, player.x, player.y)
 
-    return {
+    local nightMode
+    if opts and opts.nightMode ~= nil then
+        nightMode = opts.nightMode
+    elseif self.nightVisualsOverride ~= nil then
+        nightMode = self.nightVisualsOverride
+    else
+        nightMode = room.night == true
+    end
+
+    local out = {
         platforms = platforms,
         walls = walls,
         enemies = enemies,
@@ -257,7 +282,23 @@ function RoomManager:loadRoom(room, world, player, opts)
         height = room.height,
         --- Room `boss = true` in room data forces boss BGM; can also toggle at runtime for boss fights.
         bossFight = room.boss or false,
+        nightMode = nightMode,
+        --- Original `room.night` from data (for dev time sim / override resolution).
+        sourceNight = room.night == true,
+        --- Map-placed point lights (lanterns, etc.); see `WorldLighting.computeStaticLightPack`.
+        staticLights = room.staticLights or {},
+        devArena = room.devArena == true,
     }
+    if nightMode then
+        local fog = Vision.initFogForRoom(room)
+        out.fogCellSize = fog.fogCellSize
+        out.fogGridW = fog.fogGridW
+        out.fogGridH = fog.fogGridH
+        out.fogExplored = fog.fogExplored
+        out.fogCanvasLQ = fog.fogCanvasLQ
+        out.fogDirty = fog.fogDirty
+    end
+    return out
 end
 
 function RoomManager:onRoomCleared()

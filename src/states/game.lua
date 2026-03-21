@@ -5,6 +5,7 @@ local bump = require("lib.bump")
 local Player = require("src.entities.player")
 local Enemy  = require("src.entities.enemy")
 local Pickup = require("src.entities.pickup")
+local EnemyData = require("src.data.enemies")
 
 local Combat = require("src.systems.combat")
 local Progression = require("src.systems.progression")
@@ -23,6 +24,8 @@ local TileRenderer = require("src.systems.tile_renderer")
 local ImpactFX = require("src.systems.impact_fx")
 local Sfx = require("src.systems.sfx")
 local MusicDirector = require("src.systems.music_director")
+local WorldLighting = require("src.systems.world_lighting")
+local Vision = require("src.data.vision")
 
 local game = {}
 
@@ -57,10 +60,23 @@ local devPanelOpen = false
 local devPanelScroll = 0
 local devPanelHover = nil
 local devPanelRows = nil
+local devPanelSections = nil
+local devNpcSpawn = nil
 --- Green bump AABB overlay (only when DEBUG); toggled from dev panel
 local devShowHitboxes = true
 -- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
 local offScreenEnemyHintActive = false
+--- Set from `game:enter` opts; used for pause restart + dev panel label.
+local devArenaMode = false
+local enemyNoiseEvents = {}
+
+local PLAYER_GUNSHOT_NOISE_RADIUS = 340
+local PLAYER_RELOAD_NOISE_RADIUS = 170
+local PLAYER_MELEE_NOISE_RADIUS = 135
+local DEV_SPAWN_COUNTS = { 1, 5, 10 }
+local DEV_GROUND_SUPPORT_DEPTH = 6
+local DEV_PANEL_HINT = "F2 close | ESC/right click cancel | left click world spawn | wheel scroll"
+local DEV_PANEL_HELP = "F2 / ESC close  ·  click section headers  ·  wheel scroll"
 
 -- Intro countdown (3→2→1) after menu: room + enemies loaded; gameplay frozen until done.
 local introCountdownActive = false
@@ -72,6 +88,368 @@ local INTRO_COUNTDOWN_OVERLAY_FADE_SEC = 0.42
 
 local function pendingEnemiesIncoming()
     return currentRoom and currentRoom.pendingEnemySpawns and #currentRoom.pendingEnemySpawns > 0
+end
+
+local devClampScroll
+local devRebuildPanelRows
+
+local function defaultDevPanelSections()
+    return {
+        debug = true,
+        player = true,
+        world = true,
+        npc = true,
+        weapons = false,
+        perks = false,
+    }
+end
+
+local function defaultDevNpcSpawn()
+    return {
+        peaceful = false,
+        unarmed = false,
+        countIndex = 1,
+        placement = nil,
+        preview = nil,
+    }
+end
+
+local function getDevPanelLayout()
+    return DevPanel.panelRect(GAME_WIDTH, GAME_HEIGHT)
+end
+
+local function pointInRect(x, y, rx, ry, rw, rh)
+    return x >= rx and x <= rx + rw and y >= ry and y <= ry + rh
+end
+
+local function currentDevSpawnCount()
+    local idx = devNpcSpawn and devNpcSpawn.countIndex or 1
+    return DEV_SPAWN_COUNTS[idx] or 1
+end
+
+local function getDevSpawnLabel(typeId)
+    local data = EnemyData.types[typeId]
+    return data and data.name or typeId
+end
+
+local function getMouseWorldPosition()
+    local mx, my = love.mouse.getPosition()
+    local gx, gy = windowToGame(mx, my)
+    local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+    return wx, wy, gx, gy
+end
+
+local function devSpawnBlockerFilter(item)
+    return item.isPlatform or item.isWall or item.isDoor or item.isEnemy or item.isPlayer
+end
+
+local function devSpawnSupportFilter(item)
+    return item.isPlatform or item.isWall
+end
+
+local function supportCoverage(items, len, x, w)
+    if len == 0 then return 0 end
+    local spans = {}
+    for i = 1, len do
+        local item = items[i]
+        local x1 = math.max(x, item.x)
+        local x2 = math.min(x + w, item.x + item.w)
+        if x2 > x1 then
+            spans[#spans + 1] = { x1 = x1, x2 = x2 }
+        end
+    end
+    if #spans == 0 then
+        return 0
+    end
+
+    table.sort(spans, function(a, b) return a.x1 < b.x1 end)
+    local total = 0
+    local curX1 = spans[1].x1
+    local curX2 = spans[1].x2
+    for i = 2, #spans do
+        local span = spans[i]
+        if span.x1 <= curX2 then
+            curX2 = math.max(curX2, span.x2)
+        else
+            total = total + (curX2 - curX1)
+            curX1 = span.x1
+            curX2 = span.x2
+        end
+    end
+    total = total + (curX2 - curX1)
+    return total
+end
+
+local function validateDevSpawnCandidate(data, x, y)
+    if not world or not currentRoom then
+        return false, "no room"
+    end
+    if x < 0 or y < 0 or x + data.width > currentRoom.width or y + data.height > currentRoom.height then
+        return false, "out of bounds"
+    end
+
+    local items, len = world:queryRect(x, y, data.width, data.height, devSpawnBlockerFilter)
+    if len > 0 then
+        return false, "blocked"
+    end
+
+    if data.behavior ~= "flying" then
+        local probeX = x + 1
+        local probeW = math.max(4, data.width - 2)
+        local supports, supportLen = world:queryRect(probeX, y + data.height, probeW, DEV_GROUND_SUPPORT_DEPTH, devSpawnSupportFilter)
+        local coverage = supportCoverage(supports, supportLen, probeX, probeW)
+        if coverage < probeW * 0.55 then
+            return false, "no floor"
+        end
+    end
+
+    return true, nil
+end
+
+local function buildDevSpawnPreview(typeId, worldX, worldY)
+    local data = EnemyData.getScaled(typeId, roomManager and roomManager.difficulty or 1)
+    if not data then
+        return nil
+    end
+
+    local count = currentDevSpawnCount()
+    local spacing = math.max(data.width + 10, 28)
+    local center = (count - 1) * 0.5
+    local candidates = {}
+    local validCount = 0
+
+    for i = 1, count do
+        local offsetX = (i - 1 - center) * spacing
+        local x
+        local y
+        if data.behavior == "flying" then
+            x = math.floor(worldX + offsetX - data.width * 0.5 + 0.5)
+            y = math.floor(worldY - data.height * 0.5 + 0.5)
+        else
+            x = math.floor(worldX + offsetX - data.width * 0.5 + 0.5)
+            y = math.floor(worldY - data.height + 0.5)
+        end
+        local valid, reason = validateDevSpawnCandidate(data, x, y)
+        if valid then
+            validCount = validCount + 1
+        end
+        candidates[#candidates + 1] = {
+            x = x,
+            y = y,
+            w = data.width,
+            h = data.height,
+            valid = valid,
+            reason = reason,
+        }
+    end
+
+    return {
+        typeId = typeId,
+        label = getDevSpawnLabel(typeId),
+        data = data,
+        candidates = candidates,
+        totalCount = count,
+        validCount = validCount,
+        worldX = worldX,
+        worldY = worldY,
+    }
+end
+
+local function updateDevSpawnPreview(worldX, worldY)
+    if not devNpcSpawn or not devNpcSpawn.placement then
+        return nil
+    end
+    local preview = buildDevSpawnPreview(devNpcSpawn.placement.typeId, worldX, worldY)
+    local previousValid = devNpcSpawn.preview and devNpcSpawn.preview.validCount or -1
+    local previousX = devNpcSpawn.preview and devNpcSpawn.preview.worldX or nil
+    local previousY = devNpcSpawn.preview and devNpcSpawn.preview.worldY or nil
+    devNpcSpawn.preview = preview
+    if devPanelOpen and preview and (previousValid ~= preview.validCount or previousX ~= preview.worldX or previousY ~= preview.worldY) then
+        devRebuildPanelRows()
+        devClampScroll()
+    end
+    return preview
+end
+
+local function clearDevNpcPlacement(pushLog)
+    if devNpcSpawn and devNpcSpawn.placement and pushLog then
+        DevLog.push("sys", "[dev] NPC placement cancelled")
+    end
+    if devNpcSpawn then
+        devNpcSpawn.placement = nil
+        devNpcSpawn.preview = nil
+    end
+end
+
+local function startDevNpcPlacement(typeId)
+    if not devNpcSpawn then
+        devNpcSpawn = defaultDevNpcSpawn()
+    end
+    devNpcSpawn.placement = {
+        typeId = typeId,
+        label = getDevSpawnLabel(typeId),
+    }
+    local wx, wy = getMouseWorldPosition()
+    updateDevSpawnPreview(wx, wy)
+    DevLog.push("sys", string.format("[dev] placing %s (%sx)", getDevSpawnLabel(typeId), tostring(currentDevSpawnCount())))
+    devRebuildPanelRows()
+    devClampScroll()
+end
+
+local function commitDevNpcPlacement(worldX, worldY)
+    local preview = updateDevSpawnPreview(worldX, worldY)
+    if not preview then
+        return false
+    end
+    if preview.validCount <= 0 then
+        DevLog.push("sys", string.format("[dev] blocked spawn: %s", preview.label or preview.typeId))
+        return true
+    end
+
+    local spawned = 0
+    for _, candidate in ipairs(preview.candidates) do
+        if candidate.valid then
+            local enemy = Enemy.new(
+                preview.typeId,
+                candidate.x,
+                candidate.y,
+                roomManager and roomManager.difficulty or 1,
+                {
+                    peaceful = devNpcSpawn and devNpcSpawn.peaceful,
+                    unarmed = devNpcSpawn and devNpcSpawn.unarmed,
+                }
+            )
+            if enemy then
+                world:add(enemy, enemy.x, enemy.y, enemy.w, enemy.h)
+                enemies[#enemies + 1] = enemy
+                spawned = spawned + 1
+            end
+        end
+    end
+
+    if spawned > 0 then
+        local suffix = ""
+        if devNpcSpawn and devNpcSpawn.peaceful then
+            suffix = suffix .. " peaceful"
+        end
+        if devNpcSpawn and devNpcSpawn.unarmed then
+            suffix = suffix .. " unarmed"
+        end
+        DevLog.push("sys", string.format("[dev] spawned %s x%d%s", preview.label or preview.typeId, spawned, suffix))
+    end
+    updateDevSpawnPreview(worldX, worldY)
+    if devPanelOpen then
+        devRebuildPanelRows()
+        devClampScroll()
+    end
+    return true
+end
+
+local function drawDevSpawnPreview()
+    local preview = devNpcSpawn and devNpcSpawn.preview
+    if not preview or not preview.candidates then
+        return
+    end
+
+    if not game.debugFont then
+        game.debugFont = Font.new(11)
+    end
+
+    local summary = string.format(
+        "%s x%d  %d/%d valid%s%s",
+        preview.label or preview.typeId or "NPC",
+        preview.totalCount or 1,
+        preview.validCount or 0,
+        preview.totalCount or 1,
+        (devNpcSpawn and devNpcSpawn.peaceful) and "  peaceful" or "",
+        (devNpcSpawn and devNpcSpawn.unarmed) and "  unarmed" or ""
+    )
+
+    for _, candidate in ipairs(preview.candidates) do
+        local ok = candidate.valid
+        local fillR, fillG, fillB = ok and 0.18 or 0.7, ok and 0.78 or 0.18, ok and 0.28 or 0.18
+        local lineR, lineG, lineB = ok and 0.3 or 1.0, ok and 0.95 or 0.3, ok and 0.42 or 0.3
+        love.graphics.setColor(fillR, fillG, fillB, ok and 0.18 or 0.2)
+        love.graphics.rectangle("fill", candidate.x, candidate.y, candidate.w, candidate.h, 4, 4)
+        love.graphics.setColor(lineR, lineG, lineB, 0.95)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", candidate.x, candidate.y, candidate.w, candidate.h, 4, 4)
+        if not ok then
+            love.graphics.line(candidate.x, candidate.y, candidate.x + candidate.w, candidate.y + candidate.h)
+            love.graphics.line(candidate.x + candidate.w, candidate.y, candidate.x, candidate.y + candidate.h)
+        end
+    end
+    love.graphics.setLineWidth(1)
+
+    local anchor = preview.candidates[1]
+    if anchor then
+        local labelW = math.max(120, game.debugFont:getWidth(summary) + 8)
+        local labelX = anchor.x + anchor.w * 0.5 - labelW * 0.5
+        local labelY = anchor.y - 16
+        love.graphics.setFont(game.debugFont)
+        love.graphics.setColor(0, 0, 0, 0.72)
+        love.graphics.rectangle("fill", labelX, labelY, labelW, 13, 4, 4)
+        love.graphics.setColor(1, 0.95, 0.82, 0.98)
+        love.graphics.printf(summary, labelX + 4, labelY + 1, labelW - 8, "center")
+    end
+end
+
+local function drawActiveDevSpawnPreview()
+    if not DEBUG or not devNpcSpawn or not devNpcSpawn.placement or not camera then
+        return
+    end
+    local wx, wy = getMouseWorldPosition()
+    updateDevSpawnPreview(wx, wy)
+    drawDevSpawnPreview()
+end
+
+local function drawDevPanelOverlay()
+    if not DEBUG or not devPanelOpen or not devPanelRows or not player then
+        return
+    end
+
+    love.graphics.setColor(0, 0, 0, 0.38)
+    love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
+    if not game.devPanelTitleFont then
+        game.devPanelTitleFont = Font.new(16)
+    end
+    if not game.devPanelRowFont then
+        game.devPanelRowFont = Font.new(13)
+    end
+    devClampScroll()
+    local px, py, pw, ph = getDevPanelLayout()
+    DevPanel.draw(devPanelRows, devPanelScroll, px, py, pw, ph, devPanelHover, {
+        title = game.devPanelTitleFont,
+        row = game.devPanelRowFont,
+    })
+    love.graphics.setFont(game.devPanelRowFont)
+    love.graphics.setColor(0.55, 0.55, 0.58)
+    love.graphics.printf(DEV_PANEL_HINT or DEV_PANEL_HELP, px, math.min(py + ph + 6, GAME_HEIGHT - 20), pw, "center")
+end
+
+local function emitEnemyNoise(x, y, radius, kind)
+    enemyNoiseEvents[#enemyNoiseEvents + 1] = {
+        x = x,
+        y = y,
+        radius = radius,
+        kind = kind or "noise",
+        age = 0,
+    }
+end
+
+local function emitPlayerNoise(radius, kind)
+    if not player then return end
+    emitEnemyNoise(player.x + player.w * 0.5, player.y + player.h * 0.5, radius, kind)
+end
+
+local function updateEnemyNoise(dt)
+    for i = #enemyNoiseEvents, 1, -1 do
+        local event = enemyNoiseEvents[i]
+        event.age = event.age + dt
+        if event.age > 1.35 then
+            table.remove(enemyNoiseEvents, i)
+        end
+    end
 end
 
 local function roomHasLivingThreat()
@@ -458,7 +836,11 @@ local function pauseRestartRun()
     devPanelHover = nil
     devShowHitboxes = true
     pendingGameOver = nil
-    Gamestate.switch(game, { introCountdown = true })
+    if devArenaMode then
+        Gamestate.switch(game, { devArena = true, introCountdown = false })
+    else
+        Gamestate.switch(game, { introCountdown = true })
+    end
 end
 
 local function pauseGoToMainMenu()
@@ -552,22 +934,80 @@ local function devPlayerHasPerk(pid)
     return false
 end
 
-local function devClampScroll()
+devClampScroll = function()
     if not devPanelRows then return end
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Font.new(16)
     end
-    local ph = math.min(560, GAME_HEIGHT - 56)
+    local _, _, _, ph = getDevPanelLayout()
     local maxS = DevPanel.maxScroll(devPanelRows, game.devPanelTitleFont, ph)
     devPanelScroll = math.max(0, math.min(maxS, devPanelScroll))
 end
 
+local function syncCurrentRoomNightMode()
+    if not currentRoom or not roomManager then return end
+    local want
+    if roomManager.nightVisualsOverride ~= nil then
+        want = roomManager.nightVisualsOverride
+    else
+        want = currentRoom.sourceNight == true
+    end
+    if want == currentRoom.nightMode then
+        return
+    end
+    currentRoom.nightMode = want
+    if want then
+        if not currentRoom.fogExplored then
+            local fog = Vision.initFogForRoom({ width = currentRoom.width, height = currentRoom.height })
+            currentRoom.fogCellSize = fog.fogCellSize
+            currentRoom.fogGridW = fog.fogGridW
+            currentRoom.fogGridH = fog.fogGridH
+            currentRoom.fogExplored = fog.fogExplored
+            currentRoom.fogCanvasLQ = fog.fogCanvasLQ
+            currentRoom.fogDirty = fog.fogDirty
+        end
+    else
+        if currentRoom.fogCanvasLQ then
+            currentRoom.fogCanvasLQ:release()
+        end
+        currentRoom.fogCellSize = nil
+        currentRoom.fogGridW = nil
+        currentRoom.fogGridH = nil
+        currentRoom.fogExplored = nil
+        currentRoom.fogCanvasLQ = nil
+        currentRoom.fogDirty = nil
+    end
+end
+
+devRebuildPanelRows = function()
+    devPanelRows = DevPanel.buildRows({
+        showHitboxes = devShowHitboxes,
+        nightOverride = roomManager and roomManager.nightVisualsOverride,
+        bossFightActive = currentRoom and currentRoom.bossFight,
+        inDevArena = devArenaMode,
+        sections = devPanelSections,
+        npc = {
+            peaceful = devNpcSpawn and devNpcSpawn.peaceful,
+            unarmed = devNpcSpawn and devNpcSpawn.unarmed,
+            count = currentDevSpawnCount(),
+            placement = devNpcSpawn and devNpcSpawn.placement,
+            preview = devNpcSpawn and devNpcSpawn.preview,
+        },
+    })
+end
+
 local function openDevPanel()
     if not DEBUG then return end
+    if not devPanelSections then
+        devPanelSections = defaultDevPanelSections()
+    end
+    if not devNpcSpawn then
+        devNpcSpawn = defaultDevNpcSpawn()
+    end
     devPanelOpen = true
     characterSheetOpen = false
     devPanelScroll = 0
-    devPanelRows = DevPanel.buildRows(devShowHitboxes)
+    devRebuildPanelRows()
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Font.new(16)
     end
@@ -576,9 +1016,45 @@ end
 
 local function devApplyAction(id)
     if not DEBUG or not player or not id then return end
-    if id == "kill_player" then
+    if id:sub(1, 8) == "section:" then
+        local sectionId = id:sub(9)
+        if devPanelSections and devPanelSections[sectionId] ~= nil then
+            devPanelSections[sectionId] = not devPanelSections[sectionId]
+            devRebuildPanelRows()
+            devClampScroll()
+        end
+        return
+    elseif id == "npc_toggle_peaceful" then
+        devNpcSpawn.peaceful = not devNpcSpawn.peaceful
+        devRebuildPanelRows()
+        devClampScroll()
+        DevLog.push("sys", "[dev] NPC peaceful " .. (devNpcSpawn.peaceful and "on" or "off"))
+        return
+    elseif id == "npc_toggle_unarmed" then
+        devNpcSpawn.unarmed = not devNpcSpawn.unarmed
+        devRebuildPanelRows()
+        devClampScroll()
+        DevLog.push("sys", "[dev] NPC unarmed " .. (devNpcSpawn.unarmed and "on" or "off"))
+        return
+    elseif id == "npc_count_1" or id == "npc_count_5" or id == "npc_count_10" then
+        devNpcSpawn.countIndex = (id == "npc_count_1" and 1) or (id == "npc_count_5" and 2) or 3
+        if devNpcSpawn.placement then
+            local wx, wy = getMouseWorldPosition()
+            updateDevSpawnPreview(wx, wy)
+        end
+        devRebuildPanelRows()
+        devClampScroll()
+        DevLog.push("sys", "[dev] NPC count " .. tostring(currentDevSpawnCount()) .. "x")
+        return
+    elseif id == "npc_cancel_placement" then
+        clearDevNpcPlacement(true)
+        devRebuildPanelRows()
+        devClampScroll()
+        return
+    elseif id == "kill_player" then
         devPanelOpen = false
         characterSheetOpen = false
+        clearDevNpcPlacement(false)
         player:beginDeath()
         DevLog.push("sys", "[dev] kill player")
     elseif id == "full_heal" then
@@ -591,9 +1067,27 @@ local function devApplyAction(id)
         DevLog.push("sys", "[dev] hurt 1")
     elseif id == "toggle_hitboxes" then
         devShowHitboxes = not devShowHitboxes
-        devPanelRows = DevPanel.buildRows(devShowHitboxes)
+        devRebuildPanelRows()
         devClampScroll()
         DevLog.push("sys", "[dev] hitboxes " .. (devShowHitboxes and "on" or "off"))
+    elseif id == "time_auto" then
+        roomManager.nightVisualsOverride = nil
+        syncCurrentRoomNightMode()
+        devRebuildPanelRows()
+        devClampScroll()
+        DevLog.push("sys", "[dev] time sim: auto (room data)")
+    elseif id == "time_day" then
+        roomManager.nightVisualsOverride = false
+        syncCurrentRoomNightMode()
+        devRebuildPanelRows()
+        devClampScroll()
+        DevLog.push("sys", "[dev] time sim: force day")
+    elseif id == "time_night" then
+        roomManager.nightVisualsOverride = true
+        syncCurrentRoomNightMode()
+        devRebuildPanelRows()
+        devClampScroll()
+        DevLog.push("sys", "[dev] time sim: force night")
     elseif id == "toggle_god" then
         player.devGodMode = not player.devGodMode
         DevLog.push("sys", "[dev] god mode " .. tostring(player.devGodMode))
@@ -606,6 +1100,7 @@ local function devApplyAction(id)
     elseif id == "xp_50" then
         devPanelOpen = false
         characterSheetOpen = false
+        clearDevNpcPlacement(false)
         if player:addXP(50) then
             local levelup = require("src.states.levelup")
             Gamestate.push(levelup, player, function() end)
@@ -613,6 +1108,7 @@ local function devApplyAction(id)
     elseif id == "xp_200" then
         devPanelOpen = false
         characterSheetOpen = false
+        clearDevNpcPlacement(false)
         if player:addXP(200) then
             local levelup = require("src.states.levelup")
             Gamestate.push(levelup, player, function() end)
@@ -620,6 +1116,7 @@ local function devApplyAction(id)
     elseif id == "force_levelup" then
         devPanelOpen = false
         characterSheetOpen = false
+        clearDevNpcPlacement(false)
         local levelup = require("src.states.levelup")
         Gamestate.push(levelup, player, function() end)
     elseif id == "open_door" then
@@ -634,11 +1131,9 @@ local function devApplyAction(id)
             if world:hasItem(e) then world:remove(e) end
             table.remove(enemies, i)
         end
-        if #enemies == 0 and not pendingEnemiesIncoming() and currentRoom then
+        if #enemies == 0 and not pendingEnemiesIncoming() and currentRoom and currentRoom.door then
             doorOpen = true
-            if currentRoom.door then
-                currentRoom.door.locked = false
-            end
+            currentRoom.door.locked = false
         end
         DevLog.push("sys", "[dev] cleared enemies")
     elseif id == "clear_bullets" then
@@ -648,16 +1143,29 @@ local function devApplyAction(id)
             table.remove(bullets, i)
         end
         DevLog.push("sys", "[dev] cleared bullets")
-    elseif id == "spawn_bandit" or id == "spawn_gunslinger" or id == "spawn_buzzard" then
-        local t = id == "spawn_bandit" and "bandit" or (id == "spawn_gunslinger" and "gunslinger" or "buzzard")
-        local ex = player.x + (player.facingRight and 1 or -1) * 88
-        local ey = player.y
-        local e = Enemy.new(t, ex, ey, roomManager and roomManager.difficulty or 1, {})
-        if e then
-            world:add(e, e.x, e.y, e.w, e.h)
-            table.insert(enemies, e)
-            DevLog.push("sys", "[dev] spawn " .. t)
+    elseif id == "spawn_bandit" or id == "spawn_nightborne"
+        or id == "spawn_gunslinger" or id == "spawn_necromancer"
+        or id == "spawn_buzzard" or id == "spawn_ogreboss" then
+        local t = id == "spawn_bandit" and "bandit"
+            or (id == "spawn_nightborne" and "nightborne")
+            or (id == "spawn_gunslinger" and "gunslinger")
+            or (id == "spawn_necromancer" and "necromancer")
+            or (id == "spawn_buzzard" and "buzzard")
+            or "ogreboss"
+        startDevNpcPlacement(t)
+    elseif id == "toggle_boss_fight" then
+        if currentRoom then
+            currentRoom.bossFight = not currentRoom.bossFight
+            devRebuildPanelRows()
+            devClampScroll()
+            DevLog.push("sys", "[dev] boss fight " .. (currentRoom.bossFight and "on" or "off"))
         end
+    elseif id == "goto_dev_arena" then
+        devPanelOpen = false
+        devPanelHover = nil
+        clearDevNpcPlacement(false)
+        DevLog.push("sys", "[dev] go to dev arena (new run)")
+        Gamestate.switch(game, { devArena = true, introCountdown = false })
     elseif id:sub(1, 4) == "gun:" then
         local gunId = id:sub(5)
         local Guns = require("src.data.guns")
@@ -700,6 +1208,7 @@ function game:enter(_, opts)
     bullets = {}
     enemies = {}
     pickups = {}
+    enemyNoiseEvents = {}
     shakeTimer = 0
     shakeIntensity = 0
     gameTimer = 0
@@ -720,14 +1229,18 @@ function game:enter(_, opts)
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
+    devPanelSections = defaultDevPanelSections()
+    devNpcSpawn = defaultDevNpcSpawn()
     devShowHitboxes = true
-    devPanelRows = DevPanel.buildRows(devShowHitboxes)
 
+    devArenaMode = opts and opts.devArena == true
     roomManager = RoomManager.new()
+    roomManager.devArenaMode = devArenaMode
     roomManager:generateSequence()
     DevLog.init()
-    DevLog.push("sys", "Run started")
+    DevLog.push("sys", devArenaMode and "Dev arena started" or "Run started")
     loadNextRoom()
+    devRebuildPanelRows()
 
     if opts and opts.introCountdown and Gamestate.current() == game then
         introCountdownActive = true
@@ -763,6 +1276,10 @@ function loadNextRoom()
     bullets = {}
     pickups = {}
     enemies = {}
+    enemyNoiseEvents = {}
+    if devNpcSpawn then
+        devNpcSpawn.preview = nil
+    end
     doorOpen = false
     doorAnimFrame = 1
     doorAnimTimer = 0
@@ -782,9 +1299,13 @@ function loadNextRoom()
     enemies = currentRoom.enemies
     -- Snap camera to player on room load (no lerp lag)
     updateCamera(0, true)
-    DevLog.push("sys", string.format("Room %d/%d loaded  (diff %.1f)",
-        roomManager.currentRoomIndex, #roomManager.roomSequence,
-        roomManager.difficulty or 1))
+    if roomManager.devArenaMode then
+        DevLog.push("sys", string.format("Dev arena loaded  (diff %.1f)", roomManager.difficulty or 1))
+    else
+        DevLog.push("sys", string.format("Room %d/%d loaded  (diff %.1f)",
+            roomManager.currentRoomIndex, #roomManager.roomSequence,
+            roomManager.difficulty or 1))
+    end
 end
 
 function game:resume()
@@ -807,6 +1328,7 @@ function game:update(dt)
     if devPanelOpen then
         if player and player.dying then
             devPanelOpen = false
+            clearDevNpcPlacement(false)
         else
             return
         end
@@ -828,6 +1350,7 @@ function game:update(dt)
     end
 
     gameTimer = gameTimer + dt
+    updateEnemyNoise(dt)
 
 
     -- Slow-mo from dead eye
@@ -857,6 +1380,10 @@ function game:update(dt)
     local viewL, viewT = camX - halfW, camY - halfH
     local viewR, viewB = camX + halfW, camY + halfH
 
+    if currentRoom and currentRoom.nightMode and currentRoom.fogExplored and player and not player.dying then
+        Vision.markFogExplored(currentRoom, player, CAM_ZOOM)
+    end
+
     local autoTx, autoTy
     local mouseAimOn
     if not player.dying then
@@ -876,7 +1403,8 @@ function game:update(dt)
         local tNow = love.timer.getTime()
         mouseAimOn = tNow < (player.mouseAimOverrideUntil or 0)
         player.keyboardAimMode = not mouseAimOn
-        autoTx, autoTy = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
+        local nightMode = currentRoom and currentRoom.nightMode
+        autoTx, autoTy = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB, camera, nightMode, 0, 0)
         if mouseAimOn then
             player.effectiveAimX, player.effectiveAimY = player.aimWorldX, player.aimWorldY
         elseif autoTx then
@@ -904,6 +1432,7 @@ function game:update(dt)
         if tx then
             local bulletData = player:shoot(tx, ty)
             if bulletData then
+                emitPlayerNoise(PLAYER_GUNSHOT_NOISE_RADIUS, "gunshot")
                 for _, data in ipairs(bulletData) do
                     local b = Combat.spawnBullet(world, data)
                     table.insert(bullets, b)
@@ -921,15 +1450,37 @@ function game:update(dt)
     Combat.updateBullets(bullets, dt, world, enemies, player)
     if player.dying then goto skipLivingCombat end
 
-    Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB)
+    local autoMeleeStarted = Combat.tryAutoMelee(
+        player,
+        enemies,
+        world,
+        viewL,
+        viewT,
+        viewR,
+        viewB,
+        camera,
+        currentRoom and currentRoom.nightMode,
+        0,
+        0
+    )
+    if autoMeleeStarted then
+        emitPlayerNoise(PLAYER_MELEE_NOISE_RADIUS, "melee")
+    end
     Combat.checkPlayerMelee(player, enemies)
 
     -- Enemies update
+    local enemyContext = {
+        player = player,
+        enemies = enemies,
+        room = currentRoom,
+        noiseEvents = enemyNoiseEvents,
+        time = gameTimer,
+    }
     i = 1
     while i <= #enemies do
         local e = enemies[i]
         if e.alive then
-            local bulletData = e:update(dt, world, player.x + player.w/2, player.y + player.h/2)
+            local bulletData = e:update(dt, world, enemyContext)
             if bulletData then
                 local b = Combat.spawnBullet(world, bulletData)
                 Sfx.play("shoot", { volume = 0.35 })
@@ -993,14 +1544,12 @@ function game:update(dt)
     end
 
     -- Check if all enemies dead (and no staggered spawns left) -> open door
-    if #enemies == 0 and not doorOpen and currentRoom and not pendingEnemiesIncoming() then
+    if currentRoom and currentRoom.door and #enemies == 0 and not doorOpen and not pendingEnemiesIncoming() then
         Sfx.play("door_open")
         doorOpen = true
         doorAnimFrame = 1
         doorAnimTimer = 0
-        if currentRoom.door then
-            currentRoom.door.locked = false
-        end
+        currentRoom.door.locked = false
         DevLog.push("sys", "All enemies cleared — door open")
     end
 
@@ -1070,9 +1619,19 @@ function game:keypressed(key)
     end
 
     if DEBUG and devPanelOpen then
-        if key == "escape" or key == "f2" then
+        if key == "escape" then
+            if devNpcSpawn and devNpcSpawn.placement then
+                clearDevNpcPlacement(true)
+                devRebuildPanelRows()
+                devClampScroll()
+            else
+                devPanelOpen = false
+                devPanelHover = nil
+            end
+        elseif key == "f2" then
             devPanelOpen = false
             devPanelHover = nil
+            clearDevNpcPlacement(false)
         end
         return
     end
@@ -1175,10 +1734,16 @@ function game:keypressed(key)
         player:tryDropThrough()
     end
     if Keybinds.matches("reload", key) then
+        local wasReloading = player.reloading
         player:reload()
+        if not wasReloading and player.reloading then
+            emitPlayerNoise(PLAYER_RELOAD_NOISE_RADIUS, "reload")
+        end
     end
     if Keybinds.matches("melee", key) then
-        player:meleeAttack()
+        if player:meleeAttack() then
+            emitPlayerNoise(PLAYER_MELEE_NOISE_RADIUS, "melee")
+        end
     end
     if key == "h" then
         player:spinHolster()
@@ -1197,10 +1762,16 @@ function game:mousemoved(x, y, dx, dy)
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Font.new(16)
         end
-        local px, py = 12, 44
-        local pw = 308
-        local ph = math.min(560, GAME_HEIGHT - 56)
-        devPanelHover = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, game.devPanelTitleFont)
+        local px, py, pw, ph = getDevPanelLayout()
+        if pointInRect(gx, gy, px, py, pw, ph) then
+            devPanelHover = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, game.devPanelTitleFont)
+        else
+            devPanelHover = nil
+        end
+        if devNpcSpawn and devNpcSpawn.placement and camera then
+            local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            updateDevSpawnPreview(wx, wy)
+        end
         return
     end
     if introCountdownActive then return end
@@ -1256,16 +1827,32 @@ end
 
 function game:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelOpen and devPanelRows and button == 1 then
+    if DEBUG and devPanelOpen and devPanelRows then
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Font.new(16)
         end
-        local px, py = 12, 44
-        local pw = 308
-        local ph = math.min(560, GAME_HEIGHT - 56)
-        local hit = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, game.devPanelTitleFont)
-        if hit then
-            devApplyAction(hit)
+        local px, py, pw, ph = getDevPanelLayout()
+        local insidePanel = pointInRect(gx, gy, px, py, pw, ph)
+        if insidePanel then
+            if button == 1 then
+                local hit = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, game.devPanelTitleFont)
+                if hit then
+                    devApplyAction(hit)
+                end
+            end
+            return
+        end
+        if devNpcSpawn and devNpcSpawn.placement and camera then
+            local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            if button == 1 then
+                commitDevNpcPlacement(wx, wy)
+                return
+            elseif button == 2 then
+                clearDevNpcPlacement(true)
+                devRebuildPanelRows()
+                devClampScroll()
+                return
+            end
         end
         return
     end
@@ -1316,6 +1903,7 @@ function game:mousepressed(x, y, button)
         local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
         local bulletData = player:shoot(mx, my)
         if bulletData then
+            emitPlayerNoise(PLAYER_GUNSHOT_NOISE_RADIUS, "gunshot")
             for _, data in ipairs(bulletData) do
                 local b = Combat.spawnBullet(world, data)
                 table.insert(bullets, b)
@@ -1336,7 +1924,11 @@ function game:mousepressed(x, y, button)
         elseif slot == "shield" and player:shieldAllowsAutoBlock() then
             player.autoBlock = not player.autoBlock
         else
+            local wasReloading = player.reloading
             player:reload()
+            if not wasReloading and player.reloading then
+                emitPlayerNoise(PLAYER_RELOAD_NOISE_RADIUS, "reload")
+            end
         end
     end
 end
@@ -1354,6 +1946,9 @@ function game:wheelmoved(x, y)
 end
 
 function game:draw()
+    local outputCanvas = love.graphics.getCanvas()
+    local nightMode = currentRoom and currentRoom.nightMode
+
     -- Camera with shake
     local sx, sy = 0, 0
     if shakeTimer > 0 then
@@ -1361,6 +1956,14 @@ function game:draw()
         sx = (math.random() - 0.5) * shakeIntensity * 2 * sk
         sy = (math.random() - 0.5) * shakeIntensity * 2 * sk
     end
+
+    if nightMode then
+        WorldLighting.ensure()
+        love.graphics.setCanvas(WorldLighting.getWorldCanvas())
+    else
+        love.graphics.setCanvas(outputCanvas)
+    end
+    love.graphics.clear(0, 0, 0, 1)
 
     camera:attach(0, 0, GAME_WIDTH, GAME_HEIGHT)
     love.graphics.translate(sx, sy)
@@ -1399,6 +2002,7 @@ function game:draw()
         end
 
         -- Walls (left, right, ceiling)
+        TileRenderer.setTheme(currentRoom.devArena and "desert" or "default")
         for _, wall in ipairs(currentRoom.walls) do
             TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h)
         end
@@ -1406,8 +2010,10 @@ function game:draw()
         -- Platforms
         for _, plat in ipairs(currentRoom.platforms) do
             if plat.h >= 32 then
+                TileRenderer.setTheme(currentRoom.devArena and "desert" or "default")
                 TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h)
             else
+                TileRenderer.setTheme("default")
                 TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h)
             end
         end
@@ -1441,16 +2047,24 @@ function game:draw()
                 end
             end
         end
+
+        if nightMode then
+            local fogHalfW = GAME_WIDTH / (2 * CAM_ZOOM)
+            local fogHalfH = GAME_HEIGHT / (2 * CAM_ZOOM)
+            local fogVL, fogVT = camX - fogHalfW, camY - fogHalfH
+            local fogVR, fogVB = camX + fogHalfW, camY + fogHalfH
+            Vision.drawFogOfWar(currentRoom, fogVL, fogVT, fogVR, fogVB)
+        end
     end
 
     -- Pickups
     for _, p in ipairs(pickups) do
-        p:draw()
+        p:draw(player, camera, sx, sy, currentRoom)
     end
 
     -- Enemies
     for _, e in ipairs(enemies) do
-        e:draw()
+        e:draw(player, camera, sx, sy, currentRoom)
     end
 
     -- Player
@@ -1467,6 +2081,8 @@ function game:draw()
     ImpactFX.draw()
     DamageNumbers.draw()
 
+    drawActiveDevSpawnPreview()
+
     -- Debug: bump collision AABBs (toggle in dev panel when DEBUG); omit from death snapshot
     if DEBUG and devShowHitboxes and not pendingGameOver then
         love.graphics.setColor(0, 1, 0, 0.3)
@@ -1478,6 +2094,27 @@ function game:draw()
     end
 
     camera:detach()
+
+    love.graphics.setCanvas(outputCanvas)
+    if nightMode then
+        do
+            local pos = (player and camera) and WorldLighting.computeLightPositions(camera, player, sx, sy) or {
+                lightPos0 = { 0.5, 0.55 },
+                lightPos1 = { 0.5, 0.22 },
+                lightForward0 = { 1, 0 },
+            }
+            local staticPack = {}
+            if camera and currentRoom and currentRoom.staticLights then
+                staticPack = WorldLighting.computeStaticLightPack(camera, currentRoom.staticLights, sx, sy)
+            end
+            WorldLighting.apply(WorldLighting.getWorldCanvas(), {
+                lightPos0 = pos.lightPos0,
+                lightPos1 = pos.lightPos1,
+                lightForward0 = pos.lightForward0,
+                staticLightPack = staticPack,
+            })
+        end
+    end
 
     if pendingGameOver then
         -- Canvas must not be active when reading pixels; batch must be flushed first or read is often all black.
@@ -1668,27 +2305,7 @@ function game:draw()
         DevLog.draw(panelX, py, 250)
     end
 
-    if DEBUG and devPanelOpen and devPanelRows and player then
-        love.graphics.setColor(0, 0, 0, 0.38)
-        love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
-        if not game.devPanelTitleFont then
-            game.devPanelTitleFont = Font.new(16)
-        end
-        if not game.devPanelRowFont then
-            game.devPanelRowFont = Font.new(13)
-        end
-        devClampScroll()
-        local px, py = 12, 44
-        local pw = 308
-        local ph = math.min(560, GAME_HEIGHT - 56)
-        DevPanel.draw(devPanelRows, devPanelScroll, px, py, pw, ph, devPanelHover, {
-            title = game.devPanelTitleFont,
-            row = game.devPanelRowFont,
-        })
-        love.graphics.setFont(game.devPanelRowFont)
-        love.graphics.setColor(0.55, 0.55, 0.58)
-        love.graphics.printf("F2 / ESC close  ·  wheel scroll", px, math.min(py + ph + 6, GAME_HEIGHT - 20), pw, "center")
-    end
+    drawDevPanelOverlay()
 
     love.graphics.setColor(1, 1, 1)
 end
