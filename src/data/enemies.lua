@@ -30,7 +30,7 @@ EnemyData.types = {
         behavior = "ranged",
         attackRange = 300,
         attackCooldown = 1.5,
-        bulletSpeed = 250,
+        bulletSpeed = 380,
         aggroRange = 300,
     },
     buzzard = {

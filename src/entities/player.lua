@@ -4,6 +4,8 @@ local PlatformCollision = require("src.systems.platform_collision")
 local Animator = require("src.systems.animation")
 local Keybinds = require("src.systems.keybinds")
 local Sfx = require("src.systems.sfx")
+local ImpactFX = require("src.systems.impact_fx")
+local GearIcons = require("src.ui.gear_icons")
 
 local Player = {}
 Player.__index = Player
@@ -25,13 +27,16 @@ local JUMP_RELEASE_GRAVITY_MULT = 0.95 -- extra gravity while rising if jump not
 local DASH_SPEED = 520
 local DASH_DURATION = 0.12
 local DASH_COOLDOWN = 0.52
+-- Melee swing: hit window + held dagger overlay (longer than melee anim tail so knife stays visible)
+local MELEE_SWING_DURATION = 0.30
+local DASH_MELEE_SWING_DURATION = 0.26  -- dash strike: linger past dash motion so dagger doesn’t vanish instantly
 
 -- Original player base gun stats — used to compute perk deltas when a
 -- non-default weapon is equipped.  These MUST match the values in Player.new().
 local PLAYER_BASE_GUN_STATS = {
     cylinderSize  = 6,
     reloadSpeed   = 1.2,
-    bulletSpeed   = 500,
+    bulletSpeed   = 720,
     bulletDamage  = 10,
     bulletCount   = 1,
     spreadAngle   = 0,
@@ -83,7 +88,7 @@ function Player.new(x, y)
         pickupRadius = 20,
         reloadSpeed = 1.2,
         cylinderSize = 6,
-        bulletSpeed = 500,
+        bulletSpeed = 720,
         bulletDamage = 10,
         bulletCount = 1,
         spreadAngle = 0,
@@ -246,9 +251,23 @@ function Player:getEffectiveStatsForGun(gun)
         s[k] = v
     end
 
-    for _, gear in pairs(self.gear) do
-        if gear then
+    -- Hat / vest / boots / shield — not melee (knife is merged below when secondary slot is free).
+    for slot, gear in pairs(self.gear) do
+        if gear and slot ~= "melee" and gear.stats then
             for stat, val in pairs(gear.stats) do
+                if s[stat] ~= nil then
+                    s[stat] = s[stat] + val
+                end
+            end
+        end
+    end
+
+    -- Melee: only when no gun in slot 2. Use equipped knife or default (pickups clear gear.melee
+    -- but you still have the knife when secondary is empty).
+    if not (self.weapons[2] and self.weapons[2].gun) then
+        local m = self.gear.melee or Weapons.defaults.melee
+        if m and m.stats then
+            for stat, val in pairs(m.stats) do
                 if s[stat] ~= nil then
                     s[stat] = s[stat] + val
                 end
@@ -601,12 +620,16 @@ function Player:tryDash()
     Sfx.play("dash")
 
     -- Dash strike: active melee hitbox for the full dash, aimed in dash direction
-    local s = self:getEffectiveStats()
     if s.meleeDamage > 0 then
         self.meleeAimAngle  = dir == 1 and 0 or math.pi
-        self.meleeSwingTimer = DASH_DURATION
+        self.meleeSwingTimer = DASH_MELEE_SWING_DURATION
         self.meleeCooldown   = 0           -- dash resets cooldown so it always fires
         self.meleeHitEnemies = {}
+        local cx = self.x + self.w * 0.5
+        local cy = self.y + self.h * 0.5
+        local a = self.meleeAimAngle
+        local tip = 20
+        ImpactFX.spawn(cx + math.cos(a) * tip, cy + math.sin(a) * tip, "melee", nil, a)
     end
 end
 
@@ -786,10 +809,16 @@ function Player:meleeAttack(aimX, aimY)
         self.meleeAimAngle = self:getMeleeAimAngleLive()
     end
     self.meleeCooldown   = s.meleeCooldown
-    self.meleeSwingTimer = 0.15
+    self.meleeSwingTimer = MELEE_SWING_DURATION
     self.meleeHitEnemies = {}
     self.anim:play("melee", true)
     Sfx.play("melee_swing")
+    -- Row 1 of Retro Impact Effect Pack 1 A (see impact_fx.lua ANIM.melee)
+    do
+        local tip = 22
+        local a = self.meleeAimAngle
+        ImpactFX.spawn(cx + math.cos(a) * tip, cy + math.sin(a) * tip, "melee", nil, a)
+    end
     return true
 end
 
@@ -989,8 +1018,10 @@ function Player:equipWeapon(gunDef, slotIndex)
     self.reloadTimer  = 0
     self.shootCooldown = 0
 
-    -- If equipping a ranged weapon to any slot that previously held melee, remove melee gear
-    self.gear.melee = nil
+    -- Replacing secondary with a gun drops the knife from the loadout (dual-wield = no melee).
+    if slotIndex == 2 then
+        self.gear.melee = nil
+    end
 end
 
 function Player.filter(item, other)
@@ -1102,8 +1133,8 @@ function Player:draw()
         self.anim:drawCentered(cx, footY, self.facingRight)
     end
 
-    -- Weapon sprite overlay (draw equipped gun on top of cowboy)
-    if not self.dying then
+    -- Weapon sprite overlay (gun — hidden during melee swing so equipped dagger reads clearly)
+    if not self.dying and self.meleeSwingTimer <= 0 then
         local aimAngle = self:getAimAngle()
         local handX = cx + (self.facingRight and 2 or -2)
         local baseHandY = self.y + self.h * 0.42
@@ -1124,7 +1155,6 @@ function Player:draw()
         end
 
         if self:isAkimbo() then
-            -- Draw both weapons offset vertically
             local gun1 = self.weapons[1] and self.weapons[1].gun
             local gun2 = self.weapons[2] and self.weapons[2].gun
             if gun1 then drawGunSprite(gun1, -4) end
@@ -1135,44 +1165,31 @@ function Player:draw()
         end
     end
 
-    -- Melee swipe: arc slash drawn from player centre outward
+    -- Equipped melee weapon (same icon as HUD / gear.icon) during swing or dash strike
     if not self.dying and self.meleeSwingTimer > 0 then
-        local s    = self:getEffectiveStats()
-        local ang  = self.meleeAimAngle
-        local pcx  = self.x + self.w * 0.5
-        local pcy  = self.y + self.h * 0.5
-        local innerR = 6                      -- MELEE_INNER_DIST
-        local outerR = innerR + s.meleeRange
-        local spread = 0.52                   -- ~30° each side of aim angle
-        local alpha  = self.meleeSwingTimer / 0.15
-
-        -- Filled pie-slice trail
-        love.graphics.setColor(1, 0.82, 0.18, alpha * 0.25)
-        love.graphics.arc("fill", pcx, pcy, outerR, ang - spread, ang + spread)
-
-        -- Bright outer arc edge
-        love.graphics.setColor(1, 0.95, 0.42, alpha * 0.85)
-        love.graphics.setLineWidth(4)
-        love.graphics.arc("line", "open", pcx, pcy, outerR, ang - spread, ang + spread)
-
-        -- Fainter inner arc edge
-        love.graphics.setColor(1, 0.78, 0.15, alpha * 0.45)
-        love.graphics.setLineWidth(2)
-        love.graphics.arc("line", "open", pcx, pcy, innerR + 3, ang - spread, ang + spread)
-
-        -- Leading-edge slash line through the centre of the arc
-        love.graphics.setColor(1, 1, 0.88, alpha)
-        love.graphics.setLineWidth(2)
-        love.graphics.line(
-            pcx + math.cos(ang) * innerR, pcy + math.sin(ang) * innerR,
-            pcx + math.cos(ang) * outerR, pcy + math.sin(ang) * outerR)
-
-        love.graphics.setLineWidth(1)
-    end
-    if self.meleeHitFlashTimer > 0 then
-        local f = self.meleeHitFlashTimer / 0.2
-        love.graphics.setColor(1, 0.35, 0.15, 0.45 * f)
-        love.graphics.rectangle("fill", self.x - 4, self.y - 4, self.w + 8, self.h + 8)
+        local s = self:getEffectiveStats()
+        if s.meleeDamage > 0 then
+            local gear = self.gear.melee or Weapons.defaults.melee
+            if gear and gear.icon then
+                local ang = self.meleeAimAngle
+                local pcx = self.x + self.w * 0.5
+                local pcy = self.y + self.h * 0.5
+                local grip = 10
+                local hx = pcx + math.cos(ang) * grip
+                local hy = pcy + math.sin(ang) * grip
+                if self.facingRight then
+                    hy = hy - 10  -- nudge up vs left-facing (screen Y+ is down)
+                end
+                -- Facing-right body is not mirrored like the left-facing sprite; flip the tile on X so the grip/blade match the good left-facing read.
+                GearIcons.drawHeld(gear.icon, hx, hy, ang, {
+                    scale       = 1.45,  -- 16px tile → ~23px; reads as a knife vs 16×28 body
+                    originX     = 0.42,
+                    originY     = 0.58,
+                    angleOffset = math.pi * 0.5,
+                    flipX       = self.facingRight,
+                })
+            end
+        end
     end
 
     love.graphics.setColor(1, 1, 1)

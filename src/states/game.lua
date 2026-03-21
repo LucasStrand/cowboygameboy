@@ -1435,18 +1435,25 @@ function game:mousepressed(x, y, button)
     if button == 1 and player and not player.blocking then
         local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
         if player:getActiveGun() then
-            -- Manual shot at cursor; player:shoot cooldown blocks double-tap with auto-fire in update
-            local bulletData = player:shoot(mx, my)
-            if bulletData then
-                for _, data in ipairs(bulletData) do
-                    local b = Combat.spawnBullet(world, data)
-                    table.insert(bullets, b)
+            -- With auto-fire OFF, primary click swings melee toward cursor (omnidirectional test).
+            -- Hold Shift + click to shoot manually while auto-fire is off.
+            local es = player:getEffectiveStats()
+            local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+            if not player.autoGun and es.meleeDamage > 0 and not shiftShoot then
+                player:meleeAttack(mx, my)
+            else
+                local bulletData = player:shoot(mx, my)
+                if bulletData then
+                    for _, data in ipairs(bulletData) do
+                        local b = Combat.spawnBullet(world, data)
+                        table.insert(bullets, b)
+                    end
+                    local gun = player:getActiveGun()
+                    local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+                    local shakeMult = math.min(1, cooldown / 0.38)
+                    shakeTimer = 0.08
+                    shakeIntensity = 2 * shakeMult
                 end
-                local gun = player:getActiveGun()
-                local cooldown = gun and gun.baseStats.shootCooldown or 0.38
-                local shakeMult = math.min(1, cooldown / 0.38)
-                shakeTimer = 0.08
-                shakeIntensity = 2 * shakeMult
             end
         else
             -- Melee stance (no gun in active slot): left-click swings toward cursor

@@ -58,4 +58,42 @@ function GearIcons.draw(icon, x, y, maxW, maxH, pad, alpha)
     return true
 end
 
+--- Held weapon in world space (e.g. knife swing). Pivot is (originX, originY) as fractions of the tile.
+--- `angleRad` is aim direction; `angleOffset` rotates art so the blade points along aim (sprite-dependent).
+--- `flipX` / `flipY`: mirror the tile in local space (matches gun: Y-flip when facing one side).
+--- When flipping, mirror the pivot so the grip stays correct on the mirrored art.
+function GearIcons.drawHeld(icon, worldX, worldY, angleRad, opts)
+    if not icon or not icon.sheet then
+        return false
+    end
+    opts = opts or {}
+    local tile = icon.tile or 16
+    local col = icon.col or 0
+    local row = icon.row or 0
+    local q, img = getQuad(icon.sheet, tile, col, row)
+    if not q or not img then
+        return false
+    end
+    local scale = opts.scale or 1.45
+    local oxFrac = opts.originX or 0.42
+    local oyFrac = opts.originY or 0.58
+    local angleOffset = opts.angleOffset or (math.pi * 0.5)
+    local alpha = opts.alpha or 1
+    local ox = tile * oxFrac
+    local oy = tile * oyFrac
+    local sx = scale
+    local sy = scale
+    if opts.flipX then
+        sx = -scale
+        ox = tile - ox
+    end
+    if opts.flipY then
+        sy = -scale
+        oy = tile - oy
+    end
+    love.graphics.setColor(1, 1, 1, alpha)
+    love.graphics.draw(img, q, worldX, worldY, angleRad + angleOffset, sx, sy, ox, oy)
+    return true
+end
+
 return GearIcons

@@ -6,18 +6,22 @@ local Settings = require("src.systems.settings")
 local ImpactFX = {}
 
 local FRAME_SIZE = 64
-local COLS       = 8       -- frames per row in the sheet
+local COLS       = 8       -- max frames per row in the sheet grid
 local FPS        = 18
-local SCALE      = 0.5     -- drawn at 32×32 in world space
+local SCALE      = 0.5     -- default for hit sparks (32×32 in world)
+-- Melee: row 8 = diagonal slash streaks (reads as a swing; row 1 is a tiny hit puff on black)
+local MELEE_ROW            = 8
+local MELEE_SCALE          = 0.95  -- ~61px — large enough to read crisp pixels from the 64× sheet
+local MELEE_ROW_FRAMES     = 8
 
 local sheet = nil
 local quads = {}   -- quads[row][col]  (1-indexed, row = animation, col = frame)
 
 -- Row indices in the sheet (1-indexed) — chosen by visual inspection:
 local ANIM = {
-    hit_enemy = 1,   -- starburst (good for bullet-on-enemy)
-    hit_wall  = 4,   -- small sparks (good for bullet-on-wall)
-    melee     = 6,   -- crescent slash
+    hit_enemy = 1,   -- starburst (bullet-on-enemy)
+    hit_wall  = 4,   -- small sparks (bullet-on-wall)
+    melee     = MELEE_ROW,
 }
 
 local active = {}  -- list of playing effects
@@ -46,14 +50,21 @@ end
 function ImpactFX.spawn(cx, cy, kind, scale, angle)
     init()
     local row = ANIM[kind or "hit_enemy"] or 1
+    local maxFrame = COLS
+    local defScale = SCALE
+    if kind == "melee" then
+        maxFrame = MELEE_ROW_FRAMES
+        defScale = MELEE_SCALE
+    end
     table.insert(active, {
         x     = cx,
         y     = cy,
         row   = row,
         frame = 1,
         timer = 0,
-        scale = scale or SCALE,
+        scale = (scale ~= nil) and scale or defScale,
         angle = angle or 0,
+        maxFrame = maxFrame,
     })
 end
 
@@ -67,7 +78,7 @@ function ImpactFX.update(dt)
             fx.timer = fx.timer - interval
             fx.frame = fx.frame + 1
         end
-        if fx.frame > COLS then
+        if fx.frame > (fx.maxFrame or COLS) then
             table.remove(active, i)
         else
             i = i + 1
@@ -79,6 +90,9 @@ function ImpactFX.draw()
     if not sheet then return end
     local a = Settings.getVfxMul()
     if a <= 0.001 then return end
+    -- Pack art is on black; additive blend hides black so you see the actual painted pixels.
+    local prevBlendMode, prevAlphaMode = love.graphics.getBlendMode()
+    love.graphics.setBlendMode("add", "alphamultiply")
     love.graphics.setColor(1, 1, 1, a)
     for _, fx in ipairs(active) do
         local q = quads[fx.row] and quads[fx.row][fx.frame]
@@ -88,6 +102,7 @@ function ImpactFX.draw()
                                FRAME_SIZE / 2, FRAME_SIZE / 2)
         end
     end
+    love.graphics.setBlendMode(prevBlendMode, prevAlphaMode)
     love.graphics.setColor(1, 1, 1)
 end
 

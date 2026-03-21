@@ -456,7 +456,7 @@ function Enemy:updateRanged(dt, world, dx, dy, dist, playerX, playerY)
             x = self.x + self.w / 2,
             y = self.y + self.h / 2,
             angle = angle,
-            speed = self.bulletSpeed or 250,
+            speed = self.bulletSpeed or 380,
             damage = self.damage,
             fromEnemy = true,
         }
