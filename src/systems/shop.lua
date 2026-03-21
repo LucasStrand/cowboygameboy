@@ -1,4 +1,5 @@
 local GearData = require("src.data.gear")
+local Sfx = require("src.systems.sfx")
 
 local Shop = {}
 Shop.__index = Shop
@@ -64,6 +65,7 @@ function Shop:buyItem(index, player)
 
     player.gold = player.gold - item.price
     item.sold = true
+    Sfx.play("shop_buy")
 
     if item.type == "heal" then
         local healAmount = math.floor(player:getEffectiveStats().maxHP * 0.5)

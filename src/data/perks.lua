@@ -130,6 +130,16 @@ Perks.pool = {
             player.stats.deadEye = true
         end
     },
+    {
+        id = "akimbo",
+        name = "Akimbo",
+        description = "Dual-wield: fire both guns at once",
+        rarity = "rare",
+        weight = 2,
+        apply = function(player)
+            player.stats.akimbo = true
+        end
+    },
 }
 
 function Perks.rollPerks(count, luck)

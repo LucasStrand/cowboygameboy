@@ -1,4 +1,5 @@
 local Perks = require("src.data.perks")
+local Sfx = require("src.systems.sfx")
 
 local Blackjack = {}
 Blackjack.__index = Blackjack

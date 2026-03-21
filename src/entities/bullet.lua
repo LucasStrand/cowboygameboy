@@ -1,3 +1,6 @@
+local ImpactFX = require("src.systems.impact_fx")
+local Sfx = require("src.systems.sfx")
+
 local Bullet = {}
 Bullet.__index = Bullet
 
@@ -63,9 +66,16 @@ function Bullet:update(dt, world)
                 self.x = self.x + col.normal.x * 2
                 self.y = self.y + col.normal.y * 2
                 world:update(self, self.x, self.y)
+                if not self.fromEnemy then
+                    Sfx.play("ricochet")
+                end
                 if debugLog then debugLog("Ricochet bounce (" .. self.ricochet .. " left)") end
                 return
             else
+                if not self.fromEnemy then
+                    Sfx.play("hit_wall")
+                end
+                ImpactFX.spawn(self.x + self.w / 2, self.y + self.h / 2, "hit_wall")
                 self.alive = false
                 return
             end

@@ -1,6 +1,9 @@
 local Bullet = require("src.entities.bullet")
 local Pickup = require("src.entities.pickup")
+local Guns   = require("src.data.guns")
 local DamageNumbers = require("src.ui.damage_numbers")
+local ImpactFX = require("src.systems.impact_fx")
+local Sfx = require("src.systems.sfx")
 
 local Combat = {}
 
@@ -30,9 +33,14 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
             local hitY = b.y + b.h / 2
             b.hitEnemy:takeDamage(b.damage, world)
             DamageNumbers.spawn(hitX, hitY, b.damage, "out")
+            ImpactFX.spawn(hitX, hitY, "hit_enemy")
+            if not b.fromEnemy then
+                Sfx.play("hit_enemy")
+            end
 
             -- Explosive rounds: AOE damage to nearby enemies
             if b.explosive and not b.fromEnemy then
+                Sfx.play("explosion")
                 local explosionRadius = 60
                 local aoeDamage = math.floor(b.damage * 0.5)
                 local bx = b.x + b.w / 2
@@ -60,6 +68,7 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
             local ok, dmg = player:takeDamage(b.damage)
             if ok then
                 DamageNumbers.spawn(b.x + b.w / 2, b.y + b.h / 2, dmg, "in")
+                ImpactFX.spawn(b.x + b.w / 2, b.y + b.h / 2, "hit_enemy")
             end
         end
 
@@ -111,6 +120,21 @@ function Combat.onEnemyKilled(enemy, player)
             type = "health",
             value = 15,
         })
+    end
+
+    -- Weapon drop (rare)
+    local luck = player:getEffectiveStats().luck or 0
+    local weaponDropChance = 0.04 + luck * 0.02
+    if math.random() < weaponDropChance then
+        local gunDef = Guns.rollDrop(luck)
+        if gunDef then
+            table.insert(drops, {
+                x = baseX,
+                y = baseY - 8,
+                type = "weapon",
+                value = gunDef,
+            })
+        end
     end
 
     return drops
@@ -209,6 +233,8 @@ end
 
 function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB)
     if not player.autoMelee or player.blocking then return end
+    -- Only when the active slot has no gun (melee stance); gun slot uses auto-fire instead
+    if player:getActiveGun() then return end
     local s = player:getEffectiveStats()
     if s.meleeDamage <= 0 then return end
     if player.meleeCooldown > 0 or player.meleeSwingTimer > 0 then return end
@@ -243,6 +269,8 @@ function Combat.checkPlayerMelee(player, enemies)
                hy < e.y + e.h and hy + hh > e.y then
                 e:takeDamage(dmg, nil)
                 DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, dmg, "out")
+                ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee")
+                Sfx.play("melee_hit")
                 player.meleeHitEnemies[e] = true
                 player.meleeHitFlashTimer = 0.2
                 -- Knockback along melee aim (same axis as the swing / shot)
@@ -257,7 +285,7 @@ function Combat.checkPlayerMelee(player, enemies)
     end
 end
 
-function Combat.checkPickups(pickups, player)
+function Combat.checkPickups(pickups, player, world)
     local leveledUp = false
     local attractR = pickupAttractRadius(player)
     local i = 1
@@ -269,27 +297,48 @@ function Combat.checkPickups(pickups, player)
         local dy = (p.y + p.h / 2) - py
         local dist = math.sqrt(dx * dx + dy * dy)
 
-        if dist < attractR then
+        -- Weapon pickups are NOT attracted — must walk over deliberately
+        if dist < attractR and p.pickupType ~= "weapon" then
             p.attracted = true
         end
 
-        if p.attracted and dist < PICKUP_COLLECT_RADIUS then
+        local collected = false
+        if p.pickupType == "weapon" and p.gunDef then
+            -- Weapon: close contact only (no attraction)
+            if dist < PICKUP_COLLECT_RADIUS then
+                player:equipWeapon(p.gunDef, player.activeWeaponSlot)
+                local cx = p.x + p.w / 2
+                local cy = p.y + p.h / 2
+                DamageNumbers.spawnPickup(cx, cy, p.gunDef.name, "weapon")
+                collected = true
+            end
+        elseif p.attracted and dist < PICKUP_COLLECT_RADIUS then
             local cx = p.x + p.w / 2
             local cy = p.y + p.h / 2
             if p.pickupType == "xp" then
                 leveledUp = player:addXP(p.value) or leveledUp
                 DamageNumbers.spawnPickup(cx, cy, p.value, "xp")
+                Sfx.play("pickup_xp")
             elseif p.pickupType == "gold" then
                 player:addGold(p.value)
                 DamageNumbers.spawnPickup(cx, cy, p.value, "gold")
+                Sfx.play("pickup_gold")
             elseif p.pickupType == "health" then
                 player:heal(p.value)
                 DamageNumbers.spawnPickup(cx, cy, p.value, "health")
+                Sfx.play("pickup_health")
             end
+            collected = true
+        end
+
+        if collected then
             p.alive = false
         end
 
         if not p.alive then
+            if world and world:hasItem(p) then
+                world:remove(p)
+            end
             table.remove(pickups, i)
         else
             i = i + 1

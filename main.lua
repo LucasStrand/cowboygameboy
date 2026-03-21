@@ -1,7 +1,7 @@
 local Gamestate = require("lib.hump.gamestate")
 local Settings = require("src.systems.settings")
 
-local menu = require("src.states.menu")
+local boot_intro = require("src.states.boot_intro")
 local game = require("src.states.game")
 local gameover = require("src.states.gameover")
 local levelup = require("src.states.levelup")
@@ -11,7 +11,7 @@ local saloon = require("src.states.saloon")
 -- HUD uses fixed pixel sizes in this space (does not scale up with resolution).
 GAME_WIDTH = 1280
 GAME_HEIGHT = 720
-DEBUG = false
+DEBUG = true
 
 local gameCanvas
 local canvasScale = 1
@@ -64,7 +64,7 @@ function love.load()
         callbacks[#callbacks+1] = k
     end
     Gamestate.registerEvents(callbacks)
-    Gamestate.switch(menu)
+    Gamestate.switch(boot_intro)
 end
 
 function love.resize(w, h)

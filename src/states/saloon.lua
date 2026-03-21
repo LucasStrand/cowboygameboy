@@ -8,6 +8,7 @@ local Cursor = require("src.ui.cursor")
 
 local saloon = {}
 
+local bgImage = nil
 local player = nil
 local blackjackGame = nil
 local rouletteGame = nil
@@ -18,10 +19,15 @@ local message = ""
 local messageTimer = 0
 local perkOptions = nil
 local hoveredPerk = nil
+local hoveredBlackjackButton = nil
 local roomManager = nil
 local fonts = {}
 
 function saloon:enter(_, _player, _roomManager)
+    if not bgImage then
+        local ok, img = pcall(love.graphics.newImage, "assets/backgrounds/saloonLobby.png")
+        bgImage = ok and img or nil
+    end
     player = _player
     roomManager = _roomManager
     difficulty = _roomManager and _roomManager.difficulty or 1
@@ -143,14 +149,24 @@ function saloon:draw()
     local screenH = GAME_HEIGHT
 
     -- Saloon background
-    love.graphics.setColor(0.12, 0.08, 0.05)
-    love.graphics.rectangle("fill", 0, 0, screenW, screenH)
-
-    -- Decorative bar counter
-    love.graphics.setColor(0.35, 0.2, 0.1)
-    love.graphics.rectangle("fill", 0, screenH * 0.85, screenW, screenH * 0.15)
-    love.graphics.setColor(0.5, 0.3, 0.15)
-    love.graphics.rectangle("fill", 0, screenH * 0.84, screenW, 4)
+    if bgImage then
+        love.graphics.setColor(1, 1, 1)
+        local bw, bh = bgImage:getDimensions()
+        local scale = math.max(screenW / bw, screenH / bh)
+        local drawX = (screenW - bw * scale) / 2
+        local drawY = (screenH - bh * scale) / 2
+        love.graphics.draw(bgImage, drawX, drawY, 0, scale, scale)
+        -- Darken slightly so text stays readable
+        love.graphics.setColor(0, 0, 0, 0.45)
+        love.graphics.rectangle("fill", 0, 0, screenW, screenH)
+    else
+        love.graphics.setColor(0.12, 0.08, 0.05)
+        love.graphics.rectangle("fill", 0, 0, screenW, screenH)
+        love.graphics.setColor(0.35, 0.2, 0.1)
+        love.graphics.rectangle("fill", 0, screenH * 0.85, screenW, screenH * 0.15)
+        love.graphics.setColor(0.5, 0.3, 0.15)
+        love.graphics.rectangle("fill", 0, screenH * 0.84, screenW, 4)
+    end
 
     -- Title
     love.graphics.setColor(1, 0.85, 0.2)
