@@ -7,6 +7,7 @@ local Enemy  = require("src.entities.enemy")
 local Pickup = require("src.entities.pickup")
 
 local Combat = require("src.systems.combat")
+local Progression = require("src.systems.progression")
 local RoomManager = require("src.systems.room_manager")
 local HUD    = require("src.ui.hud")
 local DevLog = require("src.ui.devlog")
@@ -15,6 +16,7 @@ local Font = require("src.ui.font")
 local Cursor = require("src.ui.cursor")
 local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
+local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
 local TileRenderer = require("src.systems.tile_renderer")
 local ImpactFX = require("src.systems.impact_fx")
@@ -43,6 +45,12 @@ local pauseSelectedIndex = 1
 local pauseHoverIndex = nil
 local pauseSettingsTab = "video"
 local pauseSettingsHover = nil
+local pauseSettingsBindCapture = nil -- action name while waiting for a key (Controls tab)
+local characterSheetOpen = false
+local devPanelOpen = false
+local devPanelScroll = 0
+local devPanelHover = nil
+local devPanelRows = nil
 -- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
 local offScreenEnemyHintActive = false
 
@@ -127,6 +135,7 @@ end
 
 local function drawAimCrosshair()
     if not player then return end
+    if not Settings.getShowCrosshair() then return end
     -- Hide only in pure auto+keyboard mode; show again while mouse is active (even with auto on)
     if player.autoGun and player.keyboardAimMode then return end
     local px = player.x + player.w * 0.5
@@ -373,7 +382,191 @@ end
 local function pauseRestartRun()
     paused = false
     pauseMenuView = "main"
+    pauseSettingsBindCapture = nil
+    devPanelOpen = false
+    devPanelScroll = 0
+    devPanelHover = nil
     Gamestate.switch(game, { introCountdown = true })
+end
+
+local function drawCharacterSheet()
+    if not player then return end
+    local pad = 14
+    local w, h = 300, 292
+    local x, y = 18, 56
+    love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
+    love.graphics.rectangle("fill", x, y, w, h, 8, 8)
+    love.graphics.setColor(0.85, 0.65, 0.35, 0.9)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, w, h, 8, 8)
+    love.graphics.setLineWidth(1)
+    if not game.charSheetTitleFont then
+        game.charSheetTitleFont = Font.new(18)
+    end
+    if not game.charSheetBodyFont then
+        game.charSheetBodyFont = Font.new(14)
+    end
+    local py = y + pad
+    love.graphics.setFont(game.charSheetTitleFont)
+    love.graphics.setColor(1, 0.88, 0.35)
+    love.graphics.print("Character", x + pad, py)
+    py = py + 26
+    love.graphics.setFont(game.charSheetBodyFont)
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    love.graphics.print(string.format("Lv %d  ·  Gold: $%d", player.level, player.gold), x + pad, py)
+    py = py + 20
+    love.graphics.print(string.format("XP: %d / %d", player.xp, player.xpToNext), x + pad, py)
+    py = py + 22
+    love.graphics.print("Perks:", x + pad, py)
+    py = py + 18
+    if #player.perks == 0 then
+        love.graphics.setColor(0.55, 0.52, 0.48)
+        love.graphics.print("(none yet)", x + pad, py)
+        py = py + 20
+    else
+        love.graphics.setColor(0.78, 0.85, 0.72)
+        local ptext = table.concat(player.perks, ", ")
+        local tw = w - 2 * pad
+        local _, lines = game.charSheetBodyFont:getWrap(ptext, tw)
+        love.graphics.printf(ptext, x + pad, py, tw, "left")
+        py = py + #lines * game.charSheetBodyFont:getHeight() + 8
+    end
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    local function gearLine(slot, label)
+        local g = player.gear[slot]
+        local name = g and g.name or "—"
+        return string.format("%s: %s", label, name)
+    end
+    love.graphics.print(gearLine("hat", "Hat"), x + pad, py)
+    py = py + 18
+    love.graphics.print(gearLine("vest", "Vest"), x + pad, py)
+    py = py + 18
+    love.graphics.print(gearLine("boots", "Boots"), x + pad, py)
+    py = py + 18
+    love.graphics.print(gearLine("melee", "Melee"), x + pad, py)
+    py = py + 18
+    love.graphics.print(gearLine("shield", "Shield"), x + pad, py)
+    py = py + 22
+    love.graphics.setColor(0.45, 0.45, 0.48)
+    local ck = Keybinds.formatActionKey("character")
+    love.graphics.print(string.format("%s to close  ·  ESC", ck), x + pad, py)
+end
+
+local function devPerkById(pid)
+    for _, p in ipairs(PerksData.pool) do
+        if p.id == pid then return p end
+    end
+end
+
+local function devPlayerHasPerk(pid)
+    if not player then return true end
+    for _, id in ipairs(player.perks) do
+        if id == pid then return true end
+    end
+    return false
+end
+
+local function devClampScroll()
+    if not devPanelRows then return end
+    if not game.devPanelTitleFont then
+        game.devPanelTitleFont = Font.new(16)
+    end
+    local ph = math.min(560, GAME_HEIGHT - 56)
+    local maxS = DevPanel.maxScroll(devPanelRows, game.devPanelTitleFont, ph)
+    devPanelScroll = math.max(0, math.min(maxS, devPanelScroll))
+end
+
+local function devApplyAction(id)
+    if not DEBUG or not player or not id then return end
+    if id == "kill_player" then
+        devPanelOpen = false
+        characterSheetOpen = false
+        player:beginDeath()
+        DevLog.push("sys", "[dev] kill player")
+    elseif id == "full_heal" then
+        player.hp = player:getEffectiveStats().maxHP
+        DevLog.push("sys", "[dev] full heal")
+    elseif id == "hurt_1" then
+        if not player.devGodMode then
+            player.hp = math.max(1, player.hp - 1)
+        end
+        DevLog.push("sys", "[dev] hurt 1")
+    elseif id == "toggle_god" then
+        player.devGodMode = not player.devGodMode
+        DevLog.push("sys", "[dev] god mode " .. tostring(player.devGodMode))
+    elseif id == "gold_100" then
+        player:addGold(100)
+        DevLog.push("sys", "[dev] +100 gold")
+    elseif id == "gold_500" then
+        player:addGold(500)
+        DevLog.push("sys", "[dev] +500 gold")
+    elseif id == "xp_50" then
+        devPanelOpen = false
+        characterSheetOpen = false
+        if player:addXP(50) then
+            local levelup = require("src.states.levelup")
+            Gamestate.push(levelup, player, function() end)
+        end
+    elseif id == "xp_200" then
+        devPanelOpen = false
+        characterSheetOpen = false
+        if player:addXP(200) then
+            local levelup = require("src.states.levelup")
+            Gamestate.push(levelup, player, function() end)
+        end
+    elseif id == "force_levelup" then
+        devPanelOpen = false
+        characterSheetOpen = false
+        local levelup = require("src.states.levelup")
+        Gamestate.push(levelup, player, function() end)
+    elseif id == "open_door" then
+        doorOpen = true
+        if currentRoom and currentRoom.door then
+            currentRoom.door.locked = false
+        end
+        DevLog.push("sys", "[dev] door open")
+    elseif id == "clear_enemies" then
+        for i = #enemies, 1, -1 do
+            local e = enemies[i]
+            if world:hasItem(e) then world:remove(e) end
+            table.remove(enemies, i)
+        end
+        if #enemies == 0 and not pendingEnemiesIncoming() and currentRoom then
+            doorOpen = true
+            if currentRoom.door then
+                currentRoom.door.locked = false
+            end
+        end
+        DevLog.push("sys", "[dev] cleared enemies")
+    elseif id == "clear_bullets" then
+        for i = #bullets, 1, -1 do
+            local b = bullets[i]
+            if world:hasItem(b) then world:remove(b) end
+            table.remove(bullets, i)
+        end
+        DevLog.push("sys", "[dev] cleared bullets")
+    elseif id == "spawn_bandit" or id == "spawn_gunslinger" or id == "spawn_buzzard" then
+        local t = id == "spawn_bandit" and "bandit" or (id == "spawn_gunslinger" and "gunslinger" or "buzzard")
+        local ex = player.x + (player.facingRight and 1 or -1) * 88
+        local ey = player.y
+        local e = Enemy.new(t, ex, ey, roomManager and roomManager.difficulty or 1, {})
+        if e then
+            world:add(e, e.x, e.y, e.w, e.h)
+            table.insert(enemies, e)
+            DevLog.push("sys", "[dev] spawn " .. t)
+        end
+    elseif id:sub(1, 5) == "perk:" then
+        local pid = id:sub(6)
+        if devPlayerHasPerk(pid) then
+            DevLog.push("sys", "[dev] already have perk: " .. pid)
+            return
+        end
+        local perk = devPerkById(pid)
+        if perk then
+            Progression.applyPerk(player, perk)
+            DevLog.push("sys", "[dev] perk " .. pid)
+        end
+    end
 end
 
 function game:enter(_, opts)
@@ -406,6 +599,12 @@ function game:enter(_, opts)
     pauseHoverIndex = nil
     pauseSettingsTab = "video"
     pauseSettingsHover = nil
+    pauseSettingsBindCapture = nil
+    characterSheetOpen = false
+    devPanelOpen = false
+    devPanelScroll = 0
+    devPanelHover = nil
+    devPanelRows = DevPanel.buildRows()
 
     roomManager = RoomManager.new()
     roomManager:generateSequence()
@@ -478,6 +677,14 @@ end
 
 function game:update(dt)
     if paused then return end
+
+    if devPanelOpen then
+        if player and player.dying then
+            devPanelOpen = false
+        else
+            return
+        end
+    end
 
     if introCountdownActive then
         processPendingEnemySpawns(dt)
@@ -680,7 +887,7 @@ function game:update(dt)
         offScreenEnemyHintActive = true
     end
 
-    -- Exit door: use [E] when nearby (see tryExitThroughDoor)
+    -- Exit door: use interact keybind when nearby (see tryExitThroughDoor)
 
     -- Kill plane (fell out of bounds)
     if isOutOfBounds(player, currentRoom) then
@@ -741,12 +948,49 @@ function game:keypressed(key)
         return
     end
 
+    if DEBUG and devPanelOpen then
+        if key == "escape" or key == "f2" then
+            devPanelOpen = false
+            devPanelHover = nil
+        end
+        return
+    end
+
+    if key == "f2" and DEBUG and not paused then
+        devPanelOpen = true
+        characterSheetOpen = false
+        devPanelScroll = 0
+        devPanelRows = DevPanel.buildRows()
+        if not game.devPanelTitleFont then
+            game.devPanelTitleFont = Font.new(16)
+        end
+        devClampScroll()
+        return
+    end
+
     if player and player.dying then return end
 
+    if paused and pauseMenuView == "settings" and pauseSettingsBindCapture then
+        if key == "escape" then
+            pauseSettingsBindCapture = nil
+        else
+            local normalized = Keybinds.normalizeCapturedKey(key)
+            Settings.setKeybind(pauseSettingsBindCapture, normalized)
+            Settings.save()
+            pauseSettingsBindCapture = nil
+        end
+        return
+    end
+
     if key == "escape" then
+        if not paused and characterSheetOpen then
+            characterSheetOpen = false
+            return
+        end
         if paused then
             if pauseMenuView == "settings" then
                 pauseMenuView = "main"
+                pauseSettingsBindCapture = nil
             else
                 paused = false
                 pauseMenuView = "main"
@@ -764,6 +1008,7 @@ function game:keypressed(key)
         if pauseMenuView == "settings" then
             if key == "backspace" then
                 pauseMenuView = "main"
+                pauseSettingsBindCapture = nil
             elseif key == "[" then
                 pauseSettingsTab = SettingsPanel.cycleTab(pauseSettingsTab, -1)
             elseif key == "]" then
@@ -792,19 +1037,28 @@ function game:keypressed(key)
         return
     end
 
-    if key == "space" or key == "w" or key == "up" then
+    if Keybinds.matches("character", key) then
+        characterSheetOpen = not characterSheetOpen
+        return
+    end
+    if Keybinds.matches("ult", key) then
+        player:tryActivateUlt()
+        return
+    end
+
+    if Keybinds.matches("jump", key) or key == "w" or key == "up" then
         player:jump()
     end
-    if key == "lshift" or key == "rshift" then
+    if Keybinds.matches("dash", key) then
         player:tryDash()
     end
-    if key == "s" or key == "down" then
+    if Keybinds.matches("drop", key) or key == "down" then
         player:tryDropThrough()
     end
-    if key == "r" then
+    if Keybinds.matches("reload", key) then
         player:reload()
     end
-    if key == "f" then
+    if Keybinds.matches("melee", key) then
         player:meleeAttack()
     end
     if key == "h" then
@@ -817,8 +1071,18 @@ end
 
 function game:mousemoved(x, y, dx, dy)
     if introCountdownActive then return end
-    if player and player.dying then return end
     local gx, gy = windowToGame(x, y)
+    if DEBUG and devPanelOpen and devPanelRows then
+        if not game.devPanelTitleFont then
+            game.devPanelTitleFont = Font.new(16)
+        end
+        local px, py = 12, 44
+        local pw = 308
+        local ph = math.min(560, GAME_HEIGHT - 56)
+        devPanelHover = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, game.devPanelTitleFont)
+        return
+    end
+    if player and player.dying then return end
     if paused then
         pauseHoverIndex = nil
         if pauseMenuView == "main" then
@@ -858,8 +1122,21 @@ end
 
 function game:mousepressed(x, y, button)
     if introCountdownActive then return end
-    if player and player.dying then return end
     local gx, gy = windowToGame(x, y)
+    if DEBUG and devPanelOpen and devPanelRows and button == 1 then
+        if not game.devPanelTitleFont then
+            game.devPanelTitleFont = Font.new(16)
+        end
+        local px, py = 12, 44
+        local pw = 308
+        local ph = math.min(560, GAME_HEIGHT - 56)
+        local hit = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, game.devPanelTitleFont)
+        if hit then
+            devApplyAction(hit)
+        end
+        return
+    end
+    if player and player.dying then return end
     if paused then
         if button ~= 1 then return end
         if pauseMenuView == "main" then
@@ -918,6 +1195,13 @@ function game:mousepressed(x, y, button)
             player:reload()
         end
     end
+end
+
+function game:wheelmoved(x, y)
+    if introCountdownActive or paused then return end
+    if not DEBUG or not devPanelOpen then return end
+    devPanelScroll = devPanelScroll - y * 36
+    devClampScroll()
 end
 
 function game:draw()
@@ -1001,7 +1285,8 @@ function game:draw()
             if doorOpen then
                 love.graphics.setColor(1, 1, 1, 0.85)
                 if player and isPlayerNearDoor() then
-                    love.graphics.printf("[E] Exit", door.x - 24, door.y - 20, door.w + 48, "center")
+                    local ik = Keybinds.formatActionKey("interact")
+                    love.graphics.printf(string.format("[%s] Exit", ik), door.x - 24, door.y - 20, door.w + 48, "center")
                 else
                     love.graphics.printf("Exit", door.x - 10, door.y - 18, door.w + 20, "center")
                 end
@@ -1066,6 +1351,12 @@ function game:draw()
 
         HUD.drawDeadEye(player)
 
+        if characterSheetOpen and not paused then
+            love.graphics.setColor(0, 0, 0, 0.35)
+            love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            drawCharacterSheet()
+        end
+
         if paused then
             love.graphics.setColor(0, 0, 0, 0.48)
             love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
@@ -1121,7 +1412,7 @@ function game:draw()
                     tab = game.pauseMenuButtonFont,
                     row = game.pauseSettingsBodyFont,
                     hint = game.pauseHintFont,
-                }, pauseSettingsHover)
+                }, pauseSettingsHover, pauseSettingsBindCapture)
             end
         end
     else
@@ -1190,6 +1481,28 @@ function game:draw()
 
         -- Dev log
         DevLog.draw(panelX, py, 250)
+    end
+
+    if DEBUG and devPanelOpen and devPanelRows and player then
+        love.graphics.setColor(0, 0, 0, 0.38)
+        love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
+        if not game.devPanelTitleFont then
+            game.devPanelTitleFont = Font.new(16)
+        end
+        if not game.devPanelRowFont then
+            game.devPanelRowFont = Font.new(13)
+        end
+        devClampScroll()
+        local px, py = 12, 44
+        local pw = 308
+        local ph = math.min(560, GAME_HEIGHT - 56)
+        DevPanel.draw(devPanelRows, devPanelScroll, px, py, pw, ph, devPanelHover, {
+            title = game.devPanelTitleFont,
+            row = game.devPanelRowFont,
+        })
+        love.graphics.setFont(game.devPanelRowFont)
+        love.graphics.setColor(0.55, 0.55, 0.58)
+        love.graphics.printf("F2 / ESC close  ·  wheel scroll", px, math.min(py + ph + 6, GAME_HEIGHT - 20), pw, "center")
     end
 
     love.graphics.setColor(1, 1, 1)
