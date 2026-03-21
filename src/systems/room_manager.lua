@@ -255,6 +255,8 @@ function RoomManager:loadRoom(room, world, player, opts)
         door = door,
         width = room.width,
         height = room.height,
+        --- Room `boss = true` in room data forces boss BGM; can also toggle at runtime for boss fights.
+        bossFight = room.boss or false,
     }
 end
 

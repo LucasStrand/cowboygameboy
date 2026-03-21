@@ -22,6 +22,7 @@ local SettingsPanel = require("src.ui.settings_panel")
 local TileRenderer = require("src.systems.tile_renderer")
 local ImpactFX = require("src.systems.impact_fx")
 local Sfx = require("src.systems.sfx")
+local MusicDirector = require("src.systems.music_director")
 
 local game = {}
 
@@ -75,6 +76,34 @@ end
 
 local function roomHasLivingThreat()
     return #enemies > 0 or pendingEnemiesIncoming()
+end
+
+local function buildMusicSnapshot()
+    local pending = 0
+    if currentRoom and currentRoom.pendingEnemySpawns then
+        pending = #currentRoom.pendingEnemySpawns
+    end
+    local anyElite = false
+    for _, e in ipairs(enemies) do
+        if e.elite and e.alive then
+            anyElite = true
+            break
+        end
+    end
+    local maxHP = player:getEffectiveStats().maxHP
+    local hpRatio = maxHP > 0 and (player.hp / maxHP) or 1
+    return {
+        introCountdownActive = introCountdownActive,
+        paused = paused,
+        roomHasThreat = roomHasLivingThreat(),
+        enemyCount = #enemies + pending,
+        anyElite = anyElite,
+        bossActive = currentRoom and currentRoom.bossFight or false,
+        hpRatio = hpRatio,
+        playerDying = player.dying,
+        deathTimer = player.deathTimer or 0,
+        deathDuration = Player.DEATH_DURATION,
+    }
 end
 
 local function processPendingEnemySpawns(dt)
@@ -713,11 +742,13 @@ function game:enter(_, opts)
     -- loadNextRoom may push saloon; only apply gameplay cursor if we're still the top state
     if Gamestate.current() == game then
         Cursor.setGameplay()
+        MusicDirector.onEnterGameplay()
     end
 end
 
 function game:leave()
     Cursor.setDefault()
+    MusicDirector.onLeaveGameplay()
 end
 
 function loadNextRoom()
@@ -758,6 +789,7 @@ end
 
 function game:resume()
     Cursor.setGameplay()
+    MusicDirector.resumeGameplay()
     -- Returning from saloon -> load new cycle of rooms
     if roomManager.needsNewRooms then
         roomManager.needsNewRooms = false
@@ -766,6 +798,10 @@ function game:resume()
 end
 
 function game:update(dt)
+    if player and roomManager then
+        MusicDirector.update(dt, buildMusicSnapshot())
+    end
+
     if paused then return end
 
     if devPanelOpen then

@@ -5,6 +5,7 @@ local Shop = require("src.systems.shop")
 local Perks = require("src.data.perks")
 local PerkCard = require("src.ui.perk_card")
 local Cursor = require("src.ui.cursor")
+local MusicDirector = require("src.systems.music_director")
 
 local saloon = {}
 
@@ -23,6 +24,7 @@ local roomManager = nil
 local fonts = {}
 
 function saloon:enter(_, _player, _roomManager)
+    MusicDirector.suspendGameplay()
     if not bgImage then
         local ok, img = pcall(love.graphics.newImage, "assets/backgrounds/saloonLobby.png")
         bgImage = ok and img or nil
