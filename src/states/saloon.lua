@@ -1,6 +1,7 @@
 local Gamestate = require("lib.hump.gamestate")
 local Font = require("src.ui.font")
 local Blackjack = require("src.systems.blackjack")
+local Roulette = require("src.systems.roulette")
 local Shop = require("src.systems.shop")
 local PerkCard = require("src.ui.perk_card")
 local Cursor = require("src.ui.cursor")
@@ -9,6 +10,7 @@ local saloon = {}
 
 local player = nil
 local blackjackGame = nil
+local rouletteGame = nil
 local shop = nil
 local difficulty = 1
 local mode = "main"
@@ -24,6 +26,7 @@ function saloon:enter(_, _player, _roomManager)
     roomManager = _roomManager
     difficulty = _roomManager and _roomManager.difficulty or 1
     blackjackGame = Blackjack.new()
+    rouletteGame = Roulette.new()
     shop = Shop.new(difficulty)
     mode = "main"
     message = ""
@@ -66,20 +69,32 @@ function saloon:update(dt)
     elseif mode == "blackjack" then
         local mx, my = windowToGame(love.mouse.getPosition())
         blackjackGame:updateHover(mx, my, GAME_WIDTH, GAME_HEIGHT)
+    elseif mode == "roulette" then
+        rouletteGame:update(dt, player)
     end
 end
 
 function saloon:keypressed(key)
     if mode == "main" then
         if key == "1" then
-            applyBlackjackOutcome(blackjackGame:enterTable(player.gold))
+            mode = "casino_menu"
         elseif key == "2" then
             mode = "shop"
         elseif key == "return" or key == "3" then
             continueGame()
         end
+    elseif mode == "casino_menu" then
+        if key == "1" then
+            applyBlackjackOutcome(blackjackGame:enterTable(player.gold))
+        elseif key == "2" then
+            applyBlackjackOutcome(rouletteGame:enterTable(player.gold))
+        elseif key == "escape" or key == "backspace" then
+            mode = "main"
+        end
     elseif mode == "blackjack" then
         applyBlackjackOutcome(blackjackGame:handleKey(key, player))
+    elseif mode == "roulette" then
+        applyBlackjackOutcome(rouletteGame:handleKey(key, player))
     elseif mode == "shop" then
         local num = tonumber(key)
         if num and num >= 1 and num <= #shop.items then
@@ -109,6 +124,9 @@ function saloon:mousepressed(x, y, button)
     if mode == "blackjack" then
         local mx, my = windowToGame(x, y)
         applyBlackjackOutcome(blackjackGame:handleMousePressed(mx, my, button, GAME_WIDTH, GAME_HEIGHT, player))
+    elseif mode == "roulette" then
+        local mx, my = windowToGame(x, y)
+        applyBlackjackOutcome(rouletteGame:handleMousePressed(mx, my, button, GAME_WIDTH, GAME_HEIGHT, player))
     end
 end
 
@@ -148,8 +166,12 @@ function saloon:draw()
 
     if mode == "main" then
         drawMainMenu(screenW, screenH)
+    elseif mode == "casino_menu" then
+        drawCasinoMenu(screenW, screenH)
     elseif mode == "blackjack" then
         blackjackGame:draw(screenW, screenH, fonts)
+    elseif mode == "roulette" then
+        rouletteGame:draw(screenW, screenH, fonts)
     elseif mode == "shop" then
         drawShop(screenW, screenH)
     elseif mode == "perk_selection" then
@@ -169,7 +191,7 @@ end
 function drawMainMenu(screenW, screenH)
     local y = screenH * 0.35
     local opts = {
-        "[1] Blackjack Table  (wager gold for perks)",
+        "[1] Casino  (Gambling tables)",
         "[2] Bartender  (buy supplies)",
         "[3/ENTER] Hit the Road  (continue to next rooms)",
     }
@@ -178,6 +200,19 @@ function drawMainMenu(screenW, screenH)
         love.graphics.printf(opt, 0, y, screenW, "center")
         y = y + 40
     end
+end
+
+function drawCasinoMenu(screenW, screenH)
+    local y = screenH * 0.35
+    love.graphics.setColor(1, 0.85, 0.2)
+    love.graphics.setFont(fonts.shopTitle or fonts.title)
+    love.graphics.printf("CASINO", 0, y - 40, screenW, "center")
+    love.graphics.setFont(fonts.body)
+    love.graphics.setColor(0.9, 0.8, 0.6)
+    love.graphics.printf("[1] Blackjack", 0, y + 20, screenW, "center")
+    love.graphics.printf("[2] Roulette", 0, y + 60, screenW, "center")
+    love.graphics.setColor(0.7, 0.7, 0.7)
+    love.graphics.printf("[ESC] Back", 0, y + 120, screenW, "center")
 end
 
 function drawShop(screenW, screenH)

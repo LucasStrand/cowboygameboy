@@ -163,8 +163,8 @@ local function blackjackWagerLayout(rowRect)
     local gap = 18
     local x = rowRect.x - panelW - gap
     local y = rowRect.y
-    local pad = 10
-    local btnGap = 6
+    local pad = 4
+    local btnGap = 4
     local btnW = 32
     local btnH = (panelH - pad * 2 - btnGap) * 0.5
     local btnX = x + panelW - pad - btnW
@@ -644,12 +644,18 @@ function Blackjack:drawButtons(screenW, screenH, baseY, fonts, labels, wagerCont
         love.graphics.printf("$" .. wagerControl.wager, wagerRects.text.x, panel.y + 22, wagerRects.text.w, "left")
 
         local function drawWagerBtn(btn, label)
-            love.graphics.setColor(0.12, 0.08, 0.06, enabled and 0.75 or 0.35)
+            local hov = self.hoveredButton == btn.id
+            if hov then
+                love.graphics.setColor(0.22, 0.14, 0.08, enabled and 0.9 or 0.45)
+            else
+                love.graphics.setColor(0.12, 0.08, 0.06, enabled and 0.75 or 0.35)
+            end
             love.graphics.rectangle("fill", btn.x, btn.y, btn.w, btn.h, 4, 4)
-            love.graphics.setColor(0.85, 0.65, 0.35, enabled and 0.65 or 0.35)
+            love.graphics.setColor(0.85, 0.65, 0.35, hov and 1 or (enabled and 0.65 or 0.35))
             love.graphics.rectangle("line", btn.x, btn.y, btn.w, btn.h, 4, 4)
             love.graphics.setColor(1, 0.95, 0.82, enabled and 1 or 0.6)
-            love.graphics.printf(label, btn.x, btn.y + 2, btn.w, "center")
+            local textY = btn.y + (btn.h - fonts.body:getHeight()) * 0.5 - 1
+            love.graphics.printf(label, btn.x + 2, textY, btn.w - 4, "center")
         end
 
         drawWagerBtn(wagerRects.plus, "+")
@@ -687,7 +693,7 @@ function Blackjack:drawButtons(screenW, screenH, baseY, fonts, labels, wagerCont
         love.graphics.setFont(fonts.body)
         local lastRect = rects[#rects]
         local msgX = lastRect.x + lastRect.w + 24
-        local msgY = lastRect.y + (lastRect.h - 32) * 0.5
+        local msgY = lastRect.y + 12
         local msgW = math.max(0, screenW - msgX - 16)
         love.graphics.printf(self.resultMessage, msgX, msgY, msgW, "left")
     end
@@ -776,6 +782,12 @@ function Blackjack:draw(screenW, screenH, fonts)
         love.graphics.setColor(1, 1, 1)
         love.graphics.printf("(" .. self:displayValue(self.dealerHand) .. ")", 0, y, screenW, "center")
         y = y + rowH.dealerValue
+    end
+
+    local handsSectionH = rowH.handsHeader + (handCount * (rowH.handLabel + handCardH + rowH.handValue))
+    local desiredHandsY = layoutBottom - 6 - handsSectionH
+    if desiredHandsY > y then
+        y = desiredHandsY
     end
 
     love.graphics.setColor(0.8, 0.6, 0.4)
