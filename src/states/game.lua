@@ -634,7 +634,7 @@ local function devApplyAction(id)
         local Guns = require("src.data.guns")
         local gunDef = Guns.getById(gunId)
         if gunDef then
-            local slot = player.weapons[2] and player.weapons[2].gun and player.activeWeaponSlot or 2
+            local slot = player.activeWeaponSlot
             player:equipWeapon(gunDef, slot)
             DevLog.push("sys", "[dev] equipped " .. gunDef.name .. " to slot " .. slot)
         end
@@ -855,8 +855,8 @@ function game:update(dt)
 
     if not player.dying then
     local i, leveledUp -- hoisted for goto (cannot jump over `local` in same block)
-    -- Auto-fire only when findAutoTarget finds someone (on-screen + LOS). Mouse overrides *direction* to cursor, but never fires into empty space.
-    if player:getActiveGun() and player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
+    -- Auto-fire: autoGun on, valid target (on-screen + LOS). Melee stance still fires primary (slot 1) via shootFromSlot.
+    if player.autoGun and not player.blocking then
         local tx, ty
         if not autoTx then
             tx, ty = nil, nil
@@ -866,14 +866,29 @@ function game:update(dt)
             tx, ty = autoTx, autoTy
         end
         if tx then
-            local bulletData = player:shoot(tx, ty)
+            local bulletData
+            local gunForShake
+            if player:isAkimbo() then
+                if not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
+                    bulletData = player:shoot(tx, ty)
+                    gunForShake = player:getActiveGun()
+                end
+            else
+                local s = player:getWeaponSlotForAutoFire()
+                if s then
+                    local w = player.weapons[s]
+                    if not w.reloading and (w.shootCooldown or 0) <= 0 and w.ammo > 0 then
+                        bulletData = player:shootFromSlot(s, tx, ty)
+                        gunForShake = w.gun
+                    end
+                end
+            end
             if bulletData then
                 for _, data in ipairs(bulletData) do
                     local b = Combat.spawnBullet(world, data)
                     table.insert(bullets, b)
                 end
-                -- Scale shake by fire rate (rapid weapons get less shake per shot)
-                local gun = player:getActiveGun()
+                local gun = gunForShake
                 local cooldown = gun and gun.baseStats.shootCooldown or 0.38
                 local shakeMult = math.min(1, cooldown / 0.38)
                 shakeTimer = 0.08
@@ -1275,20 +1290,28 @@ function game:mousepressed(x, y, button)
     if player then
         player.mouseAimOverrideUntil = love.timer.getTime() + Settings.getMouseAimIdleSec()
     end
-    if button == 1 and player and not player.blocking and player:getActiveGun() then
-        -- Manual shot at cursor; player:shoot cooldown blocks double-tap with auto-fire in update
+    if button == 1 and player and not player.blocking then
         local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
-        local bulletData = player:shoot(mx, my)
-        if bulletData then
-            for _, data in ipairs(bulletData) do
-                local b = Combat.spawnBullet(world, data)
-                table.insert(bullets, b)
+        if player:getActiveGun() then
+            -- Manual shot at cursor; player:shoot cooldown blocks double-tap with auto-fire in update
+            local bulletData = player:shoot(mx, my)
+            if bulletData then
+                for _, data in ipairs(bulletData) do
+                    local b = Combat.spawnBullet(world, data)
+                    table.insert(bullets, b)
+                end
+                local gun = player:getActiveGun()
+                local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+                local shakeMult = math.min(1, cooldown / 0.38)
+                shakeTimer = 0.08
+                shakeIntensity = 2 * shakeMult
             end
-            local gun = player:getActiveGun()
-            local cooldown = gun and gun.baseStats.shootCooldown or 0.38
-            local shakeMult = math.min(1, cooldown / 0.38)
-            shakeTimer = 0.08
-            shakeIntensity = 2 * shakeMult
+        else
+            -- Melee stance (no gun in active slot): left-click swings toward cursor
+            local s = player:getEffectiveStats()
+            if s.meleeDamage > 0 then
+                player:meleeAttack(mx, my)
+            end
         end
     end
     if button == 2 then

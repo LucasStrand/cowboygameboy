@@ -233,6 +233,8 @@ end
 
 function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB)
     if not player.autoMelee or player.blocking then return end
+    -- Only when the active slot has no gun (melee stance); gun slot uses auto-fire instead
+    if player:getActiveGun() then return end
     local s = player:getEffectiveStats()
     if s.meleeDamage <= 0 then return end
     if player.meleeCooldown > 0 or player.meleeSwingTimer > 0 then return end
@@ -304,8 +306,7 @@ function Combat.checkPickups(pickups, player, world)
         if p.pickupType == "weapon" and p.gunDef then
             -- Weapon: close contact only (no attraction)
             if dist < PICKUP_COLLECT_RADIUS then
-                local slot = player.weapons[2] and player.weapons[2].gun and player.activeWeaponSlot or 2
-                player:equipWeapon(p.gunDef, slot)
+                player:equipWeapon(p.gunDef, player.activeWeaponSlot)
                 local cx = p.x + p.w / 2
                 local cy = p.y + p.h / 2
                 DamageNumbers.spawnPickup(cx, cy, p.gunDef.name, "weapon")
