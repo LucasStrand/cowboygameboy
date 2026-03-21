@@ -8,6 +8,7 @@ local RoomManager = require("src.systems.room_manager")
 local MenuRoomDraw = require("src.ui.menu_room_draw")
 local TextLayout = require("src.ui.text_layout")
 local SettingsPanel = require("src.ui.settings_panel")
+local Settings = require("src.systems.settings")
 
 local menu = {}
 

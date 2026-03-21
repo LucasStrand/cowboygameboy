@@ -1,4 +1,5 @@
 local Gamestate = require("lib.hump.gamestate")
+local Settings = require("src.systems.settings")
 
 local menu = require("src.states.menu")
 local game = require("src.states.game")
