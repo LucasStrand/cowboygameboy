@@ -1,6 +1,7 @@
 local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
 local GearIcons = require("src.ui.gear_icons")
+local GoldCoin = require("src.ui.gold_coin")
 
 local HUD = {}
 
@@ -92,6 +93,17 @@ local function loadSprites()
     HUD._quads = {}
     for name, r in pairs(SPRITE_RECTS) do
         HUD._quads[name] = love.graphics.newQuad(r[1], r[2], r[3], r[4], sw, sh)
+    end
+end
+
+--- Spell icon for Dead Man's Hand (assets/ui copy of VerArc lightning_spell; independent of HUD sheet load).
+local function ensureUltIcon()
+    if HUD._ultIconLoaded then return end
+    HUD._ultIconLoaded = true
+    local ok, img = pcall(love.graphics.newImage, "assets/ui/ult_dead_mans_hand.png")
+    if ok and img then
+        img:setFilter("nearest", "nearest")
+        HUD._ultIcon = img
     end
 end
 
@@ -399,6 +411,7 @@ end
 function HUD.draw(player)
     ensureFonts()
     loadSprites()
+    ensureUltIcon()
 
     love.graphics.push()
     love.graphics.origin()
@@ -473,7 +486,10 @@ function HUD.draw(player)
         local gx = screenW - totalW - CORNER_SZ - 18  -- clear of corner ornament
         local gy = 10
 
-        drawSprite("coin", gx, gy + (goldLineH - coinSz) / 2, coinScale)
+        local coinY = gy + (goldLineH - coinSz) / 2
+        if not GoldCoin.drawHeadsTopLeft(gx, coinY, coinSz) then
+            drawSprite("coin", gx, coinY, coinScale)
+        end
         shadowPrint(goldText, gx + coinSz + 8, gy, 1, 0.92, 0.6, 1)
     end
 
@@ -678,6 +694,27 @@ function HUD.draw(player)
                 love.graphics.rectangle("fill", fillX, fillY, fillW, fillH)
             end
 
+            -- Spell icon (Dead Man's Hand) — above Q label; charge fill behind
+            if HUD._ultIcon then
+                local labelH = HUD._fontLoadout:getHeight()
+                local iconPad = 10
+                local labelGap = 5
+                local iw, ih = HUD._ultIcon:getDimensions()
+                local maxW = SLOT_W - iconPad * 2
+                local maxH = SLOT_H - iconPad * 2 - labelH - labelGap
+                local sc = math.min(maxW / iw, maxH / ih)
+                local dw, dh = iw * sc, ih * sc
+                local dx = ultX + (SLOT_W - dw) / 2
+                local dy = ultY + iconPad
+                local ia = 0.7
+                if isReady then ia = 1
+                elseif isActive then
+                    ia = 0.88 + 0.12 * math.sin(love.timer.getTime() * 14)
+                end
+                love.graphics.setColor(1, 1, 1, ia)
+                love.graphics.draw(HUD._ultIcon, math.floor(dx), math.floor(dy), 0, sc, sc)
+            end
+
             -- Ready border (pulsing gold)
             if isReady and not isActive then
                 local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 5)
@@ -695,15 +732,37 @@ function HUD.draw(player)
                 love.graphics.setLineWidth(1)
             end
 
-            -- "Q" label + charge percentage
+            -- "Q" label + charge percentage (bottom strip)
             love.graphics.setFont(HUD._fontLoadout)
             local qLabel = isReady and "Q READY" or string.format("Q %d%%", math.floor(charge * 100))
             local qAlpha = isReady and 1 or 0.6
             local qR, qG, qB = 0.9, 0.85, 0.78
             if isReady then qR, qG, qB = 0.95, 0.82, 0.3 end
-            shadowPrintf(qLabel, ultX, ultY + (SLOT_H - HUD._fontLoadout:getHeight()) / 2,
+            local labelH2 = HUD._fontLoadout:getHeight()
+            shadowPrintf(qLabel, ultX, ultY + SLOT_H - labelH2 - 4,
                 SLOT_W, "center", qR, qG, qB, qAlpha)
         end
+    end
+
+    -- ── Active buff/debuff icons (just above HP label, aligned with bar column) ──
+    if player.buffs then
+        local Buffs = require("src.systems.buffs")
+        local lineH = HUD._lineH
+        local rowGap = 4
+        local bottomPad = 24
+        local iconGap = 6
+        local totalW = ICON_SZ + iconGap + BAR_W
+        local barX = math.floor((screenW - totalW) / 2) + ICON_SZ + iconGap
+        local iconX = barX - iconGap - ICON_SZ
+        local xpBarY = screenH - bottomPad - BAR_H
+        local xpTextY = xpBarY - lineH + 2
+        local hpBarY = xpTextY - rowGap - BAR_H
+        local hpTextY = hpBarY - lineH + 2
+        local buffScale = 2
+        local buffRowH = 16 * buffScale + 3
+        local buffY = hpTextY - 8 - buffRowH
+        local buffX = math.max(6, iconX - 2)
+        Buffs.drawIcons(player.buffs, buffX, buffY, buffScale)
     end
 
     love.graphics.setFont(prevFont)

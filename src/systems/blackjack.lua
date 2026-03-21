@@ -1,5 +1,8 @@
 local Perks = require("src.data.perks")
 local Sfx = require("src.systems.sfx")
+local Timer = require("lib.hump.timer")
+local CasinoFx = require("src.ui.casino_fx")
+local BlackjackVisuals = require("src.ui.blackjack_visuals")
 
 local Blackjack = {}
 Blackjack.__index = Blackjack
@@ -18,6 +21,23 @@ local MIN_BET = 5
 local BET_STEP = 5
 local CARD_DRAW_W = 90
 local CARD_GAP = 16
+
+-- Animation timing
+local DEAL_SLIDE_TIME = 0.18
+local DEAL_GAP_TIME = 0.12
+local FLIP_HALF_TIME = 0.12
+local DEALER_THINK_TIME = 0.45
+local RESULT_PAUSE_TIME = 0.6
+
+-- Deck position (cards slide from dealer area)
+local DECK_X, DECK_Y = 640, 30
+
+---------------------------------------------------------------------------
+-- Helpers
+---------------------------------------------------------------------------
+local function sfxRandom(base, n)
+    Sfx.play(base .. "_" .. math.random(1, n))
+end
 
 local function getCardSprite(self, suit, rank)
     local key = suit .. ":" .. rank
@@ -91,14 +111,33 @@ local function cardDrawHeight(self, maxWidth, maxHeight, count)
     return drawH
 end
 
-local function drawCardRow(self, cards, centerX, y, faceDownIndex, maxWidth, maxHeight)
-    if not cards or #cards == 0 then return y end
-    local scale, gap, drawW, drawH = cardLayout(self, maxWidth, maxHeight, #cards)
-    local totalW = #cards * drawW + (#cards - 1) * gap
+---------------------------------------------------------------------------
+-- Card target position calculation
+---------------------------------------------------------------------------
+local function computeCardTargets(self, cards, centerX, y, maxWidth, maxHeight)
+    local count = #cards
+    if count == 0 then return end
+    local scale, gap, drawW, drawH = cardLayout(self, maxWidth, maxHeight, count)
+    local totalW = count * drawW + (count - 1) * gap
     local x = centerX - totalW * 0.5
+    local mid = (count + 1) / 2
     for i, card in ipairs(cards) do
+        card.targetX = x + (i - 1) * (drawW + gap)
+        card.targetY = y
+        card.drawScale = scale
+        card.rotation = (i - mid) * 0.025
+    end
+    return y + drawH
+end
+
+---------------------------------------------------------------------------
+-- Animated card row drawing
+---------------------------------------------------------------------------
+local function drawAnimatedCardRow(self, cards, maxWidth, maxHeight)
+    if not cards or #cards == 0 then return end
+    for _, card in ipairs(cards) do
         local img
-        if faceDownIndex and i == faceDownIndex then
+        if not card.faceUp then
             img = getBackSprite(self)
         else
             img = getCardSprite(self, card.suit, card.rank)
@@ -106,48 +145,78 @@ local function drawCardRow(self, cards, centerX, y, faceDownIndex, maxWidth, max
         if not self.cardNativeW then
             self.cardNativeW = img:getWidth()
             self.cardNativeH = img:getHeight()
-            scale, gap, drawW, drawH = cardLayout(self, maxWidth, maxHeight, #cards)
-            totalW = #cards * drawW + (#cards - 1) * gap
-            x = centerX - totalW * 0.5
         end
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(img, x, y, 0, scale, scale)
-        x = x + drawW + gap
+        local s = card.drawScale or targetCardScale(self)
+        local sx = s * (card.scaleX or 1)
+        local sy = s
+        local cx = card.x + (self.cardNativeW * s) * 0.5
+        local cy = card.y + (self.cardNativeH * s) * 0.5
+        love.graphics.setColor(1, 1, 1, card.alpha or 1)
+        love.graphics.draw(img, cx, cy, card.rotation or 0, sx, sy,
+            self.cardNativeW * 0.5, self.cardNativeH * 0.5)
     end
-    return y + drawH
 end
 
+---------------------------------------------------------------------------
+-- Card object creation
+---------------------------------------------------------------------------
+local function newCardObj(suit, rank, faceUp)
+    return {
+        suit = suit,
+        rank = rank,
+        faceUp = faceUp ~= false,
+        x = DECK_X,
+        y = DECK_Y,
+        targetX = 0,
+        targetY = 0,
+        scaleX = 1,
+        alpha = 1,
+        rotation = 0,
+        drawScale = 1,
+    }
+end
+
+---------------------------------------------------------------------------
+-- Button layout (same API as before)
+---------------------------------------------------------------------------
 local function buttonLabelsForState(state)
     if state == "betting" then
         return {
-            { id = "deal", label = "Deal" },
-            { id = "leave", label = "Back" },
-        }
-    elseif state == "playing" then
-        return {
-            { id = "hit", label = "Hit (H)" },
-            { id = "stand", label = "Stand (S)" },
-            { id = "double", label = "Double (D)" },
-            { id = "split", label = "Split (P)" },
+            { id = "deal", label = "DEAL" },
+            { id = "leave", label = "BACK" },
         }
     elseif state == "result" then
         return {
-            { id = "continue", label = "Continue" },
-            { id = "deal_again", label = "Deal Again (D)" },
+            { id = "continue", label = "CONTINUE" },
+            { id = "deal_again", label = "DEAL AGAIN" },
         }
     end
     return nil
 end
 
+function Blackjack:getButtonLabels()
+    if self.state == "playing" then
+        local gold = self._player and self._player.gold or 0
+        local out = {
+            { id = "hit", label = "HIT" },
+            { id = "stand", label = "STAND" },
+            { id = "double", label = "DOUBLE" },
+        }
+        if self:canSplit(gold) then
+            out[#out + 1] = { id = "split", label = "SPLIT" }
+        end
+        return out
+    end
+    return buttonLabelsForState(self.state)
+end
+
 local function blackjackButtonLayout(screenW, screenH, labels, baseY)
     if not labels or #labels == 0 then return nil end
-    local bw, bh = 210, 44
-    local gap = 10
+    local bw, bh = 160, 56
+    local gap = 12
     local totalW = #labels * bw + (#labels - 1) * gap
     local x0 = (screenW - totalW) * 0.5
-    local barTop = screenH * 0.85
-    local barH = screenH * 0.15
-    local y = barTop + (barH - bh) * 0.5
+    local y = screenH - bh - 16
     if baseY then
         y = math.max(y, baseY)
     end
@@ -158,24 +227,19 @@ local function blackjackButtonLayout(screenW, screenH, labels, baseY)
     return rects
 end
 
-local function blackjackWagerLayout(rowRect)
-    if not rowRect then return nil end
-    local panelW, panelH = 180, rowRect.h
-    local gap = 18
-    local x = rowRect.x - panelW - gap
-    local y = rowRect.y
-    local pad = 4
-    local btnGap = 4
-    local btnW = 32
-    local btnH = (panelH - pad * 2 - btnGap) * 0.5
-    local btnX = x + panelW - pad - btnW
-    local topBtnY = y + pad
-    local bottomBtnY = topBtnY + btnH + btnGap
+local function blackjackWagerLayout(screenW, screenH, buttonY)
+    -- Wager panel centered above the action buttons
+    local panelW, panelH = 200, 50
+    local x = (screenW - panelW) * 0.5
+    local y = (buttonY or screenH - 56 - 16) - panelH - 10
+    local pad = 6
+    local btnSize = 38
+    local btnY = y + (panelH - btnSize) * 0.5
     return {
         panel = { x = x, y = y, w = panelW, h = panelH },
-        plus = { id = "wager_up", x = btnX, y = topBtnY, w = btnW, h = btnH },
-        minus = { id = "wager_down", x = btnX, y = bottomBtnY, w = btnW, h = btnH },
-        text = { x = x + pad, y = y + pad, w = panelW - btnW - pad * 2 - 6, h = panelH - pad * 2 },
+        minus = { id = "wager_down", x = x + pad, y = btnY, w = btnSize, h = btnSize },
+        plus = { id = "wager_up", x = x + panelW - pad - btnSize, y = btnY, w = btnSize, h = btnSize },
+        text = { x = x + pad + btnSize + 6, y = y + pad, w = panelW - 2*pad - 2*btnSize - 12, h = panelH - pad * 2 },
     }
 end
 
@@ -188,9 +252,40 @@ local function buildResult(mode, message, messageTimer, perkOptions)
     }
 end
 
+---------------------------------------------------------------------------
+-- Hand value helpers
+---------------------------------------------------------------------------
+local function handValue(hand)
+    local value = 0
+    local aces = 0
+    for _, card in ipairs(hand) do
+        if card.rank == "A" then
+            aces = aces + 1
+            value = value + 11
+        elseif card.rank == "J" or card.rank == "Q" or card.rank == "K" then
+            value = value + 10
+        else
+            value = value + tonumber(card.rank)
+        end
+    end
+    while value > 21 and aces > 0 do
+        value = value - 10
+        aces = aces - 1
+    end
+    local soft = aces > 0
+    return value, soft
+end
+
+---------------------------------------------------------------------------
+-- Resolve reward (perk integration)
+---------------------------------------------------------------------------
 local function resolveReward(self, player, dealAgain)
     local reward = self:getReward()
-    player.gold = player.gold + reward.gold
+    local add = reward.gold
+    if self.payoutGoldApplied then
+        add = 0
+    end
+    player.gold = player.gold + add
     if reward.perkRarity == "rare" or reward.anyWin then
         self.returnToBlackjack = dealAgain and true or false
         return buildResult("perk_selection", nil, nil, Perks.rollPerks(3, player.stats.luck))
@@ -203,6 +298,9 @@ local function resolveReward(self, player, dealAgain)
     return buildResult("main")
 end
 
+---------------------------------------------------------------------------
+-- Constructor
+---------------------------------------------------------------------------
 function Blackjack.new()
     local self = setmetatable({}, Blackjack)
     self.deck = {}
@@ -226,9 +324,27 @@ function Blackjack.new()
     self.hoveredButton = nil
     self.lastButtonsY = nil
     self.returnToBlackjack = false
+    self.animating = false
+    self.timer = Timer.new()
+    self.screenW = 1280
+    self.screenH = 720
+    self._player = nil
+    self.payoutGoldApplied = false
+    self.payoutScheduledAmount = nil
+    self.pendingFloorGold = nil
+    -- Streak tracking (predatory engagement)
+    self.winStreak = 0
+    self.lossStreak = 0
+    self.handsPlayed = 0
+    self.totalWon = 0
+    self.totalLost = 0
+    BlackjackVisuals.load()
     return self
 end
 
+---------------------------------------------------------------------------
+-- Deck
+---------------------------------------------------------------------------
 function Blackjack:buildDeck()
     self.deck = {}
     for _, suit in ipairs(SUITS) do
@@ -236,7 +352,6 @@ function Blackjack:buildDeck()
             table.insert(self.deck, {suit = suit, rank = rank})
         end
     end
-    -- Shuffle
     for i = #self.deck, 2, -1 do
         local j = math.random(i)
         self.deck[i], self.deck[j] = self.deck[j], self.deck[i]
@@ -247,55 +362,105 @@ function Blackjack:drawCard()
     return table.remove(self.deck)
 end
 
+---------------------------------------------------------------------------
+-- Hand value display
+---------------------------------------------------------------------------
 function Blackjack:handValue(hand)
-    local value = 0
-    local aces = 0
-    for _, card in ipairs(hand) do
-        if card.rank == "A" then
-            aces = aces + 1
-            value = value + 11
-        elseif card.rank == "J" or card.rank == "Q" or card.rank == "K" then
-            value = value + 10
-        else
-            value = value + tonumber(card.rank)
-        end
-    end
-    while value > 21 and aces > 0 do
-        value = value - 10
-        aces = aces - 1
-    end
-    local soft = aces > 0
-    return value, soft
+    return handValue(hand)
 end
 
 function Blackjack:displayValue(hand)
-    local value, soft = self:handValue(hand)
+    local value, soft = handValue(hand)
     if not soft then
         return tostring(value)
     end
-    -- Soft hand: show both totals (e.g., 7/17)
     return string.format("%d/%d", value - 10, value)
 end
 
-local function handValue(hand)
-    local value = 0
-    local aces = 0
-    for _, card in ipairs(hand) do
-        if card.rank == "A" then
-            aces = aces + 1
-            value = value + 11
-        elseif card.rank == "J" or card.rank == "Q" or card.rank == "K" then
-            value = value + 10
-        else
-            value = value + tonumber(card.rank)
+---------------------------------------------------------------------------
+-- Animation helpers
+---------------------------------------------------------------------------
+local function slideCard(self, card, duration, onDone)
+    duration = duration or DEAL_SLIDE_TIME
+    self.timer:tween(duration, card, {x = card.targetX, y = card.targetY}, "out-cubic", onDone)
+end
+
+local function flipCard(self, card, onDone)
+    self.timer:tween(FLIP_HALF_TIME, card, {scaleX = 0}, "in-quad", function()
+        card.faceUp = not card.faceUp
+        self.timer:tween(FLIP_HALF_TIME, card, {scaleX = 1}, "out-quad", onDone)
+    end)
+end
+
+-- Card row Y positions (must match draw(): headers are drawn above these rows)
+local ROW_DEALER_CARDS_Y = 175
+-- Minimum Y for first player card row; actual row is max(this, below dealer section + gap)
+local ROW_HAND_FIRST_Y = 370
+local HAND_ROW_SPACING = 155
+local SECTION_GAP_AFTER_DEALER = 36
+
+local function handRowY(firstHandY, hi)
+    local y = firstHandY
+    for i = 2, hi do
+        y = y + HAND_ROW_SPACING
+    end
+    return y
+end
+
+--- Vertical position of first player card row: clears dealer total / cards so labels never overlap.
+local function computeFirstHandRowY(self, screenW)
+    screenW = screenW or self.screenW or GAME_WIDTH or 1280
+    local lh = self._lineHForLayout or 20
+    local dealerY = ROW_DEALER_CARDS_Y
+    local dc = math.max(2, #self.dealerHand)
+    local dealerCardH = cardDrawHeight(self, screenW * 0.9, nil, dc)
+    local dealerValueY = dealerY + dealerCardH + 6
+    local dealerBlockBottom
+    if self.state == "playing" then
+        -- No dealer total shown — leave margin under card row
+        dealerBlockBottom = dealerY + dealerCardH + 6 + 10
+    else
+        dealerBlockBottom = dealerValueY + lh + 16
+    end
+    return math.max(ROW_HAND_FIRST_Y, dealerBlockBottom + SECTION_GAP_AFTER_DEALER)
+end
+
+local function recalcAllTargets(self)
+    local screenW = self.screenW or GAME_WIDTH or 1280
+    local centerX = screenW * 0.5
+    local maxW = screenW * 0.9
+
+    local firstHandY = computeFirstHandRowY(self, screenW)
+    self._layoutFirstHandY = firstHandY
+
+    local dealerY = ROW_DEALER_CARDS_Y
+    if #self.dealerHand > 0 then
+        computeCardTargets(self, self.dealerHand, centerX, dealerY, maxW, nil)
+    end
+
+    for hi, hand in ipairs(self.hands) do
+        local handY = handRowY(firstHandY, hi)
+        if #hand.cards > 0 then
+            computeCardTargets(self, hand.cards, centerX, handY, maxW, nil)
         end
     end
-    while value > 21 and aces > 0 do
-        value = value - 10
-        aces = aces - 1
-    end
-    local soft = aces > 0
-    return value, soft
+end
+
+---------------------------------------------------------------------------
+-- Reset / Betting
+---------------------------------------------------------------------------
+local function newHand(wager, card)
+    return {
+        cards = { card },
+        wager = wager,
+        done = false,
+        busted = false,
+        doubled = false,
+        isSplit = false,
+        splitAces = false,
+        isBlackjack = false,
+        result = nil,
+    }
 end
 
 function Blackjack:resetRound()
@@ -309,6 +474,11 @@ function Blackjack:resetRound()
     self.payout = 0
     self.anyWin = false
     self.anyBlackjack = false
+    self.payoutGoldApplied = false
+    self.payoutScheduledAmount = nil
+    self.timer:clear()
+    self.animating = false
+    CasinoFx.clear()
 end
 
 function Blackjack:beginBetting()
@@ -335,34 +505,59 @@ function Blackjack:adjustWager(delta, maxGold)
     return self:setWager((self.wager or self.minBet) + delta, maxGold)
 end
 
+--- Fly coins + delay, then queue gold as saloon floor pickups (see resolveReward; no instant wallet credit).
+function Blackjack:schedulePayoutGold(amount)
+    if amount <= 0 then return end
+    local w = self.screenW or 1280
+    local h = self.screenH or 720
+    self.payoutGoldApplied = false
+    self.payoutScheduledAmount = amount
+    CasinoFx.spawnGoldRain(w * 0.5, h * 0.48, {
+        count = 80,
+        spreadX = w * 0.85,
+        spawnYMin = -120,
+        spawnYMax = h * 0.14,
+    })
+    self.timer:after(1.72, function()
+        self.payoutGoldApplied = true
+        self.pendingFloorGold = (self.pendingFloorGold or 0) + (self.payoutScheduledAmount or 0)
+        self.payoutScheduledAmount = nil
+    end)
+end
+
 function Blackjack:currentHand()
     return self.hands[self.activeHand]
 end
 
-local function newHand(wager, card)
-    return {
-        cards = { card },
-        wager = wager,
-        done = false,
-        busted = false,
-        doubled = false,
-        isSplit = false,
-        splitAces = false,
-        isBlackjack = false,
-        result = nil,
-    }
-end
-
+---------------------------------------------------------------------------
+-- Deal (animated)
+---------------------------------------------------------------------------
 function Blackjack:deal(wager)
     self:resetRound()
     self:buildDeck()
     self.wager = wager
+    self.animating = true
     self.state = "playing"
     self.hoveredButton = nil
     self.lastButtonsY = nil
 
+    -- Ensure sprites are loaded for layout calc
+    getBackSprite(self)
+
+    -- Draw 4 cards from deck
+    local raw = {}
+    for _ = 1, 4 do
+        raw[#raw + 1] = self:drawCard()
+    end
+
+    -- Create card objects: player gets [1],[3], dealer gets [2],[4]
+    local pCard1 = newCardObj(raw[1].suit, raw[1].rank, true)
+    local dCard1 = newCardObj(raw[2].suit, raw[2].rank, true)
+    local pCard2 = newCardObj(raw[3].suit, raw[3].rank, true)
+    local dCard2 = newCardObj(raw[4].suit, raw[4].rank, false) -- face down
+
     local hand = {
-        cards = {},
+        cards = { pCard1, pCard2 },
         wager = wager,
         done = false,
         busted = false,
@@ -373,48 +568,96 @@ function Blackjack:deal(wager)
         result = nil,
     }
 
-    table.insert(hand.cards, self:drawCard())
-    table.insert(self.dealerHand, self:drawCard())
-    table.insert(hand.cards, self:drawCard())
-    table.insert(self.dealerHand, self:drawCard())
-
+    self.dealerHand = { dCard1, dCard2 }
     self.hands = { hand }
     self.activeHand = 1
 
-    local playerVal = handValue(hand.cards)
-    local dealerVal = handValue(self.dealerHand)
-    local playerBJ = playerVal == 21 and #hand.cards == 2
-    local dealerBJ = dealerVal == 21 and #self.dealerHand == 2
+    -- Compute target positions
+    recalcAllTargets(self)
 
-    if playerBJ or dealerBJ then
-        self.state = "result"
-        if playerBJ and dealerBJ then
-            hand.result = "push"
-            self.result = "push"
-            self.resultMessage = "Push. Both blackjack."
-            self.payout = hand.wager
-        elseif playerBJ then
-            hand.isBlackjack = true
-            hand.result = "blackjack"
-            self.result = "blackjack"
-            self.resultMessage = "BLACKJACK!"
-            self.payout = math.floor(hand.wager * 2.5)
-            self.anyWin = true
-            self.anyBlackjack = true
-        else
-            hand.result = "lose"
-            self.result = "lose"
-            self.resultMessage = "Dealer blackjack."
-            self.payout = 0
+    -- Trigger dealer dealing animation
+    BlackjackVisuals.setDealerAnim("dealing")
+
+    -- Animate dealing sequence
+    local dealOrder = { pCard1, dCard1, pCard2, dCard2 }
+    sfxRandom("card_fan", 2)
+
+    self.timer:script(function(wait)
+        for i, card in ipairs(dealOrder) do
+            sfxRandom("card_slide", 8)
+            slideCard(self, card, DEAL_SLIDE_TIME)
+            wait(DEAL_SLIDE_TIME + DEAL_GAP_TIME)
         end
-    end
+
+        -- Check for immediate blackjack
+        local playerVal = handValue(hand.cards)
+        local dealerVal = handValue(self.dealerHand)
+        local playerBJ = playerVal == 21 and #hand.cards == 2
+        local dealerBJ = dealerVal == 21 and #self.dealerHand == 2
+
+        if playerBJ or dealerBJ then
+            -- Reveal dealer card
+            sfxRandom("card_shove", 4)
+            flipCard(self, dCard2)
+            wait(FLIP_HALF_TIME * 2 + 0.1)
+
+            self.state = "result"
+            self.handsPlayed = self.handsPlayed + 1
+            if playerBJ and dealerBJ then
+                hand.result = "push"
+                self.result = "push"
+                self.resultMessage = "Push. Both blackjack."
+                self.payout = hand.wager
+                CasinoFx.spawnFloat(self.screenW * 0.5, 340, "PUSH", {1, 0.9, 0.4})
+            elseif playerBJ then
+                hand.isBlackjack = true
+                hand.result = "blackjack"
+                self.result = "blackjack"
+                self.resultMessage = "BLACKJACK!"
+                self.payout = math.floor(hand.wager * 2.5)
+                self.anyWin = true
+                self.anyBlackjack = true
+                self.winStreak = self.winStreak + 1
+                self.lossStreak = 0
+                self.totalWon = self.totalWon + self.payout
+                CasinoFx.spawnFloat(self.screenW * 0.5, 300, "BLACKJACK!", {1, 0.85, 0.2}, {scale = 1.4, life = 2.0})
+                sfxRandom("chips_collide", 4)
+                if self.winStreak >= 3 then
+                    CasinoFx.spawnFloat(self.screenW * 0.5, 260, "HOT STREAK!", {1, 0.7, 0.1}, {scale = 1.1, life = 1.8, vy = -15})
+                end
+            else
+                hand.result = "lose"
+                self.result = "lose"
+                self.resultMessage = "Dealer blackjack."
+                self.lossStreak = self.lossStreak + 1
+                self.winStreak = 0
+                CasinoFx.spawnFloat(self.screenW * 0.5, 340, "DEALER BLACKJACK", {1, 0.3, 0.3})
+                CasinoFx.startShake(4, 0.2)
+                if self.lossStreak >= 2 then
+                    CasinoFx.spawnFloat(self.screenW * 0.5, 370, "Next hand's yours!", {0.9, 0.8, 0.5}, {life = 1.5, vy = -10})
+                end
+            end
+        end
+
+        if self.payout > 0 then
+            self:schedulePayoutGold(self.payout)
+        end
+
+        self.animating = false
+    end)
 end
 
+---------------------------------------------------------------------------
+-- Soft 17 check
+---------------------------------------------------------------------------
 function Blackjack:isSoft17(hand)
     local v, soft = handValue(hand)
     return v == 17 and soft
 end
 
+---------------------------------------------------------------------------
+-- Advance to next hand or finish dealer
+---------------------------------------------------------------------------
 function Blackjack:advanceHand()
     local nextIndex = self.activeHand + 1
     while nextIndex <= #self.hands and self.hands[nextIndex].done do
@@ -427,8 +670,13 @@ function Blackjack:advanceHand()
     self:finishDealer()
 end
 
+---------------------------------------------------------------------------
+-- Animated dealer turn
+---------------------------------------------------------------------------
 function Blackjack:finishDealer()
     self.state = "dealer_turn"
+    self.animating = true
+
     local anyLive = false
     for _, h in ipairs(self.hands) do
         if not h.busted then
@@ -437,83 +685,171 @@ function Blackjack:finishDealer()
         end
     end
 
-    if anyLive then
-        while true do
-            local dv, soft = handValue(self.dealerHand)
-            if dv < 17 then
-                table.insert(self.dealerHand, self:drawCard())
-            elseif dv == 17 and soft then
-                break
-            else
-                break
+    self.timer:script(function(wait)
+        -- Flip hidden card
+        local dCard2 = self.dealerHand[2]
+        if dCard2 and not dCard2.faceUp then
+            sfxRandom("card_shove", 4)
+            flipCard(self, dCard2)
+            wait(FLIP_HALF_TIME * 2 + 0.15)
+        end
+
+        -- Dealer draws (hits on soft 17 — standard casino rules)
+        if anyLive then
+            while true do
+                local dv, soft = handValue(self.dealerHand)
+                if dv < 17 or (dv == 17 and soft) then
+                    wait(DEALER_THINK_TIME)
+                    BlackjackVisuals.setDealerAnim("dealing")
+                    local raw = self:drawCard()
+                    local card = newCardObj(raw.suit, raw.rank, true)
+                    table.insert(self.dealerHand, card)
+                    recalcAllTargets(self)
+                    sfxRandom("card_slide", 8)
+                    slideCard(self, card, DEAL_SLIDE_TIME)
+                    wait(DEAL_SLIDE_TIME + 0.1)
+
+                    if handValue(self.dealerHand) > 21 then
+                        CasinoFx.startShake(3, 0.15)
+                        wait(0.15)
+                    end
+                else
+                    break
+                end
             end
         end
-    end
 
-    local dealerVal = handValue(self.dealerHand)
-    local dealerBust = dealerVal > 21
-    local payout = 0
-    local anyWin = false
-    local anyBlackjack = false
+        -- Resolve all hands
+        local dealerVal = handValue(self.dealerHand)
+        local dealerBust = dealerVal > 21
+        local payout = 0
+        local anyWin = false
+        local anyBlackjack = false
 
-    for _, h in ipairs(self.hands) do
-        if h.result == "blackjack" then
-            payout = payout + math.floor(h.wager * 2.5)
-            anyWin = true
-            anyBlackjack = true
-        elseif h.busted then
-            h.result = "bust"
+        for _, h in ipairs(self.hands) do
+            if h.result == "blackjack" then
+                payout = payout + math.floor(h.wager * 2.5)
+                anyWin = true
+                anyBlackjack = true
+            elseif h.busted then
+                h.result = "bust"
+            else
+                local hv = handValue(h.cards)
+                if dealerBust then
+                    h.result = "win"
+                    payout = payout + h.wager * 2
+                    anyWin = true
+                elseif hv > dealerVal then
+                    h.result = "win"
+                    payout = payout + h.wager * 2
+                    anyWin = true
+                elseif hv == dealerVal then
+                    h.result = "push"
+                    payout = payout + h.wager
+                else
+                    h.result = "lose"
+                end
+            end
+        end
+
+        self.payout = payout
+        self.anyWin = anyWin
+        self.anyBlackjack = anyBlackjack
+        self.state = "result"
+        self.handsPlayed = self.handsPlayed + 1
+
+        if anyWin then
+            self.result = "win"
+            self.winStreak = self.winStreak + 1
+            self.lossStreak = 0
+            self.totalWon = self.totalWon + payout
+            self.resultMessage = "Payout: $" .. payout
+            CasinoFx.spawnFloat(self.screenW * 0.5, 300, "+$" .. payout, {0.2, 1, 0.2}, {life = 1.5})
+            sfxRandom("chips_collide", 4)
+            -- Predatory streak messages
+            if self.winStreak >= 5 then
+                CasinoFx.spawnFloat(self.screenW * 0.5, 260, "UNSTOPPABLE!", {1, 0.85, 0.2}, {scale = 1.3, life = 2.0, vy = -15})
+            elseif self.winStreak >= 3 then
+                CasinoFx.spawnFloat(self.screenW * 0.5, 260, "HOT STREAK!", {1, 0.7, 0.1}, {scale = 1.1, life = 1.8, vy = -15})
+            elseif self.winStreak == 2 then
+                CasinoFx.spawnFloat(self.screenW * 0.5, 260, "On a roll!", {1, 0.9, 0.4}, {life = 1.2, vy = -15})
+            end
+        elseif payout > 0 then
+            self.result = "push"
+            self.resultMessage = "Push. Payout: $" .. payout
+            CasinoFx.spawnFloat(self.screenW * 0.5, 340, "PUSH", {1, 0.9, 0.4})
         else
-            local hv = handValue(h.cards)
-            if dealerBust then
-                h.result = "win"
-                payout = payout + h.wager * 2
-                anyWin = true
-            elseif hv > dealerVal then
-                h.result = "win"
-                payout = payout + h.wager * 2
-                anyWin = true
-            elseif hv == dealerVal then
-                h.result = "push"
-                payout = payout + h.wager
+            self.result = "lose"
+            self.lossStreak = self.lossStreak + 1
+            self.winStreak = 0
+            self.totalLost = self.totalLost + (self.hands[1] and self.hands[1].wager or 0)
+            CasinoFx.startShake(3, 0.2)
+            CasinoFx.spawnFloat(self.screenW * 0.5, 340, "LOSE", {1, 0.3, 0.3})
+            -- Predatory loss-chasing messages
+            local lossMessages = {
+                "Almost had it!",
+                "So close...",
+                "Next hand's yours!",
+                "The cards are warming up...",
+                "One more try!",
+                "You're due for a win!",
+            }
+            if self.lossStreak >= 2 then
+                local msg = lossMessages[math.random(#lossMessages)]
+                self.resultMessage = msg
+                CasinoFx.spawnFloat(self.screenW * 0.5, 370, msg, {0.9, 0.8, 0.5}, {life = 1.5, vy = -10})
             else
-                h.result = "lose"
+                self.resultMessage = "Better luck next hand."
             end
         end
-    end
 
-    self.payout = payout
-    self.anyWin = anyWin
-    self.anyBlackjack = anyBlackjack
-    self.state = "result"
-    if anyWin then
-        self.result = "win"
-        self.resultMessage = "Payout: $" .. payout
-    elseif payout > 0 then
-        self.result = "push"
-        self.resultMessage = "Push. Payout: $" .. payout
-    else
-        self.result = "lose"
-        self.resultMessage = "No wins."
-    end
+        if payout > 0 then
+            self:schedulePayoutGold(payout)
+        end
+
+        wait(RESULT_PAUSE_TIME)
+        self.animating = false
+    end)
 end
 
+---------------------------------------------------------------------------
+-- Player actions (animated)
+---------------------------------------------------------------------------
 function Blackjack:hit()
     if self.state ~= "playing" then return end
     local hand = self:currentHand()
     if not hand or hand.done or hand.busted or hand.splitAces then return end
 
-    table.insert(hand.cards, self:drawCard())
-    local val = handValue(hand.cards)
-    if val > 21 then
-        hand.busted = true
-        hand.done = true
-        hand.result = "bust"
-        self:advanceHand()
-    elseif val == 21 then
-        hand.done = true
-        self:advanceHand()
-    end
+    self.animating = true
+    BlackjackVisuals.setDealerAnim("dealing")
+    local raw = self:drawCard()
+    local card = newCardObj(raw.suit, raw.rank, true)
+    table.insert(hand.cards, card)
+    recalcAllTargets(self)
+
+    sfxRandom("card_place", 4)
+    self.timer:script(function(wait)
+        slideCard(self, card, DEAL_SLIDE_TIME)
+        wait(DEAL_SLIDE_TIME + 0.05)
+
+        local val = handValue(hand.cards)
+        if val > 21 then
+            hand.busted = true
+            hand.done = true
+            hand.result = "bust"
+            CasinoFx.startShake(4, 0.2)
+            CasinoFx.spawnFloat(card.targetX + 40, card.targetY, "BUST", {1, 0.3, 0.3})
+            wait(0.25)
+            self.animating = false
+            self:advanceHand()
+        elseif val == 21 then
+            hand.done = true
+            self.animating = false
+            self:advanceHand()
+        else
+            self.animating = false
+        end
+    end)
 end
 
 function Blackjack:stand()
@@ -539,14 +875,35 @@ function Blackjack:doubleDown(bankroll)
     local cost = hand.wager
     hand.wager = hand.wager * 2
     hand.doubled = true
-    table.insert(hand.cards, self:drawCard())
-    local val = handValue(hand.cards)
-    if val > 21 then
-        hand.busted = true
-        hand.result = "bust"
-    end
-    hand.done = true
-    self:advanceHand()
+
+    self.animating = true
+    BlackjackVisuals.setDealerAnim("dealing")
+    local raw = self:drawCard()
+    local card = newCardObj(raw.suit, raw.rank, true)
+    table.insert(hand.cards, card)
+    recalcAllTargets(self)
+
+    sfxRandom("card_slide", 8)
+    sfxRandom("chips_stack", 6)
+    CasinoFx.spawnFloat(self.screenW * 0.5, 380, "DOUBLE DOWN", {1, 0.85, 0.2}, {life = 0.8, vy = -20})
+
+    self.timer:script(function(wait)
+        slideCard(self, card, DEAL_SLIDE_TIME)
+        wait(DEAL_SLIDE_TIME + 0.1)
+
+        local val = handValue(hand.cards)
+        if val > 21 then
+            hand.busted = true
+            hand.result = "bust"
+            CasinoFx.startShake(4, 0.2)
+            CasinoFx.spawnFloat(card.targetX + 40, card.targetY, "BUST", {1, 0.3, 0.3})
+            wait(0.2)
+        end
+        hand.done = true
+        self.animating = false
+        self:advanceHand()
+    end)
+
     return cost
 end
 
@@ -572,29 +929,66 @@ function Blackjack:split(bankroll)
     local card2 = hand.cards[2]
     local splitAces = card1.rank == "A"
 
-    local h1 = newHand(hand.wager, card1)
-    local h2 = newHand(hand.wager, card2)
-    h1.isSplit = true
-    h2.isSplit = true
-    h1.splitAces = splitAces
-    h2.splitAces = splitAces
+    -- Draw new cards for each hand
+    local raw1 = self:drawCard()
+    local raw2 = self:drawCard()
+    local newCard1 = newCardObj(raw1.suit, raw1.rank, true)
+    local newCard2 = newCardObj(raw2.suit, raw2.rank, true)
+
+    local h1 = {
+        cards = { card1, newCard1 },
+        wager = hand.wager,
+        done = false, busted = false, doubled = false,
+        isSplit = true, splitAces = splitAces, isBlackjack = false, result = nil,
+    }
+    local h2 = {
+        cards = { card2, newCard2 },
+        wager = hand.wager,
+        done = false, busted = false, doubled = false,
+        isSplit = true, splitAces = splitAces, isBlackjack = false, result = nil,
+    }
 
     table.remove(self.hands, self.activeHand)
     table.insert(self.hands, self.activeHand, h2)
     table.insert(self.hands, self.activeHand, h1)
 
-    table.insert(h1.cards, self:drawCard())
-    table.insert(h2.cards, self:drawCard())
+    recalcAllTargets(self)
 
-    if splitAces then
-        h1.done = true
-        h2.done = true
-        self:advanceHand()
-    end
+    -- Animate split
+    self.animating = true
+    sfxRandom("card_shove", 4)
+    CasinoFx.spawnFloat(self.screenW * 0.5, 380, "SPLIT", {1, 0.85, 0.2}, {life = 0.8, vy = -20})
+
+    self.timer:script(function(wait)
+        -- Slide existing cards to new positions
+        slideCard(self, card1, 0.2)
+        slideCard(self, card2, 0.2)
+        wait(0.25)
+
+        -- Deal new cards
+        sfxRandom("card_slide", 8)
+        slideCard(self, newCard1, DEAL_SLIDE_TIME)
+        wait(DEAL_SLIDE_TIME + DEAL_GAP_TIME)
+        sfxRandom("card_slide", 8)
+        slideCard(self, newCard2, DEAL_SLIDE_TIME)
+        wait(DEAL_SLIDE_TIME + 0.1)
+
+        if splitAces then
+            h1.done = true
+            h2.done = true
+            self.animating = false
+            self:advanceHand()
+        else
+            self.animating = false
+        end
+    end)
 
     return cost
 end
 
+---------------------------------------------------------------------------
+-- Reward
+---------------------------------------------------------------------------
 function Blackjack:getReward()
     return {
         gold = self.payout or 0,
@@ -620,16 +1014,34 @@ function Blackjack:enterTable(playerGold)
     return buildResult("blackjack")
 end
 
+---------------------------------------------------------------------------
+-- Update (call every frame)
+---------------------------------------------------------------------------
+function Blackjack:update(dt, player)
+    self._player = player
+    self.timer:update(dt)
+    CasinoFx.update(dt)
+    BlackjackVisuals.update(dt)
+end
+
+---------------------------------------------------------------------------
+-- Hover
+---------------------------------------------------------------------------
 function Blackjack:updateHover(mx, my, screenW, screenH)
+    self.screenW = screenW
+    self.screenH = screenH
     self.hoveredButton = self:hitButton(mx, my, screenW, screenH)
     return self.hoveredButton
 end
 
+---------------------------------------------------------------------------
+-- Draw
+---------------------------------------------------------------------------
 function Blackjack:drawButtons(screenW, screenH, baseY, fonts, labels, wagerControl)
     self.lastButtonsY = baseY
     local rects = blackjackButtonLayout(screenW, screenH, labels, baseY)
-    local firstRect = rects and rects[1] or nil
-    local wagerRects = blackjackWagerLayout(firstRect)
+    local buttonY = rects and rects[1] and rects[1].y or nil
+    local wagerRects = blackjackWagerLayout(screenW, screenH, buttonY)
     if wagerRects and wagerControl then
         local enabled = wagerControl.enabled
         local panel = wagerRects.panel
@@ -641,213 +1053,216 @@ function Blackjack:drawButtons(screenW, screenH, baseY, fonts, labels, wagerCont
         love.graphics.setLineWidth(1)
         love.graphics.setColor(1, 0.95, 0.82, enabled and 1 or 0.6)
         love.graphics.setFont(fonts.body)
-        love.graphics.printf("Wager", wagerRects.text.x, panel.y + 6, wagerRects.text.w, "left")
-        love.graphics.printf("$" .. wagerControl.wager, wagerRects.text.x, panel.y + 22, wagerRects.text.w, "left")
+        local amt = "$" .. wagerControl.wager
+        love.graphics.printf(amt, wagerRects.text.x, panel.y + 6, wagerRects.text.w, "center")
+        local chipCx = wagerRects.text.x + wagerRects.text.w * 0.5
+        CasinoFx.drawChipStack(chipCx, panel.y + panel.h - 4, wagerControl.wager, 5)
 
-        local function drawWagerBtn(btn, label)
-            local hov = self.hoveredButton == btn.id
-            if hov then
-                love.graphics.setColor(0.22, 0.14, 0.08, enabled and 0.9 or 0.45)
-            else
-                love.graphics.setColor(0.12, 0.08, 0.06, enabled and 0.75 or 0.35)
-            end
-            love.graphics.rectangle("fill", btn.x, btn.y, btn.w, btn.h, 4, 4)
-            love.graphics.setColor(0.85, 0.65, 0.35, hov and 1 or (enabled and 0.65 or 0.35))
-            love.graphics.rectangle("line", btn.x, btn.y, btn.w, btn.h, 4, 4)
-            love.graphics.setColor(1, 0.95, 0.82, enabled and 1 or 0.6)
-            local textY = btn.y + (btn.h - fonts.body:getHeight()) * 0.5 - 1
-            love.graphics.printf(label, btn.x + 2, textY, btn.w - 4, "center")
-        end
-
-        drawWagerBtn(wagerRects.plus, "+")
-        drawWagerBtn(wagerRects.minus, "-")
+        BlackjackVisuals.drawSmallButton(wagerRects.minus, self.hoveredButton == "wager_down", enabled, "−", fonts.card or fonts.body)
+        BlackjackVisuals.drawSmallButton(wagerRects.plus, self.hoveredButton == "wager_up", enabled, "+", fonts.card or fonts.body)
     end
 
     if not rects then return end
     for _, r in ipairs(rects) do
         local hov = self.hoveredButton == r.id
-        if hov then
-            love.graphics.setColor(0.22, 0.14, 0.08, 0.9)
-        else
-            love.graphics.setColor(0.12, 0.08, 0.06, 0.75)
-        end
-        love.graphics.rectangle("fill", r.x, r.y, r.w, r.h, 6, 6)
-        love.graphics.setColor(0.85, 0.65, 0.35, hov and 1 or 0.65)
-        love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", r.x, r.y, r.w, r.h, 6, 6)
-        love.graphics.setLineWidth(1)
-        love.graphics.setColor(1, 0.95, 0.82)
-        love.graphics.setFont(fonts.body)
-        love.graphics.printf(r.label, r.x, r.y + 12, r.w, "center")
+        local disabled = self.animating
+        BlackjackVisuals.drawButton(r, hov, disabled, r.label, fonts.card or fonts.body)
     end
 
-    if self.state == "result" and self.resultMessage and self.resultMessage ~= "" then
-        local resultColor = {1, 1, 1}
-        if self.result == "win" or self.result == "blackjack" then
-            resultColor = {0.2, 1, 0.2}
-        elseif self.result == "push" then
-            resultColor = {1, 0.9, 0.4}
-        elseif self.result == "lose" or self.result == "bust" then
-            resultColor = {1, 0.3, 0.3}
+    if self.state == "result" then
+        if self.resultMessage and self.resultMessage ~= "" then
+            local resultColor = {1, 1, 1}
+            if self.result == "win" or self.result == "blackjack" then
+                resultColor = {0.2, 1, 0.2}
+            elseif self.result == "push" then
+                resultColor = {1, 0.9, 0.4}
+            elseif self.result == "lose" or self.result == "bust" then
+                resultColor = {1, 0.3, 0.3}
+            end
+            love.graphics.setColor(resultColor[1], resultColor[2], resultColor[3])
+            love.graphics.setFont(fonts.body)
+            local lastRect = rects[#rects]
+            local msgX = lastRect.x + lastRect.w + 24
+            local msgY = lastRect.y + 14
+            local msgW = math.max(0, screenW - msgX - 16)
+            love.graphics.printf(self.resultMessage, msgX, msgY, msgW, "left")
         end
-        love.graphics.setColor(resultColor[1], resultColor[2], resultColor[3])
-        love.graphics.setFont(fonts.body)
-        local lastRect = rects[#rects]
-        local msgX = lastRect.x + lastRect.w + 24
-        local msgY = lastRect.y + 12
-        local msgW = math.max(0, screenW - msgX - 16)
-        love.graphics.printf(self.resultMessage, msgX, msgY, msgW, "left")
+        -- Pulsing "deal again" encouragement
+        local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 3)
+        love.graphics.setColor(1, 0.85, 0.2, pulse * 0.7)
+        love.graphics.setFont(fonts.card or fonts.body)
+        love.graphics.printf("Press D to deal again!", 0, screenH * 0.96, screenW, "center")
     end
 end
 
 function Blackjack:draw(screenW, screenH, fonts)
-    local y = 130
+    self.screenW = screenW
+    self.screenH = screenH
+
+    -- Apply screen shake
+    local shakeX, shakeY = CasinoFx.getShakeOffset()
+    love.graphics.push()
+    love.graphics.translate(shakeX, shakeY)
+
+    -- Draw table first, then dealer on top (cropped at stomach so he looks behind the table)
+    local tableRect = BlackjackVisuals.drawTable(screenW, screenH)
+    BlackjackVisuals.drawDealer(screenW, tableRect)
+
     love.graphics.setFont(fonts.card)
     local lineH = fonts.card:getHeight()
+    self._lineHForLayout = lineH
     getBackSprite(self)
 
     local barTop = screenH * 0.85
     local layoutBottom = barTop - 8
-    local rowH = {
-        wager = 40,
-        bettingHelp = 26,
-        dealerLabel = lineH + 10,
-        dealerValue = lineH + 6,
-        handsHeader = lineH + 10,
-        handLabel = lineH + 6,
-        handValue = lineH + 4,
-    }
 
-    local handCount = #self.hands
-    local maxHandCards = 2
-    for _, hand in ipairs(self.hands) do
-        maxHandCards = math.max(maxHandCards, #hand.cards)
-    end
-    local hasDealerValue = self.state ~= "playing"
-    local fixedBase = rowH.wager + rowH.dealerLabel + rowH.handsHeader
-        + (handCount * (rowH.handLabel + rowH.handValue))
-        + (hasDealerValue and rowH.dealerValue or 0)
-    local availableH = math.max(0, layoutBottom - y)
-    local fixedScale = math.min(1, availableH / (fixedBase + 1))
-    fixedScale = math.max(0.7, fixedScale)
-    rowH.wager = rowH.wager * fixedScale
-    rowH.dealerLabel = rowH.dealerLabel * fixedScale
-    rowH.dealerValue = rowH.dealerValue * fixedScale
-    rowH.handsHeader = rowH.handsHeader * fixedScale
-    rowH.handLabel = rowH.handLabel * fixedScale
-    rowH.handValue = rowH.handValue * fixedScale
-    fixedBase = rowH.wager + rowH.dealerLabel + rowH.handsHeader
-        + (handCount * (rowH.handLabel + rowH.handValue))
-        + (hasDealerValue and rowH.dealerValue or 0)
-
-    local cardsAvail = math.max(0, availableH - fixedBase)
-    local dealerTargetH = cardDrawHeight(self, screenW * 0.9, nil, math.max(2, #self.dealerHand))
-    local handTargetH = cardDrawHeight(self, screenW * 0.9, nil, maxHandCards)
-    local totalTargetCardsH = dealerTargetH + (handCount * handTargetH)
-    local cardHeightScale = totalTargetCardsH > 0 and math.min(1, cardsAvail / totalTargetCardsH) or 1
-    local dealerCardH = dealerTargetH * cardHeightScale
-    local handCardH = handCount > 0 and handTargetH * cardHeightScale or 0
-
+    -- Wager display (positioned at bottom of table area, not overlapping dealer)
+    local wagerY = (tableRect and (tableRect.y + tableRect.h * 0.35)) or 160
+    love.graphics.setColor(0, 0, 0, 0.5)
+    love.graphics.printf("Wager: $" .. self.wager, 1, wagerY + 1, screenW, "center")
     love.graphics.setColor(1, 0.85, 0.2)
-    love.graphics.printf("Current wager: $" .. self.wager, 0, y, screenW, "center")
-    y = y + rowH.wager
+    love.graphics.printf("Wager: $" .. self.wager, 0, wagerY, screenW, "center")
+    local y = wagerY + 36
 
     if self.state == "betting" then
+        love.graphics.setColor(0, 0, 0, 0.5)
+        love.graphics.printf("A/D or -/+ to change bet  |  ENTER to deal  |  ESC to leave", 1, y + 1, screenW, "center")
         love.graphics.setColor(0.9, 0.8, 0.6)
-        love.graphics.printf("Use the wager control or A/D / -/+ to change bet (min $" .. self.minBet .. ")", 0, y, screenW, "center")
-        y = y + rowH.bettingHelp
-        love.graphics.printf("Press ENTER to deal, ESC to leave", 0, y, screenW, "center")
-        self:drawButtons(screenW, screenH, y + 12, fonts, buttonLabelsForState(self.state), {
+        love.graphics.printf("A/D or -/+ to change bet  |  ENTER to deal  |  ESC to leave", 0, y, screenW, "center")
+
+        -- Streak / session stats (predatory engagement)
+        if self.handsPlayed > 0 then
+            local statsY = y + 28
+            love.graphics.setFont(fonts.card or fonts.body)
+            if self.winStreak >= 2 then
+                local streakColor = self.winStreak >= 5 and {1, 0.7, 0.1} or (self.winStreak >= 3 and {1, 0.85, 0.2} or {0.9, 0.9, 0.5})
+                local streakText = "Win Streak: " .. self.winStreak .. "x"
+                love.graphics.setColor(0, 0, 0, 0.5)
+                love.graphics.printf(streakText, 1, statsY + 1, screenW, "center")
+                love.graphics.setColor(streakColor[1], streakColor[2], streakColor[3])
+                love.graphics.printf(streakText, 0, statsY, screenW, "center")
+            elseif self.lossStreak >= 2 then
+                love.graphics.setColor(0, 0, 0, 0.5)
+                love.graphics.printf("The cards are about to turn...", 1, statsY + 1, screenW, "center")
+                love.graphics.setColor(0.85, 0.75, 0.5)
+                love.graphics.printf("The cards are about to turn...", 0, statsY, screenW, "center")
+            end
+        end
+
+        self:drawButtons(screenW, screenH, y + 12, fonts, self:getButtonLabels(), {
             wager = self.wager,
             enabled = true,
         })
+        love.graphics.pop()
+        CasinoFx.draw()
         return
     end
 
-    love.graphics.setColor(0.8, 0.6, 0.4)
-    love.graphics.printf("Dealer:", 0, y, screenW, "center")
-    y = y + rowH.dealerLabel
-    local dealerStartY = y
-    y = drawCardRow(
-        self,
-        self.dealerHand,
-        screenW * 0.5,
-        y,
-        (self.state == "playing") and 2 or nil,
-        screenW * 0.9,
-        dealerCardH
-    )
-    local dealerRowH = math.max(y - dealerStartY, math.max(12, dealerCardH * 0.2))
-    y = dealerStartY + dealerRowH
+    -- Keep card targets in sync with window size (horizontal layout depends on screenW)
+    recalcAllTargets(self)
+
+    -- Dealer card section
+    local dealerY = ROW_DEALER_CARDS_Y
+
+    drawAnimatedCardRow(self, self.dealerHand)
+
+    local dealerCardH = cardDrawHeight(self, screenW * 0.9, nil, math.max(2, #self.dealerHand))
+    local dealerValueY = dealerY + dealerCardH + 6
     if self.state ~= "playing" then
+        love.graphics.setColor(0, 0, 0, 0.45)
+        love.graphics.printf("(" .. self:displayValue(self.dealerHand) .. ")", 1, dealerValueY + 1, screenW, "center")
         love.graphics.setColor(1, 1, 1)
-        love.graphics.printf("(" .. self:displayValue(self.dealerHand) .. ")", 0, y, screenW, "center")
-        y = y + rowH.dealerValue
+        love.graphics.printf("(" .. self:displayValue(self.dealerHand) .. ")", 0, dealerValueY, screenW, "center")
+        y = dealerValueY + lineH + 10
+    else
+        y = dealerValueY + lineH + 10
     end
 
-    local handsSectionH = rowH.handsHeader + (handCount * (rowH.handLabel + handCardH + rowH.handValue))
-    local desiredHandsY = layoutBottom - 6 - handsSectionH
-    if desiredHandsY > y then
-        y = desiredHandsY
+    local firstHandY = self._layoutFirstHandY or computeFirstHandRowY(self, screenW)
+    local dealerTextBottom
+    if self.state == "playing" then
+        dealerTextBottom = dealerY + dealerCardH + 6 + 6
+    else
+        dealerTextBottom = dealerValueY + lineH
     end
+    -- Keep section title clearly below dealer score / cards (fixes overlap on result screen)
+    local yourHandsY = math.max(firstHandY - 2 * lineH - 30, dealerTextBottom + 8)
 
-    love.graphics.setColor(0.8, 0.6, 0.4)
-    love.graphics.printf("Your hands:", 0, y, screenW, "center")
-    y = y + rowH.handsHeader
     for i, hand in ipairs(self.hands) do
+        local rowY = handRowY(firstHandY, i)
+        local labelY = rowY - lineH - 14
         local prefix = "  "
         if self.state == "playing" and i == self.activeHand then
             prefix = "> "
+            -- Subtle glow behind active hand
+            local firstCard = hand.cards[1]
+            if firstCard and firstCard.targetX then
+                local lastCard = hand.cards[#hand.cards]
+                local glowX = firstCard.targetX - 8
+                local glowW = (lastCard.targetX + (self.cardNativeW or 70) * (firstCard.drawScale or 1)) - firstCard.targetX + 16
+                local glowY = firstCard.targetY - 4
+                local glowH = (self.cardNativeH or 100) * (firstCard.drawScale or 1) + 8
+                love.graphics.setColor(1, 0.85, 0.2, 0.08)
+                love.graphics.rectangle("fill", glowX, glowY, glowW, glowH, 8, 8)
+            end
         end
         local label = prefix .. "Hand " .. i .. "  ($" .. hand.wager .. ")"
         if hand.doubled then
-            label = label .. "  [Double]"
+            label = label .. "  ·  Doubled"
         elseif hand.isSplit then
-            label = label .. "  [Split]"
+            label = label .. "  ·  Split hand"
         end
         if self.state == "result" and hand.result then
             label = label .. "  - " .. string.upper(hand.result)
         end
+        love.graphics.setColor(0, 0, 0, 0.45)
+        love.graphics.printf(label, 1, labelY + 1, screenW, "center")
         love.graphics.setColor(1, 1, 1)
-        love.graphics.printf(label, 0, y, screenW, "center")
-        y = y + rowH.handLabel
-        local handStartY = y
-        y = drawCardRow(
-            self,
-            hand.cards,
-            screenW * 0.5,
-            y,
-            nil,
-            screenW * 0.9,
-            handCardH
-        )
-        local handRowH = math.max(y - handStartY, math.max(10, handCardH * 0.18))
-        y = handStartY + handRowH
+        love.graphics.printf(label, 0, labelY, screenW, "center")
+
+        drawAnimatedCardRow(self, hand.cards)
+
+        local handCardH = cardDrawHeight(self, screenW * 0.9, nil, math.max(2, #hand.cards))
+        local handValueY = rowY + handCardH + 8
+        love.graphics.setColor(0, 0, 0, 0.45)
+        love.graphics.printf("(" .. self:displayValue(hand.cards) .. ")", 1, handValueY + 1, screenW, "center")
         love.graphics.setColor(1, 1, 1)
-        love.graphics.printf("(" .. self:displayValue(hand.cards) .. ")", 0, y, screenW, "center")
-        y = y + rowH.handValue
+        love.graphics.printf("(" .. self:displayValue(hand.cards) .. ")", 0, handValueY, screenW, "center")
+        y = handValueY + lineH + 10
     end
 
-    y = y + 6
+    y = y + 12
     if self.state == "playing" then
-        self:drawButtons(screenW, screenH, y + 12, fonts, buttonLabelsForState(self.state), {
+        self:drawButtons(screenW, screenH, y + 12, fonts, self:getButtonLabels(), {
             wager = self.wager,
             enabled = false,
         })
     elseif self.state == "result" then
-        self:drawButtons(screenW, screenH, y + 12, fonts, buttonLabelsForState(self.state), {
+        self:drawButtons(screenW, screenH, y + 12, fonts, self:getButtonLabels(), {
             wager = self.wager,
             enabled = true,
         })
+    elseif self.state == "dealer_turn" then
+        -- Show "Dealer's turn..." text
+        love.graphics.setColor(1, 0.85, 0.2, 0.8)
+        love.graphics.printf("Dealer's turn...", 0, screenH * 0.88, screenW, "center")
     end
+
+    love.graphics.pop()
+
+    -- Draw effects (not affected by shake)
+    CasinoFx.draw()
 end
 
+---------------------------------------------------------------------------
+-- Hit testing
+---------------------------------------------------------------------------
 function Blackjack:hitButton(mx, my, screenW, screenH)
-    local labels = buttonLabelsForState(self.state)
+    local labels = self:getButtonLabels()
     if not labels then return nil end
     local rects = blackjackButtonLayout(screenW, screenH, labels, self.lastButtonsY)
-    local firstRect = rects and rects[1] or nil
-    local wagerRects = blackjackWagerLayout(firstRect)
+    local buttonY = rects and rects[1] and rects[1].y or nil
+    local wagerRects = blackjackWagerLayout(screenW, screenH, buttonY)
     local wagerEnabled = self.state == "betting" or self.state == "result"
     if wagerRects and wagerEnabled then
         if mx >= wagerRects.plus.x and mx <= wagerRects.plus.x + wagerRects.plus.w
@@ -868,12 +1283,19 @@ function Blackjack:hitButton(mx, my, screenW, screenH)
     return nil
 end
 
+---------------------------------------------------------------------------
+-- Input handling
+---------------------------------------------------------------------------
 function Blackjack:handleAction(action, player)
+    if self.animating then return nil end
+
     if self.state == "betting" then
         if action == "wager_down" then
             self:adjustWager(-self.betStep, player.gold)
+            sfxRandom("chips_handle", 6)
         elseif action == "wager_up" then
             self:adjustWager(self.betStep, player.gold)
+            sfxRandom("chips_handle", 6)
         elseif action == "deal" then
             if self.wager >= self.minBet and player.gold >= self.wager then
                 player.gold = player.gold - self.wager
@@ -907,11 +1329,21 @@ function Blackjack:handleAction(action, player)
     elseif self.state == "result" then
         if action == "wager_down" then
             self:adjustWager(-self.betStep, player.gold)
+            sfxRandom("chips_handle", 6)
         elseif action == "wager_up" then
             self:adjustWager(self.betStep, player.gold)
+            sfxRandom("chips_handle", 6)
         elseif action == "continue" then
+            local reward = self:getReward()
+            if reward.gold > 0 and not self.payoutGoldApplied then
+                return nil
+            end
             return resolveReward(self, player, false)
         elseif action == "deal_again" then
+            local reward = self:getReward()
+            if reward.gold > 0 and not self.payoutGoldApplied then
+                return nil
+            end
             return resolveReward(self, player, true)
         end
     end
@@ -919,11 +1351,15 @@ function Blackjack:handleAction(action, player)
 end
 
 function Blackjack:handleKey(key, player)
+    if self.animating then return nil end
+
     if self.state == "betting" then
         if key == "left" or key == "a" or key == "-" or key == "kp-" then
             self:adjustWager(-self.betStep, player.gold)
+            sfxRandom("chips_handle", 6)
         elseif key == "right" or key == "d" or key == "=" or key == "kp+" then
             self:adjustWager(self.betStep, player.gold)
+            sfxRandom("chips_handle", 6)
         elseif key == "return" or key == "space" then
             return self:handleAction("deal", player)
         elseif key == "escape" or key == "backspace" then
@@ -941,9 +1377,23 @@ function Blackjack:handleKey(key, player)
         end
     elseif self.state == "result" then
         if key == "return" or key == "space" then
+            local reward = self:getReward()
+            if reward.gold > 0 and not self.payoutGoldApplied then
+                return nil
+            end
             return self:handleAction("continue", player)
         elseif key == "d" then
+            local reward = self:getReward()
+            if reward.gold > 0 and not self.payoutGoldApplied then
+                return nil
+            end
             return self:handleAction("deal_again", player)
+        elseif key == "left" or key == "a" or key == "-" or key == "kp-" then
+            self:adjustWager(-self.betStep, player.gold)
+            sfxRandom("chips_handle", 6)
+        elseif key == "right" or key == "d" or key == "=" or key == "kp+" then
+            self:adjustWager(self.betStep, player.gold)
+            sfxRandom("chips_handle", 6)
         end
     end
     return nil
@@ -951,6 +1401,7 @@ end
 
 function Blackjack:handleMousePressed(mx, my, button, screenW, screenH, player)
     if button ~= 1 then return nil end
+    if self.animating then return nil end
     local action = self:hitButton(mx, my, screenW, screenH)
     if not action then return nil end
     self.hoveredButton = action

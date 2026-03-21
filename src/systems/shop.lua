@@ -21,7 +21,7 @@ function Shop:generateItems()
     -- Heal option
     table.insert(self.items, {
         id = "heal",
-        name = "Whiskey (Heal 50%)",
+        name = "Whiskey - Heal 50%",
         description = "Restore 50% of max HP",
         price = math.floor(30 * priceMultiplier),
         type = "heal",
