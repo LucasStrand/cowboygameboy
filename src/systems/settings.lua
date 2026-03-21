@@ -4,6 +4,7 @@
 --- multipliers for future per-Source volume — use `Settings.getMusicVolumeMul()` /
 --- `getSfxVolumeMul()` on music vs SFX `Source` instances when audio is added.
 local Settings = {}
+local DevLog = require("src.ui.devlog")
 
 local defaults = {
     fullscreen = false,

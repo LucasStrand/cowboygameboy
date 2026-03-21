@@ -1,6 +1,7 @@
 local Bullet = require("src.entities.bullet")
 local Pickup = require("src.entities.pickup")
 local DamageNumbers = require("src.ui.damage_numbers")
+local ImpactFX = require("src.systems.impact_fx")
 
 local Combat = {}
 
@@ -30,6 +31,7 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
             local hitY = b.y + b.h / 2
             b.hitEnemy:takeDamage(b.damage, world)
             DamageNumbers.spawn(hitX, hitY, b.damage, "out")
+            ImpactFX.spawn(hitX, hitY, "hit_enemy")
 
             -- Explosive rounds: AOE damage to nearby enemies
             if b.explosive and not b.fromEnemy then
@@ -60,6 +62,7 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
             local ok, dmg = player:takeDamage(b.damage)
             if ok then
                 DamageNumbers.spawn(b.x + b.w / 2, b.y + b.h / 2, dmg, "in")
+                ImpactFX.spawn(b.x + b.w / 2, b.y + b.h / 2, "hit_enemy")
             end
         end
 
@@ -243,6 +246,7 @@ function Combat.checkPlayerMelee(player, enemies)
                hy < e.y + e.h and hy + hh > e.y then
                 e:takeDamage(dmg, nil)
                 DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, dmg, "out")
+                ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee")
                 player.meleeHitEnemies[e] = true
                 player.meleeHitFlashTimer = 0.2
                 -- Knockback along melee aim (same axis as the swing / shot)

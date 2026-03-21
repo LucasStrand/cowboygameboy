@@ -10,6 +10,7 @@ local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
+local Settings = require("src.systems.settings")
 
 local menu = {}
 

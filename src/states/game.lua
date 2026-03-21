@@ -18,8 +18,8 @@ local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
-local DevPanel = require("src.ui.dev_panel")
-local PerksData = require("src.data.perks")
+local TileRenderer = require("src.systems.tile_renderer")
+local ImpactFX = require("src.systems.impact_fx")
 
 local game = {}
 
@@ -36,6 +36,8 @@ local shakeTimer
 local shakeIntensity
 local gameTimer
 local doorOpen
+local doorAnimFrame
+local doorAnimTimer
 local transitionTimer
 local paused
 local pauseMenuView = "main" -- "main" | "settings"
@@ -51,6 +53,25 @@ local devPanelHover = nil
 local devPanelRows = nil
 -- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
 local offScreenEnemyHintActive = false
+
+local function handleDebugAction(action)
+    if not action or not player then return end
+    if action == "debug_saloon" then
+        local saloon = require("src.states.saloon")
+        paused = false
+        pauseMenuView = "main"
+        pauseSelectedIndex = 1
+        pauseHoverIndex = nil
+        Gamestate.push(saloon, player, roomManager)
+        DevLog.push("sys", "Debug: Entered saloon")
+    elseif action == "debug_add_gold" then
+        player.gold = player.gold + 10
+        DevLog.push("sys", "Debug: +10 gold")
+    elseif action == "debug_sub_gold" then
+        player.gold = math.max(0, player.gold - 10)
+        DevLog.push("sys", "Debug: -10 gold")
+    end
+end
 
 -- Intro countdown (3→2→1) after menu: room + enemies loaded; gameplay frozen until done.
 local introCountdownActive = false
@@ -287,9 +308,25 @@ end
 
 local bgImage
 
+-- Saloon door sprite (384×48, 8 frames of 48×48)
+local doorSheet
+local doorQuads = {}
+local DOOR_FRAME_SIZE = 48
+local DOOR_FRAMES = 8
+local DOOR_FPS = 12
+
 function game:init()
     bgImage = love.graphics.newImage("assets/backgrounds/forest.png")
     bgImage:setWrap("repeat", "clampzero")
+
+    doorSheet = love.graphics.newImage("assets/SaloonDoor.png")
+    doorSheet:setFilter("nearest", "nearest")
+    local sw, sh = doorSheet:getDimensions()
+    for i = 0, DOOR_FRAMES - 1 do
+        doorQuads[i + 1] = love.graphics.newQuad(
+            i * DOOR_FRAME_SIZE, 0, DOOR_FRAME_SIZE, DOOR_FRAME_SIZE, sw, sh
+        )
+    end
 end
 
 local function introCountdownDigitStyle(segT)
@@ -553,6 +590,8 @@ function game:enter(_, opts)
     shakeIntensity = 0
     gameTimer = 0
     doorOpen = false
+    doorAnimFrame = 1
+    doorAnimTimer = 0
     transitionTimer = 0
     paused = false
     pauseMenuView = "main"
@@ -595,6 +634,7 @@ end
 
 function loadNextRoom()
     DamageNumbers.clear()
+    ImpactFX.clear()
     -- Remove every bump body (forward loop on a stale snapshot can skip items → broken transitions)
     while world:countItems() > 0 do
         local items, n = world:getItems()
@@ -605,6 +645,8 @@ function loadNextRoom()
     pickups = {}
     enemies = {}
     doorOpen = false
+    doorAnimFrame = 1
+    doorAnimTimer = 0
     offScreenEnemyHintActive = false
 
     world:add(player, player.x, player.y, player.w, player.h)
@@ -830,6 +872,8 @@ function game:update(dt)
     -- Check if all enemies dead (and no staggered spawns left) -> open door
     if #enemies == 0 and not doorOpen and currentRoom and not pendingEnemiesIncoming() then
         doorOpen = true
+        doorAnimFrame = 1
+        doorAnimTimer = 0
         if currentRoom.door then
             currentRoom.door.locked = false
         end
@@ -854,6 +898,20 @@ function game:update(dt)
     end -- not player.dying
 
     DamageNumbers.update(dt)
+    ImpactFX.update(dt)
+
+    -- Animate door opening
+    if doorOpen and doorAnimFrame < DOOR_FRAMES then
+        doorAnimTimer = doorAnimTimer + dt
+        local interval = 1 / DOOR_FPS
+        if doorAnimTimer >= interval then
+            doorAnimTimer = doorAnimTimer - interval
+            doorAnimFrame = doorAnimFrame + 1
+            if doorAnimFrame > DOOR_FRAMES then
+                doorAnimFrame = DOOR_FRAMES
+            end
+        end
+    end
 
     -- Player death (after collapse animation)
     if player.dying and player.deathTimer >= Player.DEATH_DURATION then
@@ -1003,7 +1061,10 @@ function game:keypressed(key)
     if Keybinds.matches("melee", key) then
         player:meleeAttack()
     end
-    if Keybinds.matches("interact", key) then
+    if key == "h" then
+        player:spinHolster()
+    end
+    if key == "e" then
         tryExitThroughDoor()
     end
 end
@@ -1100,11 +1161,8 @@ function game:mousepressed(x, y, button)
             local r = SettingsPanel.applyHit(h, player)
             if r then
                 if r.setTab then pauseSettingsTab = r.setTab end
-                if r.goBack then
-                    pauseMenuView = "main"
-                    pauseSettingsBindCapture = nil
-                end
-                if r.startBind then pauseSettingsBindCapture = r.startBind end
+                if r.goBack then pauseMenuView = "main" end
+                if r.action then handleDebugAction(r.action) end
             end
         end
         return
@@ -1193,33 +1251,31 @@ function game:draw()
 
         -- Walls (left, right, ceiling)
         for _, wall in ipairs(currentRoom.walls) do
-            love.graphics.setColor(0.25, 0.16, 0.1)
-            love.graphics.rectangle("fill", wall.x, wall.y, wall.w, wall.h)
-            love.graphics.setColor(0.35, 0.22, 0.14)
-            love.graphics.rectangle("fill", wall.x, wall.y, wall.w, 4)
+            TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h)
         end
 
         -- Platforms
         for _, plat in ipairs(currentRoom.platforms) do
-            -- Top surface
-            love.graphics.setColor(0.55, 0.35, 0.2)
-            love.graphics.rectangle("fill", plat.x, plat.y, plat.w, 4)
-            -- Body
-            love.graphics.setColor(0.35, 0.22, 0.12)
-            love.graphics.rectangle("fill", plat.x, plat.y + 4, plat.w, plat.h - 4)
+            if plat.h >= 32 then
+                TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h)
+            else
+                TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h)
+            end
         end
 
-        -- Door
+        -- Door (saloon door sprite)
         local door = currentRoom.door
-        if door then
-            if doorOpen then
-                love.graphics.setColor(0.2, 0.8, 0.2)
-            else
-                love.graphics.setColor(0.5, 0.1, 0.1)
+        if door and doorSheet then
+            local frame = doorOpen and doorAnimFrame or 1
+            local quad = doorQuads[frame]
+            if quad then
+                love.graphics.setColor(1, 1, 1)
+                -- Center the 48×48 sprite on the door hitbox
+                local scale = 1
+                local drawX = door.x + door.w / 2 - (DOOR_FRAME_SIZE * scale) / 2
+                local drawY = door.y + door.h - DOOR_FRAME_SIZE * scale
+                love.graphics.draw(doorSheet, quad, drawX, drawY, 0, scale, scale)
             end
-            love.graphics.rectangle("fill", door.x, door.y, door.w, door.h)
-            love.graphics.setColor(0.8, 0.7, 0.4)
-            love.graphics.rectangle("line", door.x, door.y, door.w, door.h)
 
             if not doorOpen and roomHasLivingThreat() then
                 love.graphics.setColor(1, 0.85, 0.35, 0.75)
@@ -1259,6 +1315,7 @@ function game:draw()
         b:draw()
     end
 
+    ImpactFX.draw()
     DamageNumbers.draw()
 
     -- Debug

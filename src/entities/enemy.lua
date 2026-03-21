@@ -4,6 +4,82 @@ local PlatformCollision = require("src.systems.platform_collision")
 local Enemy = {}
 Enemy.__index = Enemy
 
+-- Bandit sprite constants
+local BANDIT_FRAME_H = 48
+local BANDIT_SPRITE_SCALE = 0.85
+local _banditSheet = nil
+local _banditQuads = nil
+local BANDIT_WALK_FRAMES = 8
+local BANDIT_WALK_FPS   = 10
+
+local function loadBanditSprite()
+    if _banditSheet then return end
+    _banditSheet = love.graphics.newImage("assets/sprites/bandit/walk.png")
+    _banditSheet:setFilter("nearest", "nearest")
+    local sw, sh = _banditSheet:getDimensions()
+    _banditQuads = {}
+    for i = 0, BANDIT_WALK_FRAMES - 1 do
+        _banditQuads[i + 1] = love.graphics.newQuad(
+            i * BANDIT_FRAME_H, 0, BANDIT_FRAME_H, BANDIT_FRAME_H, sw, sh
+        )
+    end
+end
+
+-- Buzzard sprite constants (Pirots asset: 1536×192, 8 frames of 192×192)
+local BUZZARD_FRAME_SIZE = 192
+local BUZZARD_SPRITE_SCALE = 0.22  -- 192 * 0.22 ≈ 42px drawn (fits 22×16 hitbox)
+local _buzzardSheet = nil
+local _buzzardQuads = nil
+local BUZZARD_FLY_FRAMES = 8
+local BUZZARD_FLY_FPS    = 10
+
+local function loadBuzzardSprite()
+    if _buzzardSheet then return end
+    _buzzardSheet = love.graphics.newImage("assets/sprites/buzzard/BuzzardFlying_Pirots.png")
+    _buzzardSheet:setFilter("nearest", "nearest")
+    local sw, sh = _buzzardSheet:getDimensions()
+    _buzzardQuads = {}
+    for i = 0, BUZZARD_FLY_FRAMES - 1 do
+        _buzzardQuads[i + 1] = love.graphics.newQuad(
+            i * BUZZARD_FRAME_SIZE, 0, BUZZARD_FRAME_SIZE, BUZZARD_FRAME_SIZE, sw, sh
+        )
+    end
+end
+
+-- Gunslinger sprite constants
+local GS_FRAME_H = 48
+local GS_SPRITE_SCALE = 0.85
+local _gsWalkSheet = nil
+local _gsWalkQuads = nil
+local GS_WALK_FRAMES = 8
+local GS_WALK_FPS    = 10
+local _gsShootSheet = nil
+local _gsShootQuads = nil
+local GS_SHOOT_FRAMES = 5
+local GS_SHOOT_FPS    = 14
+
+local function loadGunslingerSprites()
+    if _gsWalkSheet then return end
+    _gsWalkSheet = love.graphics.newImage("assets/sprites/gunslinger/walk.png")
+    _gsWalkSheet:setFilter("nearest", "nearest")
+    local sw, sh = _gsWalkSheet:getDimensions()
+    _gsWalkQuads = {}
+    for i = 0, GS_WALK_FRAMES - 1 do
+        _gsWalkQuads[i + 1] = love.graphics.newQuad(
+            i * GS_FRAME_H, 0, GS_FRAME_H, GS_FRAME_H, sw, sh
+        )
+    end
+    _gsShootSheet = love.graphics.newImage("assets/sprites/gunslinger/shoot.png")
+    _gsShootSheet:setFilter("nearest", "nearest")
+    sw, sh = _gsShootSheet:getDimensions()
+    _gsShootQuads = {}
+    for i = 0, GS_SHOOT_FRAMES - 1 do
+        _gsShootQuads[i + 1] = love.graphics.newQuad(
+            i * GS_FRAME_H, 0, GS_FRAME_H, GS_FRAME_H, sw, sh
+        )
+    end
+end
+
 local ELITE_HP = 1.9
 local ELITE_DMG = 1.15
 local ELITE_LOOT = 1.75
@@ -68,6 +144,25 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     self.swoopTarget = nil
     self.homeY = y
 
+    -- Sprite animation
+    if typeId == "bandit" then
+        loadBanditSprite()
+        self.spriteFrame = 1
+        self.spriteTimer = 0
+        self.attackAnimTimer = 0
+    elseif typeId == "buzzard" then
+        loadBuzzardSprite()
+        self.spriteFrame = 1
+        self.spriteTimer = 0
+        self.swoopAnimTimer = 0
+    elseif typeId == "gunslinger" then
+        loadGunslingerSprites()
+        self.spriteFrame = 1
+        self.spriteTimer = 0
+        self.gsAnim = "walk"       -- "walk" or "shoot"
+        self.gsShootAnimDone = true
+    end
+
     return self
 end
 
@@ -82,6 +177,69 @@ function Enemy:update(dt, world, playerX, playerY)
     local dist = math.sqrt(dx * dx + dy * dy)
 
     self.facingRight = dx > 0
+
+    -- Update attack/swoop animation timers
+    if self.attackAnimTimer and self.attackAnimTimer > 0 then
+        self.attackAnimTimer = self.attackAnimTimer - dt
+    end
+    if self.swoopAnimTimer and self.swoopAnimTimer > 0 then
+        self.swoopAnimTimer = self.swoopAnimTimer - dt
+    end
+
+    -- Update sprite animation
+    if self.typeId == "bandit" and self.spriteTimer then
+        if math.abs(self.vx) > 10 then
+            self.spriteTimer = self.spriteTimer + dt
+            local interval = 1 / BANDIT_WALK_FPS
+            if self.spriteTimer >= interval then
+                self.spriteTimer = self.spriteTimer - interval
+                self.spriteFrame = (self.spriteFrame % BANDIT_WALK_FRAMES) + 1
+            end
+        else
+            self.spriteFrame = 1
+            self.spriteTimer = 0
+        end
+    elseif self.typeId == "buzzard" and self.spriteTimer then
+        -- Buzzard always animates; speed up during swoop
+        local fps = self.swoopTarget and (BUZZARD_FLY_FPS * 2) or BUZZARD_FLY_FPS
+        self.spriteTimer = self.spriteTimer + dt
+        local interval = 1 / fps
+        if self.spriteTimer >= interval then
+            self.spriteTimer = self.spriteTimer - interval
+            self.spriteFrame = (self.spriteFrame % BUZZARD_FLY_FRAMES) + 1
+        end
+    elseif self.typeId == "gunslinger" and self.spriteTimer then
+        if self.gsAnim == "shoot" and not self.gsShootAnimDone then
+            -- Play shoot animation once then return to walk
+            self.spriteTimer = self.spriteTimer + dt
+            local interval = 1 / GS_SHOOT_FPS
+            if self.spriteTimer >= interval then
+                self.spriteTimer = self.spriteTimer - interval
+                if self.spriteFrame < GS_SHOOT_FRAMES then
+                    self.spriteFrame = self.spriteFrame + 1
+                else
+                    self.gsShootAnimDone = true
+                    self.gsAnim = "walk"
+                    self.spriteFrame = 1
+                    self.spriteTimer = 0
+                end
+            end
+        else
+            -- Walk animation (or idle at frame 1)
+            self.gsAnim = "walk"
+            if math.abs(self.vx) > 10 then
+                self.spriteTimer = self.spriteTimer + dt
+                local interval = 1 / GS_WALK_FPS
+                if self.spriteTimer >= interval then
+                    self.spriteTimer = self.spriteTimer - interval
+                    self.spriteFrame = (self.spriteFrame % GS_WALK_FRAMES) + 1
+                end
+            else
+                self.spriteFrame = 1
+                self.spriteTimer = 0
+            end
+        end
+    end
 
     local bulletsToSpawn = nil
 
@@ -284,6 +442,13 @@ function Enemy:updateRanged(dt, world, dx, dy, dist, playerX, playerY)
 
     if self.state == "attack" and self.attackTimer <= 0 and canShoot then
         self.attackTimer = self.attackCooldown
+        -- Trigger shoot animation
+        if self.gsAnim then
+            self.gsAnim = "shoot"
+            self.spriteFrame = 1
+            self.spriteTimer = 0
+            self.gsShootAnimDone = false
+        end
         local angle = math.atan2(dy, dx)
         -- Slight inaccuracy
         angle = angle + (math.random() - 0.5) * 0.15
@@ -327,6 +492,9 @@ function Enemy:updateFlying(dt, world, dx, dy, dist, playerX, playerY)
         if self.attackTimer <= 0 and dist < self.attackRange then
             self.swoopTarget = {x = playerX, y = playerY}
             self.attackTimer = 0
+            if self.swoopAnimTimer then
+                self.swoopAnimTimer = 0.4
+            end
         end
     end
 
@@ -368,6 +536,9 @@ function Enemy:onContactDamage()
     if self.behavior == "melee" or self.behavior == "flying" then
         self.attackTimer = self.attackCooldown
     end
+    if self.attackAnimTimer then
+        self.attackAnimTimer = 0.3
+    end
 end
 
 function Enemy.filter(item, other)
@@ -392,27 +563,150 @@ end
 function Enemy:draw()
     if not self.alive then return end
     local c = self.color
-    if self.hurtTimer > 0 then
-        love.graphics.setColor(1, 1, 1)
-    else
-        love.graphics.setColor(c[1], c[2], c[3])
-    end
 
-    if self.elite then
+    if self.elite and self.typeId ~= "bandit" and self.typeId ~= "buzzard" and self.typeId ~= "gunslinger" then
         love.graphics.setColor(0.92, 0.72, 0.15)
         love.graphics.rectangle("line", self.x - 2, self.y - 2, self.w + 4, self.h + 4)
-        if self.hurtTimer <= 0 then
-            love.graphics.setColor(c[1], c[2], c[3])
-        else
-            love.graphics.setColor(1, 1, 1)
-        end
     end
 
-    love.graphics.rectangle("fill", self.x, self.y, self.w, self.h)
+    -- Buzzard: draw sprite
+    if self.typeId == "buzzard" and _buzzardSheet then
+        local quad = _buzzardQuads[self.spriteFrame]
+        if quad then
+            if self.hurtTimer > 0 then
+                love.graphics.setColor(1, 0.4, 0.4)
+            else
+                love.graphics.setColor(1, 1, 1)
+            end
+            local scaledW = BUZZARD_FRAME_SIZE * BUZZARD_SPRITE_SCALE
+            local scaledH = BUZZARD_FRAME_SIZE * BUZZARD_SPRITE_SCALE
+            local cx = self.x + self.w / 2
+            local cy = self.y + self.h / 2
 
-    -- Simple hat for all enemies
-    love.graphics.setColor(c[1] * 0.6, c[2] * 0.6, c[3] * 0.6)
-    love.graphics.rectangle("fill", self.x - 2, self.y - 4, self.w + 4, 4)
+            -- Tilt during swoop
+            local angle = 0
+            if self.swoopTarget then
+                local sdx = self.swoopTarget.x - self.x
+                local sdy = self.swoopTarget.y - self.y
+                angle = math.atan2(sdy, sdx) * 0.3  -- subtle tilt toward target
+            end
+
+            local drawX = cx - scaledW / 2
+            local drawY = cy - scaledH / 2
+            local sx = self.facingRight and BUZZARD_SPRITE_SCALE or -BUZZARD_SPRITE_SCALE
+            local flipShift = self.facingRight and 0 or scaledW
+
+            love.graphics.push()
+            love.graphics.translate(cx, cy)
+            love.graphics.rotate(angle)
+            love.graphics.translate(-cx, -cy)
+            love.graphics.draw(_buzzardSheet, quad, drawX + flipShift, drawY, 0, sx, BUZZARD_SPRITE_SCALE)
+            love.graphics.pop()
+
+            -- Swoop indicator: speed lines behind the buzzard during attack
+            if self.swoopAnimTimer and self.swoopAnimTimer > 0 then
+                local alpha = self.swoopAnimTimer / 0.4
+                local dir = self.facingRight and -1 or 1
+                love.graphics.setColor(1, 0.85, 0.5, alpha * 0.7)
+                love.graphics.setLineWidth(2)
+                for i = 1, 3 do
+                    local offsetY = (i - 2) * 5
+                    local len = 8 + i * 3
+                    local startX = cx + dir * (scaledW * 0.4)
+                    love.graphics.line(startX, cy + offsetY, startX + dir * len, cy + offsetY)
+                end
+                love.graphics.setLineWidth(1)
+            end
+        end
+
+    -- Bandit: draw sprite instead of rectangle
+    elseif self.typeId == "bandit" and _banditSheet then
+        local quad = _banditQuads[self.spriteFrame]
+        if quad then
+            if self.hurtTimer > 0 then
+                love.graphics.setColor(1, 0.4, 0.4)
+            else
+                love.graphics.setColor(1, 1, 1)
+            end
+            local scaledW = BANDIT_FRAME_H * BANDIT_SPRITE_SCALE
+            local scaledH = BANDIT_FRAME_H * BANDIT_SPRITE_SCALE
+            local cx = self.x + self.w / 2
+            local footY = self.y + self.h
+
+            -- Lunge forward during attack
+            local attacking = self.attackAnimTimer and self.attackAnimTimer > 0
+            local lungeOffset = 0
+            if attacking then
+                local t = self.attackAnimTimer / 0.3  -- 1→0
+                lungeOffset = math.sin(t * math.pi) * 6
+                if not self.facingRight then lungeOffset = -lungeOffset end
+            end
+
+            local drawX = cx - scaledW / 2 + lungeOffset
+            local drawY = footY - scaledH
+            local sx = self.facingRight and BANDIT_SPRITE_SCALE or -BANDIT_SPRITE_SCALE
+            local flipShift = self.facingRight and 0 or scaledW
+            love.graphics.draw(_banditSheet, quad, drawX + flipShift, drawY, 0, sx, BANDIT_SPRITE_SCALE)
+
+            -- Slash arc during attack
+            if attacking then
+                local t = self.attackAnimTimer / 0.3
+                local alpha = t  -- fades out
+                local dir = self.facingRight and 1 or -1
+                local arcCx = cx + dir * 16
+                local arcCy = self.y + self.h * 0.4
+                local radius = 12
+                local startAngle = self.facingRight and -math.pi * 0.6 or math.pi * 0.4
+                local sweep = math.pi * 0.8 * (1 - t)  -- grows as timer counts down
+                love.graphics.setColor(1, 0.95, 0.7, alpha * 0.9)
+                love.graphics.setLineWidth(2)
+                love.graphics.arc("line", "open", arcCx, arcCy, radius, startAngle, startAngle + sweep * dir, 8)
+                love.graphics.setLineWidth(1)
+            end
+        end
+
+    -- Gunslinger: draw sprite (walk or shoot)
+    elseif self.typeId == "gunslinger" and _gsWalkSheet then
+        local sheet, quads, maxFrames
+        if self.gsAnim == "shoot" and not self.gsShootAnimDone then
+            sheet = _gsShootSheet
+            quads = _gsShootQuads
+            maxFrames = GS_SHOOT_FRAMES
+        else
+            sheet = _gsWalkSheet
+            quads = _gsWalkQuads
+            maxFrames = GS_WALK_FRAMES
+        end
+        local frame = math.min(self.spriteFrame, maxFrames)
+        local quad = quads[frame]
+        if quad then
+            if self.hurtTimer > 0 then
+                love.graphics.setColor(1, 0.4, 0.4)
+            else
+                love.graphics.setColor(1, 1, 1)
+            end
+            local scaledW = GS_FRAME_H * GS_SPRITE_SCALE
+            local scaledH = GS_FRAME_H * GS_SPRITE_SCALE
+            local cx = self.x + self.w / 2
+            local footY = self.y + self.h
+            local drawX = cx - scaledW / 2
+            local drawY = footY - scaledH
+            local sx = self.facingRight and GS_SPRITE_SCALE or -GS_SPRITE_SCALE
+            local flipShift = self.facingRight and 0 or scaledW
+            love.graphics.draw(sheet, quad, drawX + flipShift, drawY, 0, sx, GS_SPRITE_SCALE)
+        end
+
+    else
+        if self.hurtTimer > 0 then
+            love.graphics.setColor(1, 1, 1)
+        else
+            love.graphics.setColor(c[1], c[2], c[3])
+        end
+        love.graphics.rectangle("fill", self.x, self.y, self.w, self.h)
+        -- Simple hat for non-sprite enemies
+        love.graphics.setColor(c[1] * 0.6, c[2] * 0.6, c[3] * 0.6)
+        love.graphics.rectangle("fill", self.x - 2, self.y - 4, self.w + 4, 4)
+    end
 
     -- HP bar
     if self.hp < self.maxHP then
