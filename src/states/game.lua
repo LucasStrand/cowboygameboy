@@ -7,7 +7,8 @@ local Pickup = require("src.entities.pickup")
 
 local Combat = require("src.systems.combat")
 local RoomManager = require("src.systems.room_manager")
-local HUD = require("src.ui.hud")
+local HUD    = require("src.ui.hud")
+local DevLog = require("src.ui.devlog")
 
 local game = {}
 
@@ -26,12 +27,12 @@ local gameTimer
 local doorOpen
 local transitionTimer
 local paused
+-- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
+local offScreenEnemyHintActive = false
 
--- Debug event log (visible when F1/DEBUG is on)
-DEBUG_LOG = DEBUG_LOG or {}
+-- Route the global debugLog used by combat.lua → DevLog combat category
 function debugLog(msg)
-    table.insert(DEBUG_LOG, {text = msg, timer = 3})
-    if #DEBUG_LOG > 8 then table.remove(DEBUG_LOG, 1) end
+    DevLog.push("combat", msg)
 end
 
 local function isOutOfBounds(entity, room)
@@ -42,18 +43,87 @@ local function isOutOfBounds(entity, room)
         or entity.x > room.width + 200
 end
 
-local INTERACT_RANGE = 56
+-- AABB overlap with padding (center-distance was too strict at tall doors / zoomed camera)
+local DOOR_INTERACT_PAD = 10
 
-local function isPlayerNearDoor()
-    if not doorOpen or not currentRoom or not currentRoom.door or not player then
+-- Must be declared before any helper that reads it (Lua local scope starts at declaration)
+local CAM_ZOOM = 2
+
+local function playerOverlapsDoorAABB()
+    if not currentRoom or not currentRoom.door or not player then
         return false
     end
     local door = currentRoom.door
-    local px = player.x + player.w / 2
-    local py = player.y + player.h / 2
-    local dx = (door.x + door.w / 2) - px
-    local dy = (door.y + door.h / 2) - py
-    return (dx * dx + dy * dy) <= INTERACT_RANGE * INTERACT_RANGE
+    local pad = DOOR_INTERACT_PAD
+    return player.x < door.x + door.w + pad
+        and player.x + player.w > door.x - pad
+        and player.y < door.y + door.h + pad
+        and player.y + player.h > door.y - pad
+end
+
+local function isPlayerNearDoor()
+    if not doorOpen then return false end
+    return playerOverlapsDoorAABB()
+end
+
+local function enemyInCameraViewport(e, viewL, viewT, viewR, viewB)
+    return e.x < viewR and e.x + e.w > viewL and e.y < viewB and e.y + e.h > viewT
+end
+
+local function rayToScreenBorder(cx, cy, dx, dy, margin)
+    local w, h = GAME_WIDTH, GAME_HEIGHT
+    local t = math.huge
+    if dx > 1e-8 then t = math.min(t, (w - margin - cx) / dx) end
+    if dx < -1e-8 then t = math.min(t, (margin - cx) / dx) end
+    if dy > 1e-8 then t = math.min(t, (h - margin - cy) / dy) end
+    if dy < -1e-8 then t = math.min(t, (margin - cy) / dy) end
+    return t
+end
+
+local function drawExitBlockedOffscreenArrows()
+    if not offScreenEnemyHintActive then return end
+    local blinkOn = (math.floor(love.timer.getTime() * 5) % 2) == 0
+    if not blinkOn then return end
+
+    local camX, camY = camera:position()
+    local viewW = GAME_WIDTH / CAM_ZOOM
+    local viewH = GAME_HEIGHT / CAM_ZOOM
+    local viewL = camX - viewW / 2
+    local viewT = camY - viewH / 2
+    local viewR = camX + viewW / 2
+    local viewB = camY + viewH / 2
+
+    local scx, scy = GAME_WIDTH / 2, GAME_HEIGHT / 2
+    local margin = 22
+
+    for _, e in ipairs(enemies) do
+        if e.alive and not enemyInCameraViewport(e, viewL, viewT, viewR, viewB) then
+            local wx = e.x + e.w / 2
+            local wy = e.y + e.h / 2
+            local sx, sy = camera:cameraCoords(wx, wy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            local dx, dy = sx - scx, sy - scy
+            local len = math.sqrt(dx * dx + dy * dy)
+            if len < 1e-4 then
+                -- enemy behind / degenerate: nudge east
+                dx, dy = 1, 0
+                len = 1
+            end
+            dx, dy = dx / len, dy / len
+            local t = rayToScreenBorder(scx, scy, dx, dy, margin)
+            if t > 0 and t < math.huge then
+                local px, py = scx + dx * t, scy + dy * t
+                local tipX, tipY = px + dx * 16, py + dy * 16
+                local ox, oy = -dy * 9, dx * 9
+                love.graphics.setColor(1, 0.2, 0.12, 0.95)
+                love.graphics.polygon("fill", tipX, tipY, px - ox, py - oy, px + ox, py + oy)
+                love.graphics.setColor(1, 0.88, 0.35, 1)
+                love.graphics.setLineWidth(2)
+                love.graphics.polygon("line", tipX, tipY, px - ox, py - oy, px + ox, py + oy)
+                love.graphics.setLineWidth(1)
+            end
+        end
+    end
+    love.graphics.setColor(1, 1, 1)
 end
 
 local function tryExitThroughDoor()
@@ -76,8 +146,6 @@ function game:init()
     bgImage:setWrap("repeat", "clampzero")
 end
 
-local CAM_ZOOM = 2
-
 function game:enter()
     world = bump.newWorld(32)
     camera = Camera(400, 200)
@@ -98,19 +166,23 @@ function game:enter()
 
     roomManager = RoomManager.new()
     roomManager:generateSequence()
+    DevLog.init()
+    DevLog.push("sys", "Run started")
     loadNextRoom()
 end
 
 function loadNextRoom()
-    -- Clean up old world items
-    local items, len = world:getItems()
-    for i = 1, len do
-        world:remove(items[i])
+    -- Remove every bump body (forward loop on a stale snapshot can skip items → broken transitions)
+    while world:countItems() > 0 do
+        local items, n = world:getItems()
+        if n < 1 then break end
+        world:remove(items[1])
     end
     bullets = {}
     pickups = {}
     enemies = {}
     doorOpen = false
+    offScreenEnemyHintActive = false
 
     world:add(player, player.x, player.y, player.w, player.h)
 
@@ -124,6 +196,9 @@ function loadNextRoom()
 
     currentRoom = roomManager:loadRoom(roomData, world, player)
     enemies = currentRoom.enemies
+    DevLog.push("sys", string.format("Room %d/%d loaded  (diff %.1f)",
+        roomManager.currentRoomIndex, #roomManager.roomSequence,
+        roomManager.difficulty or 1))
 end
 
 function game:resume()
@@ -139,16 +214,6 @@ function game:update(dt)
 
     gameTimer = gameTimer + dt
 
-    -- Age debug log
-    local di = 1
-    while di <= #DEBUG_LOG do
-        DEBUG_LOG[di].timer = DEBUG_LOG[di].timer - dt
-        if DEBUG_LOG[di].timer <= 0 then
-            table.remove(DEBUG_LOG, di)
-        else
-            di = di + 1
-        end
-    end
 
     -- Slow-mo from dead eye
     local timeMult = 1
@@ -171,16 +236,26 @@ function game:update(dt)
         return
     end
 
-    -- Player update
-    player:update(dt, world)
+    -- Aim point in world (same coords as shooting) for omnidirectional melee
+    do
+        local mx, my = love.mouse.getPosition()
+        local gx, gy = windowToGame(mx, my)
+        local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+        player.aimWorldX = wx
+        player.aimWorldY = wy
+    end
 
-    -- Auto-fire at optimal target (only when enemies are on screen)
-    if not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
-        local camX, camY = camera:position()
-        local halfW = GAME_WIDTH / (2 * CAM_ZOOM)
-        local halfH = GAME_HEIGHT / (2 * CAM_ZOOM)
-        local tx, ty = Combat.findAutoTarget(enemies, player, world,
-            camX - halfW, camY - halfH, camX + halfW, camY + halfH)
+    -- Player update
+    player:update(dt, world, enemies)
+
+    -- Auto-fire at optimal target (only when enemies are on screen; no gun while shielding)
+    local camX, camY = camera:position()
+    local halfW = GAME_WIDTH / (2 * CAM_ZOOM)
+    local halfH = GAME_HEIGHT / (2 * CAM_ZOOM)
+    local viewL, viewT = camX - halfW, camY - halfH
+    local viewR, viewB = camX + halfW, camY + halfH
+    if player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
+        local tx, ty = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
         if tx then
             local bulletData = player:shoot(tx, ty)
             if bulletData then
@@ -195,6 +270,8 @@ function game:update(dt)
     end
 
     Combat.updateBullets(bullets, dt, world, enemies, player)
+    Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB)
+    Combat.checkPlayerMelee(player, enemies)
 
     -- Enemies update
     local i = 1
@@ -215,6 +292,7 @@ function game:update(dt)
             end
             i = i + 1
         else
+            DevLog.push("combat", string.format("Killed %s  (xp+%d)", e.name or "enemy", e.xpValue or 0))
             local enemyDrops = Combat.onEnemyKilled(e, player)
             if enemyDrops then
                 for _, drop in ipairs(enemyDrops) do
@@ -235,7 +313,7 @@ function game:update(dt)
 
     -- Pickups update
     for _, p in ipairs(pickups) do
-        p:update(dt, world)
+        p:update(dt, world, player.x + player.w / 2, player.y + player.h / 2)
     end
 
     -- Remove dead pickups
@@ -256,6 +334,7 @@ function game:update(dt)
 
     -- Level up
     if leveledUp then
+        DevLog.push("progress", "Level up → " .. player.level)
         local levelup = require("src.states.levelup")
         Gamestate.push(levelup, player, function() end)
     end
@@ -266,6 +345,14 @@ function game:update(dt)
         if currentRoom.door then
             currentRoom.door.locked = false
         end
+        DevLog.push("sys", "All enemies cleared — door open")
+    end
+
+    -- Latch off-screen enemy hints: touch locked exit once, keep arrows until room clears
+    if doorOpen or #enemies == 0 then
+        offScreenEnemyHintActive = false
+    elseif currentRoom and currentRoom.door and not doorOpen and #enemies > 0 and playerOverlapsDoorAABB() then
+        offScreenEnemyHintActive = true
     end
 
     -- Exit door: use [E] when nearby (see tryExitThroughDoor)
@@ -277,6 +364,8 @@ function game:update(dt)
 
     -- Player death
     if player.hp <= 0 then
+        DevLog.push("sys", string.format("Player died  lv%d  %d rooms  $%d",
+            player.level, roomManager.totalRoomsCleared, player.gold))
         local gameover = require("src.states.gameover")
         Gamestate.switch(gameover, {
             level = player.level,
@@ -306,8 +395,14 @@ function game:keypressed(key)
     if key == "lshift" or key == "rshift" then
         player:tryDash()
     end
+    if key == "s" or key == "down" then
+        player:tryDropThrough()
+    end
     if key == "r" then
         player:reload()
+    end
+    if key == "f" then
+        player:meleeAttack()
     end
     if key == "e" then
         tryExitThroughDoor()
@@ -319,8 +414,8 @@ function game:keypressed(key)
 end
 
 function game:mousepressed(x, y, button)
-    if button == 1 then
-        local gx, gy = windowToGame(x, y)
+    local gx, gy = windowToGame(x, y)
+    if button == 1 and not player.blocking then
         local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
         local bulletData = player:shoot(mx, my)
         if bulletData then
@@ -333,7 +428,16 @@ function game:mousepressed(x, y, button)
         end
     end
     if button == 2 then
-        player:reload()
+        local slot = HUD.hitLoadout(gx, gy, GAME_HEIGHT)
+        if slot == "gun" then
+            player.autoGun = not player.autoGun
+        elseif slot == "melee" then
+            player.autoMelee = not player.autoMelee
+        elseif slot == "shield" and player:shieldAllowsAutoBlock() then
+            player.autoBlock = not player.autoBlock
+        else
+            player:reload()
+        end
     end
 end
 
@@ -411,6 +515,11 @@ function game:draw()
             love.graphics.setColor(0.8, 0.7, 0.4)
             love.graphics.rectangle("line", door.x, door.y, door.w, door.h)
 
+            if not doorOpen and #enemies > 0 then
+                love.graphics.setColor(1, 0.85, 0.35, 0.75)
+                love.graphics.printf("Locked", door.x - 16, door.y - 18, door.w + 32, "center")
+            end
+
             if doorOpen then
                 love.graphics.setColor(1, 1, 1, 0.85)
                 if player and isPlayerNearDoor() then
@@ -451,6 +560,9 @@ function game:draw()
     end
 
     camera:detach()
+
+    -- Near locked exit + surviving enemies off-screen: blink arrows on viewport edge (screen space)
+    drawExitBlockedOffscreenArrows()
 
     -- HUD (screen space)
     HUD.draw(player)
@@ -515,16 +627,8 @@ function game:draw()
         end
         py = py + 20
 
-        -- Event log
-        love.graphics.setColor(0, 1, 0)
-        love.graphics.print("-- EVENTS --", panelX, py)
-        py = py + 16
-        for _, entry in ipairs(DEBUG_LOG) do
-            local alpha = math.min(1, entry.timer)
-            love.graphics.setColor(1, 1, 0.5, alpha)
-            love.graphics.print(entry.text, panelX, py)
-            py = py + 14
-        end
+        -- Dev log
+        DevLog.draw(panelX, py, 250)
     end
 
     love.graphics.setColor(1, 1, 1)

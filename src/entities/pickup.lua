@@ -1,7 +1,12 @@
+local PlatformCollision = require("src.systems.platform_collision")
+
 local Pickup = {}
 Pickup.__index = Pickup
 
 local GRAVITY = 600
+
+local ATTRACT_SPEED_MIN = 180
+local ATTRACT_SPEED_MAX = 520
 
 function Pickup.new(x, y, pickupType, value)
     local self = setmetatable({}, Pickup)
@@ -9,6 +14,7 @@ function Pickup.new(x, y, pickupType, value)
     self.y = y
     self.w = 10
     self.h = 10
+    self.vx = 0
     self.vy = 0
     self.pickupType = pickupType
     self.value = value or 1
@@ -16,26 +22,48 @@ function Pickup.new(x, y, pickupType, value)
     self.alive = true
     self.lifetime = 15
     self.grounded = false
+    self.attracted = false
+    self.attractSpeed = ATTRACT_SPEED_MIN
     self.bobTimer = math.random() * math.pi * 2
     self.bobOffset = 0
     return self
 end
 
 function Pickup.filter(item, other)
-    if other.isPlatform or other.isWall then
+    if other.isWall then
+        return "slide"
+    end
+    if other.isPlatform then
+        if PlatformCollision.shouldPassThroughOneWay(item, other) then
+            return nil
+        end
         return "slide"
     end
     return nil
 end
 
-function Pickup:update(dt, world)
+function Pickup:update(dt, world, playerX, playerY)
     self.lifetime = self.lifetime - dt
     if self.lifetime <= 0 then
         self.alive = false
         return
     end
 
-    if not self.grounded then
+    if self.attracted and playerX then
+        -- Accelerate toward player
+        self.attractSpeed = math.min(ATTRACT_SPEED_MAX, self.attractSpeed + 900 * dt)
+        local cx = self.x + self.w / 2
+        local cy = self.y + self.h / 2
+        local dx = (playerX) - cx
+        local dy = (playerY) - cy
+        local len = math.sqrt(dx * dx + dy * dy)
+        if len > 1 then
+            self.x = self.x + (dx / len) * self.attractSpeed * dt
+            self.y = self.y + (dy / len) * self.attractSpeed * dt
+            world:update(self, self.x, self.y)
+        end
+        self.bobOffset = 0
+    elseif not self.grounded then
         self.vy = self.vy + GRAVITY * dt
         if self.vy > 400 then self.vy = 400 end
 
