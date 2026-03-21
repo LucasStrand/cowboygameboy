@@ -215,6 +215,11 @@ function Player:isAkimbo()
 end
 
 function Player:getEffectiveStats()
+    return self:getEffectiveStatsForGun(self:getActiveGun())
+end
+
+--- Combat stats for a specific gun (perk deltas applied to that weapon's base), like melee coexisting with gun.
+function Player:getEffectiveStatsForGun(gun)
     local s = {}
     for k, v in pairs(self.stats) do
         s[k] = v
@@ -230,8 +235,6 @@ function Player:getEffectiveStats()
         end
     end
 
-    -- Gun stats: replace with active weapon base + perk delta
-    local gun = self:getActiveGun()
     if gun then
         for stat, baseDefault in pairs(PLAYER_BASE_GUN_STATS) do
             local perkDelta = self.stats[stat] - baseDefault
@@ -245,6 +248,17 @@ function Player:getEffectiveStats()
     end
 
     return s
+end
+
+--- True if any ranged slot can fire (for akimbo auto-fire; each gun has its own cadence).
+function Player:canAnyAkimboGunFire()
+    for i = 1, 2 do
+        local w = self.weapons[i]
+        if w and w.gun and w.ammo > 0 and not w.reloading and (w.shootCooldown or 0) <= 0 then
+            return true
+        end
+    end
+    return false
 end
 
 local AUTO_BLOCK_RANGE_SQ = 70 * 70
@@ -268,31 +282,42 @@ function Player:update(dt, world, enemies)
         self.deadEyeTimer = self.deadEyeTimer - dt
     end
 
-    -- Shoot cooldown
-    if self.shootCooldown > 0 then
-        self.shootCooldown = self.shootCooldown - dt
-    end
-
-    -- Akimbo: tick off-hand weapon's cooldown and reload independently
+    -- Shoot cooldown + reload: akimbo = each slot independent (like melee + gun); else mirror active slot on self
     if self:isAkimbo() then
-        local offSlotIdx = self.activeWeaponSlot == 1 and 2 or 1
-        local off = self.weapons[offSlotIdx]
-        if off then
-            if off.shootCooldown > 0 then
-                off.shootCooldown = off.shootCooldown - dt
-            end
-            if off.reloading then
-                off.reloadTimer = off.reloadTimer - dt
-                if off.reloadTimer <= 0 then
-                    off.reloading = false
-                    -- Compute off-hand capacity using perk delta
-                    local gunBase = off.gun.baseStats.cylinderSize
-                    local perkDelta = self.stats.cylinderSize - PLAYER_BASE_GUN_STATS.cylinderSize
-                    off.ammo = gunBase + perkDelta
-                    off.reloadTimer = 0
+        for i = 1, 2 do
+            local w = self.weapons[i]
+            if w and w.gun then
+                if (w.shootCooldown or 0) > 0 then
+                    w.shootCooldown = w.shootCooldown - dt
+                end
+                if w.reloading then
+                    w.reloadTimer = w.reloadTimer - dt
+                    if w.reloadTimer <= 0 then
+                        w.reloading = false
+                        local gunBase = w.gun.baseStats.cylinderSize
+                        local perkDelta = self.stats.cylinderSize - PLAYER_BASE_GUN_STATS.cylinderSize
+                        w.ammo = gunBase + perkDelta
+                        w.reloadTimer = 0
+                        if i == self.activeWeaponSlot and self.stats.deadEye then
+                            self.deadEyeTimer = 3.0
+                        end
+                    end
                 end
             end
         end
+        local a = self.weapons[self.activeWeaponSlot]
+        if a then
+            self.ammo = a.ammo
+            self.reloading = a.reloading
+            self.reloadTimer = a.reloadTimer
+            self.shootCooldown = a.shootCooldown or 0
+        end
+    else
+        if self.shootCooldown > 0 then
+            self.shootCooldown = self.shootCooldown - dt
+        end
+        local slot = self.weapons[self.activeWeaponSlot]
+        if slot then slot.shootCooldown = self.shootCooldown end
     end
 
     -- Melee cooldown + swing window
@@ -349,8 +374,8 @@ function Player:update(dt, world, enemies)
         self.dashCooldown = math.max(0, self.dashCooldown - dt)
     end
 
-    -- Reload
-    if self.reloading then
+    -- Reload (active slot only; akimbo slots tick above)
+    if not self:isAkimbo() and self.reloading then
         self.reloadTimer = self.reloadTimer - dt
         if self.reloadTimer <= 0 then
             self.reloading = false
@@ -358,7 +383,6 @@ function Player:update(dt, world, enemies)
             if self.stats.deadEye then
                 self.deadEyeTimer = 3.0
             end
-            -- Sync to weapon slot
             local slot = self.weapons[self.activeWeaponSlot]
             if slot then
                 slot.ammo = self.ammo
@@ -554,17 +578,27 @@ function Player:tryDash()
     end
 end
 
-function Player:shoot(mx, my)
-    if self.reloading or self.shootCooldown > 0 then return nil end
-    if self.ammo <= 0 then
-        self:reload()
+--- Fire one weapon slot (each gun has its own cooldown, damage, and reload — akimbo works like gun + melee coexistence).
+function Player:shootFromSlot(slotIndex, mx, my)
+    local slot = self.weapons[slotIndex]
+    if not slot or not slot.gun then return nil end
+    if slot.reloading or (slot.shootCooldown or 0) > 0 then return nil end
+    if slot.ammo <= 0 then
+        self:startReloadSlot(slotIndex)
         return nil
     end
 
-    local effectiveStats = self:getEffectiveStats()
-    local firedOffHand = false
+    local gun = slot.gun
+    local effectiveStats = self:getEffectiveStatsForGun(gun)
 
-    self.ammo = self.ammo - 1
+    slot.ammo = slot.ammo - 1
+    slot.shootCooldown = gun.baseStats.shootCooldown
+
+    if slotIndex == self.activeWeaponSlot then
+        self.ammo = slot.ammo
+        self.shootCooldown = slot.shootCooldown
+    end
+
     if not self:isAkimbo() then
         self.anim:play("shoot", true)
     end
@@ -573,7 +607,6 @@ function Player:shoot(mx, my)
     local cy = self.y + self.h / 2
     local angle = math.atan2(my - cy, mx - cx)
 
-    -- Per-shot inaccuracy (e.g. AK-47)
     local inacc = effectiveStats.inaccuracy or 0
     if inacc > 0 then
         angle = angle + (math.random() - 0.5) * 2 * inacc
@@ -599,90 +632,43 @@ function Player:shoot(mx, my)
         })
     end
 
-    -- Weapon-specific on-shoot callback (e.g. blunderbuss recoil)
-    local gun = self:getActiveGun()
-    if gun and gun.onShoot then
+    if gun.onShoot then
         gun.onShoot(self, angle)
     end
 
-    -- Sync ammo back to weapon slot state
-    local slot = self.weapons[self.activeWeaponSlot]
-    if slot then slot.ammo = self.ammo end
-
-    if self.ammo <= 0 then
-        self:reload()
+    if slot.ammo <= 0 then
+        self:startReloadSlot(slotIndex)
     end
 
-    -- Akimbo: also fire the off-hand weapon (same volley as primary; pair cooldown is max of both below)
-    if self:isAkimbo() then
-        local offSlotIdx = self.activeWeaponSlot == 1 and 2 or 1
-        local off = self.weapons[offSlotIdx]
-        if off and off.ammo > 0 and not off.reloading then
-            local offGun = off.gun
-            -- Compute off-hand effective stats via perk delta
-            local offDmg = offGun.baseStats.bulletDamage + (self.stats.bulletDamage - PLAYER_BASE_GUN_STATS.bulletDamage)
-            local offSpd = offGun.baseStats.bulletSpeed + (self.stats.bulletSpeed - PLAYER_BASE_GUN_STATS.bulletSpeed)
-            local offCnt = offGun.baseStats.bulletCount + (self.stats.bulletCount - PLAYER_BASE_GUN_STATS.bulletCount)
-            local offSpread = offGun.baseStats.spreadAngle + (self.stats.spreadAngle - PLAYER_BASE_GUN_STATS.spreadAngle)
-            local offInacc = offGun.baseStats.inaccuracy or 0
-
-            off.ammo = off.ammo - 1
-            firedOffHand = true
-
-            -- Off-hand aim angle (same target, slight offset for visual flair)
-            local offAngle = angle
-            if offInacc > 0 then
-                offAngle = offAngle + (math.random() - 0.5) * 2 * offInacc
-            end
-
-            for i = 1, offCnt do
-                local a = offAngle
-                if offCnt > 1 then
-                    a = offAngle - offSpread / 2 + offSpread * ((i - 1) / (offCnt - 1))
-                end
-                table.insert(bullets, {
-                    x = cx,
-                    y = cy,
-                    angle = a,
-                    speed = offSpd,
-                    damage = math.floor(offDmg * effectiveStats.damageMultiplier),
-                    ricochet = effectiveStats.ricochetCount,
-                    explosive = effectiveStats.explosiveRounds,
-                })
-            end
-
-            -- Off-hand on-shoot callback
-            if offGun.onShoot then
-                offGun.onShoot(self, offAngle)
-            end
-
-            -- Auto-reload off-hand when empty
-            if off.ammo <= 0 then
-                off.reloading = true
-                local reloadDelta = self.stats.reloadSpeed - PLAYER_BASE_GUN_STATS.reloadSpeed
-                off.reloadTimer = offGun.baseStats.reloadSpeed + reloadDelta
-            end
-        end
-    end
-
-    -- Akimbo: one volley timer so a fast primary does not outpace a slow off-hand (both always fire together when able)
-    local primaryCd = effectiveStats.shootCooldown or 0.38
-    if self:isAkimbo() then
-        local activeGun = self:getActiveGun()
-        local offSlotIdx = self.activeWeaponSlot == 1 and 2 or 1
-        local off = self.weapons[offSlotIdx]
-        local offGun = off and off.gun
-        if firedOffHand and activeGun and offGun then
-            self.shootCooldown = math.max(activeGun.baseStats.shootCooldown, offGun.baseStats.shootCooldown)
-            if off then off.shootCooldown = self.shootCooldown end
-        else
-            self.shootCooldown = primaryCd
-        end
-    else
-        self.shootCooldown = primaryCd
+    if slotIndex == self.activeWeaponSlot then
+        self.ammo = slot.ammo
+        self.reloading = slot.reloading
+        self.reloadTimer = slot.reloadTimer
+        self.shootCooldown = slot.shootCooldown
     end
 
     return bullets
+end
+
+function Player:shoot(mx, my)
+    if self:isAkimbo() then
+        local allBullets = {}
+        local any = false
+        for i = 1, 2 do
+            local b = self:shootFromSlot(i, mx, my)
+            if b then
+                any = true
+                for _, b2 in ipairs(b) do
+                    table.insert(allBullets, b2)
+                end
+            end
+        end
+        if any then
+            self.anim:play("shoot", true)
+        end
+        return #allBullets > 0 and allBullets or nil
+    end
+    return self:shootFromSlot(self.activeWeaponSlot, mx, my)
 end
 
 --- World angle (radians) from body center toward effective aim (auto target or cursor).
@@ -793,19 +779,29 @@ function Player:getMeleeSwingDrawParams()
     return midx, midy, angle, range, thick
 end
 
+--- Start reload for one weapon slot (akimbo: each gun reloads on its own timeline).
+function Player:startReloadSlot(slotIndex)
+    local slot = self.weapons[slotIndex]
+    if not slot or not slot.gun then return end
+    if slot.reloading then return end
+    local perkDelta = self.stats.cylinderSize - PLAYER_BASE_GUN_STATS.cylinderSize
+    local cap = slot.gun.baseStats.cylinderSize + perkDelta
+    if slot.ammo >= cap then return end
+    local reloadDelta = self.stats.reloadSpeed - PLAYER_BASE_GUN_STATS.reloadSpeed
+    slot.reloading = true
+    slot.reloadTimer = slot.gun.baseStats.reloadSpeed + reloadDelta
+    if slotIndex == self.activeWeaponSlot then
+        self.reloading = true
+        self.reloadTimer = slot.reloadTimer
+        self.anim:play("holster_spin", true)
+    end
+end
+
 function Player:reload()
     if self.reloading then return end
-    if not self:getActiveGun() then return end  -- melee slot, no reload
+    if not self:getActiveGun() then return end
     if self.ammo >= self:getEffectiveStats().cylinderSize then return end
-    self.reloading = true
-    self.reloadTimer = self:getEffectiveStats().reloadSpeed
-    self.anim:play("holster_spin", true)
-    -- Sync to weapon slot
-    local slot = self.weapons[self.activeWeaponSlot]
-    if slot then
-        slot.reloading = true
-        slot.reloadTimer = self.reloadTimer
-    end
+    self:startReloadSlot(self.activeWeaponSlot)
 end
 
 --- Dead Eye ult (same duration as post-reload proc); only if Dead Eye perk is active.
@@ -984,26 +980,27 @@ function Player:draw()
         local barX = self.x + self.w * 0.5 - bw * 0.5
         local barY = self.y - 16
 
-        -- Active weapon reload bar
-        if self.reloading then
+        if self:isAkimbo() then
+            local offY = barY
+            for i = 1, 2 do
+                local w = self.weapons[i]
+                if w and w.gun and w.reloading then
+                    local reloadDelta = self.stats.reloadSpeed - PLAYER_BASE_GUN_STATS.reloadSpeed
+                    local total = w.gun.baseStats.reloadSpeed + reloadDelta
+                    local pct = (total > 0) and (1 - w.reloadTimer / total) or 1
+                    pct = math.max(0, math.min(1, pct))
+                    local r, g, b = 0.42, 0.36, 0.26
+                    if i == 2 then r, g, b = 0.35, 0.45, 0.55 end
+                    drawReloadBar(barX, offY, bw, bh, pct, r, g, b)
+                    offY = offY - 6
+                end
+            end
+        elseif self.reloading then
             local es = self:getEffectiveStats()
             local total = es.reloadSpeed
             local pct = (total > 0) and (1 - self.reloadTimer / total) or 1
             pct = math.max(0, math.min(1, pct))
             drawReloadBar(barX, barY, bw, bh, pct)
-        end
-
-        -- Akimbo off-hand reload bar (second bar, slightly above)
-        if self:isAkimbo() then
-            local offSlotIdx = self.activeWeaponSlot == 1 and 2 or 1
-            local off = self.weapons[offSlotIdx]
-            if off and off.reloading then
-                local reloadDelta = self.stats.reloadSpeed - PLAYER_BASE_GUN_STATS.reloadSpeed
-                local total = off.gun.baseStats.reloadSpeed + reloadDelta
-                local pct = (total > 0) and (1 - off.reloadTimer / total) or 1
-                pct = math.max(0, math.min(1, pct))
-                drawReloadBar(barX, barY - 6, bw, bh, pct, 0.35, 0.45, 0.55)
-            end
         end
     end
 
