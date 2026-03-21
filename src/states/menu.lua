@@ -7,6 +7,8 @@ local Player = require("src.entities.player")
 local RoomManager = require("src.systems.room_manager")
 local MenuRoomDraw = require("src.ui.menu_room_draw")
 local TextLayout = require("src.ui.text_layout")
+local Settings = require("src.systems.settings")
+local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
 
 local menu = {}
@@ -25,6 +27,7 @@ local selectedIndex = 1
 local hoverIndex = nil
 local settingsTab = "video"
 local settingsHover = nil
+local settingsBindCapture = nil
 
 local function beginGameWithIntroCountdown()
     local game = require("src.states.game")
@@ -60,6 +63,7 @@ function menu:enter()
     hoverIndex = nil
     settingsTab = "video"
     settingsHover = nil
+    settingsBindCapture = nil
     fonts.title = Font.new(48)
     fonts.subtitle = Font.new(16)
     fonts.button = Font.new(22)
@@ -186,18 +190,34 @@ function menu:mousepressed(x, y, button)
         end
     elseif view == "settings" then
         local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, settingsTab, gx, gy, fonts.button)
-        local r = SettingsPanel.applyHit(h, nil)
+        local r = SettingsPanel.applyHit(h, player)
         if r then
             if r.setTab then settingsTab = r.setTab end
-            if r.goBack then view = "main" end
+            if r.goBack then
+                view = "main"
+                settingsBindCapture = nil
+            end
+            if r.startBind then settingsBindCapture = r.startBind end
         end
     end
 end
 
 function menu:keypressed(key)
     if view == "settings" then
+        if settingsBindCapture then
+            if key == "escape" then
+                settingsBindCapture = nil
+            else
+                local normalized = Keybinds.normalizeCapturedKey(key)
+                Settings.setKeybind(settingsBindCapture, normalized)
+                Settings.save()
+                settingsBindCapture = nil
+            end
+            return
+        end
         if key == "escape" or key == "backspace" then
             view = "main"
+            settingsBindCapture = nil
         elseif key == "[" then
             settingsTab = SettingsPanel.cycleTab(settingsTab, -1)
         elseif key == "]" then
@@ -287,7 +307,7 @@ function menu:draw()
             tab = fonts.button,
             row = fonts.settingsBody,
             hint = fonts.hint,
-        }, settingsHover)
+        }, settingsHover, settingsBindCapture)
     end
 
     love.graphics.setColor(1, 1, 1)

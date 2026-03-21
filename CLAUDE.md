@@ -33,6 +33,10 @@ menu → game ──(every 5 rooms)──→ saloon → game
 
 All states live in `src/states/`. The `game` state is the main loop — it owns the room, player, enemies, bullets, and pickups, and delegates to systems for processing.
 
+### Settings & audio
+
+- **`settings.lua`** persists options to `settings.lua` in the save directory. **Master** volume is applied globally via `love.audio.setVolume`. **Music** and **SFX** sliders are stored as multipliers — when you add `Source` objects, set `source:setVolume(Settings.getMusicVolumeMul())` or `getSfxVolumeMul()` so they stack correctly with master.
+
 ### Key Systems (`src/systems/`)
 
 | File | Responsibility |

@@ -15,6 +15,7 @@ local Font = require("src.ui.font")
 local Cursor = require("src.ui.cursor")
 local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
+local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
 
 local game = {}
@@ -39,6 +40,8 @@ local pauseSelectedIndex = 1
 local pauseHoverIndex = nil
 local pauseSettingsTab = "video"
 local pauseSettingsHover = nil
+local pauseSettingsBindCapture = nil -- action name while waiting for a key (Controls tab)
+local characterSheetOpen = false
 -- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
 local offScreenEnemyHintActive = false
 
@@ -104,6 +107,7 @@ end
 
 local function drawAimCrosshair()
     if not player then return end
+    if not Settings.getShowCrosshair() then return end
     -- Hide only in pure auto+keyboard mode; show again while mouse is active (even with auto on)
     if player.autoGun and player.keyboardAimMode then return end
     local px = player.x + player.w * 0.5
@@ -334,7 +338,71 @@ end
 local function pauseRestartRun()
     paused = false
     pauseMenuView = "main"
+    pauseSettingsBindCapture = nil
     Gamestate.switch(game, { introCountdown = true })
+end
+
+local function drawCharacterSheet()
+    if not player then return end
+    local pad = 14
+    local w, h = 300, 292
+    local x, y = 18, 56
+    love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
+    love.graphics.rectangle("fill", x, y, w, h, 8, 8)
+    love.graphics.setColor(0.85, 0.65, 0.35, 0.9)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, w, h, 8, 8)
+    love.graphics.setLineWidth(1)
+    if not game.charSheetTitleFont then
+        game.charSheetTitleFont = Font.new(18)
+    end
+    if not game.charSheetBodyFont then
+        game.charSheetBodyFont = Font.new(14)
+    end
+    local py = y + pad
+    love.graphics.setFont(game.charSheetTitleFont)
+    love.graphics.setColor(1, 0.88, 0.35)
+    love.graphics.print("Character", x + pad, py)
+    py = py + 26
+    love.graphics.setFont(game.charSheetBodyFont)
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    love.graphics.print(string.format("Lv %d  ·  Gold: $%d", player.level, player.gold), x + pad, py)
+    py = py + 20
+    love.graphics.print(string.format("XP: %d / %d", player.xp, player.xpToNext), x + pad, py)
+    py = py + 22
+    love.graphics.print("Perks:", x + pad, py)
+    py = py + 18
+    if #player.perks == 0 then
+        love.graphics.setColor(0.55, 0.52, 0.48)
+        love.graphics.print("(none yet)", x + pad, py)
+        py = py + 20
+    else
+        love.graphics.setColor(0.78, 0.85, 0.72)
+        local ptext = table.concat(player.perks, ", ")
+        local tw = w - 2 * pad
+        local _, lines = game.charSheetBodyFont:getWrap(ptext, tw)
+        love.graphics.printf(ptext, x + pad, py, tw, "left")
+        py = py + #lines * game.charSheetBodyFont:getHeight() + 8
+    end
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    local function gearLine(slot, label)
+        local g = player.gear[slot]
+        local name = g and g.name or "—"
+        return string.format("%s: %s", label, name)
+    end
+    love.graphics.print(gearLine("hat", "Hat"), x + pad, py)
+    py = py + 18
+    love.graphics.print(gearLine("vest", "Vest"), x + pad, py)
+    py = py + 18
+    love.graphics.print(gearLine("boots", "Boots"), x + pad, py)
+    py = py + 18
+    love.graphics.print(gearLine("melee", "Melee"), x + pad, py)
+    py = py + 18
+    love.graphics.print(gearLine("shield", "Shield"), x + pad, py)
+    py = py + 22
+    love.graphics.setColor(0.45, 0.45, 0.48)
+    local ck = Keybinds.formatActionKey("character")
+    love.graphics.print(string.format("%s to close  ·  ESC", ck), x + pad, py)
 end
 
 function game:enter(_, opts)
@@ -365,6 +433,8 @@ function game:enter(_, opts)
     pauseHoverIndex = nil
     pauseSettingsTab = "video"
     pauseSettingsHover = nil
+    pauseSettingsBindCapture = nil
+    characterSheetOpen = false
 
     roomManager = RoomManager.new()
     roomManager:generateSequence()
@@ -634,7 +704,7 @@ function game:update(dt)
         offScreenEnemyHintActive = true
     end
 
-    -- Exit door: use [E] when nearby (see tryExitThroughDoor)
+    -- Exit door: use interact keybind when nearby (see tryExitThroughDoor)
 
     -- Kill plane (fell out of bounds)
     if isOutOfBounds(player, currentRoom) then
@@ -683,10 +753,27 @@ function game:keypressed(key)
 
     if player and player.dying then return end
 
+    if paused and pauseMenuView == "settings" and pauseSettingsBindCapture then
+        if key == "escape" then
+            pauseSettingsBindCapture = nil
+        else
+            local normalized = Keybinds.normalizeCapturedKey(key)
+            Settings.setKeybind(pauseSettingsBindCapture, normalized)
+            Settings.save()
+            pauseSettingsBindCapture = nil
+        end
+        return
+    end
+
     if key == "escape" then
+        if not paused and characterSheetOpen then
+            characterSheetOpen = false
+            return
+        end
         if paused then
             if pauseMenuView == "settings" then
                 pauseMenuView = "main"
+                pauseSettingsBindCapture = nil
             else
                 paused = false
                 pauseMenuView = "main"
@@ -704,6 +791,7 @@ function game:keypressed(key)
         if pauseMenuView == "settings" then
             if key == "backspace" then
                 pauseMenuView = "main"
+                pauseSettingsBindCapture = nil
             elseif key == "[" then
                 pauseSettingsTab = SettingsPanel.cycleTab(pauseSettingsTab, -1)
             elseif key == "]" then
@@ -732,22 +820,31 @@ function game:keypressed(key)
         return
     end
 
-    if key == "space" or key == "w" or key == "up" then
+    if Keybinds.matches("character", key) then
+        characterSheetOpen = not characterSheetOpen
+        return
+    end
+    if Keybinds.matches("ult", key) then
+        player:tryActivateUlt()
+        return
+    end
+
+    if Keybinds.matches("jump", key) or key == "w" or key == "up" then
         player:jump()
     end
-    if key == "lshift" or key == "rshift" then
+    if Keybinds.matches("dash", key) then
         player:tryDash()
     end
-    if key == "s" or key == "down" then
+    if Keybinds.matches("drop", key) or key == "down" then
         player:tryDropThrough()
     end
-    if key == "r" then
+    if Keybinds.matches("reload", key) then
         player:reload()
     end
-    if key == "f" then
+    if Keybinds.matches("melee", key) then
         player:meleeAttack()
     end
-    if key == "e" then
+    if Keybinds.matches("interact", key) then
         tryExitThroughDoor()
     end
 end
@@ -821,7 +918,11 @@ function game:mousepressed(x, y, button)
             local r = SettingsPanel.applyHit(h, player)
             if r then
                 if r.setTab then pauseSettingsTab = r.setTab end
-                if r.goBack then pauseMenuView = "main" end
+                if r.goBack then
+                    pauseMenuView = "main"
+                    pauseSettingsBindCapture = nil
+                end
+                if r.startBind then pauseSettingsBindCapture = r.startBind end
             end
         end
         return
@@ -939,7 +1040,8 @@ function game:draw()
             if doorOpen then
                 love.graphics.setColor(1, 1, 1, 0.85)
                 if player and isPlayerNearDoor() then
-                    love.graphics.printf("[E] Exit", door.x - 24, door.y - 20, door.w + 48, "center")
+                    local ik = Keybinds.formatActionKey("interact")
+                    love.graphics.printf(string.format("[%s] Exit", ik), door.x - 24, door.y - 20, door.w + 48, "center")
                 else
                     love.graphics.printf("Exit", door.x - 10, door.y - 18, door.w + 20, "center")
                 end
@@ -1003,6 +1105,12 @@ function game:draw()
 
         HUD.drawDeadEye(player)
 
+        if characterSheetOpen and not paused then
+            love.graphics.setColor(0, 0, 0, 0.35)
+            love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            drawCharacterSheet()
+        end
+
         if paused then
             love.graphics.setColor(0, 0, 0, 0.48)
             love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
@@ -1058,7 +1166,7 @@ function game:draw()
                     tab = game.pauseMenuButtonFont,
                     row = game.pauseSettingsBodyFont,
                     hint = game.pauseHintFont,
-                }, pauseSettingsHover)
+                }, pauseSettingsHover, pauseSettingsBindCapture)
             end
         end
     else

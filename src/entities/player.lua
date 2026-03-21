@@ -1,6 +1,7 @@
 local Weapons = require("src.data.weapons")
 local PlatformCollision = require("src.systems.platform_collision")
 local Animator = require("src.systems.animation")
+local Keybinds = require("src.systems.keybinds")
 
 local Player = {}
 Player.__index = Player
@@ -230,8 +231,8 @@ function Player:update(dt, world, enemies)
         self.meleeHitFlashTimer = math.max(0, self.meleeHitFlashTimer - dt)
     end
 
-    -- Blocking: CTRL always. Auto-block only if this shield supports it (gear stat) and HUD toggle is on.
-    local keysBlock = love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl")
+    -- Blocking: bound key (default Ctrl). Auto-block only if this shield supports it (gear stat) and HUD toggle is on.
+    local keysBlock = Keybinds.isBlockDown()
     local autoBlockActive = false
     if self:shieldAllowsAutoBlock() and self.autoBlock and enemies then
         local px = self.x + self.w / 2
@@ -249,7 +250,7 @@ function Player:update(dt, world, enemies)
         end
     end
     self.blocking  = keysBlock or autoBlockActive
-    self.crouching = love.keyboard.isDown("s") or love.keyboard.isDown("down")
+    self.crouching = love.keyboard.isDown("down") or Keybinds.isDown("drop")
 
     -- Drop-through timer (set by tryDropThrough on keypressed, not polled)
     if self.dropThroughTimer > 0 then
@@ -351,7 +352,7 @@ function Player:update(dt, world, enemies)
 
     -- Short hop: stronger fall when jump released while still moving up
     if self.vy < 0 then
-        local jHeld = love.keyboard.isDown("space") or love.keyboard.isDown("w") or love.keyboard.isDown("up")
+        local jHeld = Keybinds.isDown("jump") or love.keyboard.isDown("w") or love.keyboard.isDown("up")
         if not jHeld then
             self.vy = self.vy + GRAVITY * JUMP_RELEASE_GRAVITY_MULT * dt
         end
@@ -614,6 +615,13 @@ function Player:reload()
     if self.ammo >= self:getEffectiveStats().cylinderSize then return end
     self.reloading = true
     self.reloadTimer = self:getEffectiveStats().reloadSpeed
+end
+
+--- Dead Eye ult (same duration as post-reload proc); only if Dead Eye perk is active.
+function Player:tryActivateUlt()
+    if self.dying then return end
+    if not self:getEffectiveStats().deadEye then return end
+    self.deadEyeTimer = 3.0
 end
 
 function Player:takeDamage(amount)
