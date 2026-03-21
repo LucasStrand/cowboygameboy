@@ -10,6 +10,7 @@ local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
+local Settings = require("src.systems.settings")
 local BootIntroData = require("src.data.boot_intro")
 local MenuBgm = require("src.systems.menu_bgm")
 
@@ -43,6 +44,11 @@ local function beginGameWithIntroCountdown()
     MenuBgm.stop()
     local game = require("src.states.game")
     Gamestate.switch(game, { introCountdown = true })
+end
+
+local function beginFakeSession()
+    local game = require("src.states.game")
+    Gamestate.switch(game, { fakeSession = true })
 end
 
 local function menuButtons()
@@ -265,6 +271,7 @@ function menu:mousepressed(x, y, button)
                 settingsSliderDragKey = nil
             end
             if r.startBind then settingsBindCapture = r.startBind end
+            if r.action == "fake_session" then beginFakeSession() end
         end
     end
 end
