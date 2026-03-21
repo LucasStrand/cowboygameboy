@@ -99,9 +99,6 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
     if activeTabId == "video" then
         rows[1] = { key = "fullscreen", kind = "toggle", label = "Fullscreen", rect = rowRect(screenW, contentTop, rowH) }
         rows[2] = { key = "vsync", kind = "toggle", label = "VSync", rect = rowRect(screenW, contentTop + rowH + 6, rowH) }
-        rows[3] = { key = "debug_saloon", kind = "action", label = "Debug: enter saloon", value = "Go >", rect = rowRect(screenW, contentTop + (rowH + 6) * 2, rowH) }
-        rows[4] = { key = "debug_add_gold", kind = "action", label = "Debug: add gold", value = "+10", rect = rowRect(screenW, contentTop + (rowH + 6) * 3, rowH) }
-        rows[5] = { key = "debug_sub_gold", kind = "action", label = "Debug: subtract gold", value = "-10", rect = rowRect(screenW, contentTop + (rowH + 6) * 4, rowH) }
     elseif activeTabId == "audio" then
         local y = contentTop
         for i, spec in ipairs({
@@ -297,8 +294,6 @@ function SettingsPanel.draw(screenW, screenH, activeTabId, fonts, hover, bindCap
                 vt = "…"
             end
             drawRowLabelValue(fonts.row, row, vt)
-        elseif row.kind == "action" then
-            drawRowLabelValue(fonts.row, row, row.value or "Run >")
         elseif row.kind == "slider" then
             local v = d[row.key] or 0
             local r = row.rect
@@ -381,9 +376,7 @@ function SettingsPanel.applyHit(hit, player)
             end
             return {}
         end
-        if row.kind == "action" then
-            return { action = row.key }
-        elseif row.kind == "toggle" then
+        if row.kind == "toggle" then
             if row.key == "fullscreen" then Settings.toggleFullscreen()
             elseif row.key == "vsync" then Settings.toggleVsync()
             elseif row.key == "defaultAutoGun" then Settings.toggleDefaultAutoGun()
