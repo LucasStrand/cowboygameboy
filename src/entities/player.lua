@@ -48,7 +48,7 @@ function Player.new(x, y)
         reloadSpeed = 1.2,
         cylinderSize = 6,
         bulletSpeed = 500,
-        bulletDamage = 15,
+        bulletDamage = 10,
         bulletCount = 1,
         spreadAngle = 0,
         lifestealOnKill = 0,
@@ -340,6 +340,16 @@ function Player:tryDash()
     end
     self.dashDir = dir
     self.dashTimer = DASH_DURATION
+    self.iframes = math.max(self.iframes, 0.2)
+
+    -- Dash strike: active melee hitbox for the full dash, aimed in dash direction
+    local s = self:getEffectiveStats()
+    if s.meleeDamage > 0 then
+        self.meleeAimAngle  = dir == 1 and 0 or math.pi
+        self.meleeSwingTimer = DASH_DURATION
+        self.meleeCooldown   = 0           -- dash resets cooldown so it always fires
+        self.meleeHitEnemies = {}
+    end
 end
 
 function Player:shoot(mx, my)
@@ -350,7 +360,7 @@ function Player:shoot(mx, my)
     end
 
     self.ammo = self.ammo - 1
-    self.shootCooldown = 0.15
+    self.shootCooldown = 0.38
 
     local cx = self.x + self.w / 2
     local cy = self.y + self.h / 2
