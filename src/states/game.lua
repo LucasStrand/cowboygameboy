@@ -1371,10 +1371,17 @@ function game:draw()
     camera:detach()
 
     if pendingGameOver then
+        -- Canvas must not be active when reading pixels; batch must be flushed first or read is often all black.
         local c = love.graphics.getCanvas()
         local snapshot = nil
         if c then
-            local ok, id = pcall(function() return c:newImageData() end)
+            if love.graphics.flush then
+                love.graphics.flush()
+            end
+            love.graphics.setCanvas()
+            local cw, ch = c:getWidth(), c:getHeight()
+            local ok, id = pcall(function() return c:newImageData(0, 0, cw, ch) end)
+            love.graphics.setCanvas(c)
             if ok and id then
                 local okImg, img = pcall(love.graphics.newImage, id)
                 if okImg and img then
