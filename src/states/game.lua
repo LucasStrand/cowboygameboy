@@ -126,6 +126,51 @@ local function drawExitBlockedOffscreenArrows()
     love.graphics.setColor(1, 1, 1)
 end
 
+local function drawExitArrow()
+    if not doorOpen or not currentRoom or not currentRoom.door then return end
+    if isPlayerNearDoor() then return end
+
+    local door = currentRoom.door
+    local camX, camY = camera:position()
+    local viewW = GAME_WIDTH / CAM_ZOOM
+    local viewH = GAME_HEIGHT / CAM_ZOOM
+    local viewL = camX - viewW / 2
+    local viewT = camY - viewH / 2
+    local viewR = camX + viewW / 2
+    local viewB = camY + viewH / 2
+
+    local wx = door.x + door.w / 2
+    local wy = door.y + door.h / 2
+
+    -- Only show arrow when door is off-screen
+    if wx >= viewL and wx <= viewR and wy >= viewT and wy <= viewB then return end
+
+    local scx, scy = GAME_WIDTH / 2, GAME_HEIGHT / 2
+    local margin = 22
+    local sx, sy = camera:cameraCoords(wx, wy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+    local dx, dy = sx - scx, sy - scy
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len < 1e-4 then dx, dy, len = 1, 0, 1 end
+    dx, dy = dx / len, dy / len
+
+    local t = rayToScreenBorder(scx, scy, dx, dy, margin)
+    if t <= 0 or t == math.huge then return end
+
+    local px, py = scx + dx * t, scy + dy * t
+    local tipX, tipY = px + dx * 16, py + dy * 16
+    local ox, oy = -dy * 9, dx * 9
+
+    -- Pulse instead of blink — always visible but breathing
+    local pulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 5)
+    love.graphics.setColor(0.2, 1.0, 0.35, pulse)
+    love.graphics.polygon("fill", tipX, tipY, px - ox, py - oy, px + ox, py + oy)
+    love.graphics.setColor(1, 1, 1, pulse * 0.8)
+    love.graphics.setLineWidth(2)
+    love.graphics.polygon("line", tipX, tipY, px - ox, py - oy, px + ox, py + oy)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(1, 1, 1)
+end
+
 local function tryExitThroughDoor()
     if transitionTimer > 0 or not isPlayerNearDoor() or not roomManager then
         return
@@ -563,6 +608,7 @@ function game:draw()
 
     -- Near locked exit + surviving enemies off-screen: blink arrows on viewport edge (screen space)
     drawExitBlockedOffscreenArrows()
+    drawExitArrow()
 
     -- HUD (screen space)
     HUD.draw(player)
