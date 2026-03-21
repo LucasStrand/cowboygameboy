@@ -566,6 +566,7 @@ function game:draw()
 
     -- HUD (screen space)
     HUD.draw(player)
+    DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
     if roomManager then
         HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
     end

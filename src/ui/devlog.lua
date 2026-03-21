@@ -71,4 +71,53 @@ function DevLog.draw(x, y, w)
     return y
 end
 
+-- Always-visible overlay: last N entries, anchored to bottom-right of the screen.
+-- Call every frame from game:draw() without needing F1.
+local OVERLAY_LINES = 8
+local OVERLAY_W     = 420
+
+function DevLog.drawOverlay(screenW, screenH)
+    if #entries == 0 then return end
+
+    if not DevLog._overlayFont then
+        DevLog._overlayFont = love.graphics.newFont(10)
+    end
+
+    local lineH  = 13
+    local count  = math.min(OVERLAY_LINES, #entries)
+    local panelH = count * lineH + 6
+    local x      = screenW - OVERLAY_W - 6
+    local y      = screenH - panelH - 100   -- sit above the loadout row
+
+    local prevFont = love.graphics.getFont()
+    love.graphics.setFont(DevLog._overlayFont)
+
+    -- Background
+    love.graphics.setColor(0, 0, 0, 0.52)
+    love.graphics.rectangle("fill", x - 4, y - 2, OVERLAY_W + 8, panelH)
+
+    -- Last N entries, newest at bottom
+    local start = #entries - count + 1
+    for i = start, #entries do
+        local e   = entries[i]
+        local cfg = CAT[e.cat] or CAT.sys
+        local age = #entries - i   -- 0 = newest
+        local alpha = math.max(0.3, 1 - age * 0.1)
+
+        love.graphics.setColor(0.5, 0.5, 0.55, alpha * 0.75)
+        love.graphics.print(string.format("[%.1fs]", e.t), x, y)
+
+        love.graphics.setColor(cfg.r, cfg.g, cfg.b, alpha)
+        love.graphics.print(cfg.tag, x + 42, y)
+
+        love.graphics.setColor(0.95, 0.95, 0.95, alpha)
+        love.graphics.print(e.msg, x + 76, y)
+
+        y = y + lineH
+    end
+
+    love.graphics.setFont(prevFont)
+    love.graphics.setColor(1, 1, 1)
+end
+
 return DevLog
