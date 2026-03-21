@@ -23,6 +23,11 @@ SfxData.paths = {
     door_open = "RPG/doorOpen_1.ogg",
     level_up = "SoundPack/Musical Effects/grand_piano_chime_positive.wav",
     ui_confirm = "Interface/toggle_001.ogg",
+    -- Ultimate
+    ult_activate = "SoundPack/Musical Effects/brass_mystery.wav",
+    ult_shot = "SoundPack/Weapons/shot_muffled.wav",
+    ult_explosion = "SoundPack/Retro/explosion_large.wav",
+    ult_ready = "SoundPack/Musical Effects/brass_chime_positive.wav",
     -- Saloon / shop (optional hooks)
     casino_shuffle = "Casino/card-shuffle.ogg",
     shop_buy = "Casino/chip-lay-1.ogg",

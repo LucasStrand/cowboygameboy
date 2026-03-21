@@ -1,8 +1,8 @@
 local Gamestate = require("lib.hump.gamestate")
 local Font = require("src.ui.font")
 local Blackjack = require("src.systems.blackjack")
+local Roulette = require("src.systems.roulette")
 local Shop = require("src.systems.shop")
-local Perks = require("src.data.perks")
 local PerkCard = require("src.ui.perk_card")
 local Cursor = require("src.ui.cursor")
 local MusicDirector = require("src.systems.music_director")
@@ -12,6 +12,7 @@ local saloon = {}
 local bgImage = nil
 local player = nil
 local blackjackGame = nil
+local rouletteGame = nil
 local shop = nil
 local difficulty = 1
 local mode = "main"
@@ -23,6 +24,12 @@ local hoveredBlackjackButton = nil
 local roomManager = nil
 local fonts = {}
 
+-- Dealer sprite
+local dealerFrames = nil
+local dealerFrameIndex = 1
+local dealerAnimTimer = 0
+local DEALER_ANIM_SPEED = 0.25  -- seconds per frame
+
 function saloon:enter(_, _player, _roomManager)
     MusicDirector.suspendGameplay()
     if not bgImage then
@@ -33,6 +40,7 @@ function saloon:enter(_, _player, _roomManager)
     roomManager = _roomManager
     difficulty = _roomManager and _roomManager.difficulty or 1
     blackjackGame = Blackjack.new()
+    rouletteGame = Roulette.new()
     shop = Shop.new(difficulty)
     mode = "main"
     message = ""
@@ -47,87 +55,84 @@ function saloon:enter(_, _player, _roomManager)
     fonts.shopTitle = Font.new(24)
     fonts.default = Font.new(12)
     Cursor.setDefault()
+
+    -- Load dealer animation frames (breathing-idle)
+    if not dealerFrames then
+        dealerFrames = {}
+        local basePath = "assets/sprites/blackjack_dealer/animations/breathing-idle/south/"
+        for i = 0, 3 do
+            local path = basePath .. string.format("frame_%03d.png", i)
+            local ok, img = pcall(love.graphics.newImage, path)
+            if ok then
+                img:setFilter("nearest", "nearest")
+                table.insert(dealerFrames, img)
+            end
+        end
+    end
+    dealerFrameIndex = 1
+    dealerAnimTimer = 0
+end
+
+local function applyBlackjackOutcome(outcome)
+    if not outcome then return end
+    if outcome.message then
+        message = outcome.message
+    end
+    if outcome.messageTimer then
+        messageTimer = outcome.messageTimer
+    end
+    if outcome.perkOptions then
+        perkOptions = outcome.perkOptions
+    end
+    if outcome.mode then
+        mode = outcome.mode
+    end
 end
 
 function saloon:update(dt)
     if messageTimer > 0 then
         messageTimer = messageTimer - dt
     end
+    -- Animate dealer sprite
+    if dealerFrames and #dealerFrames > 0 then
+        dealerAnimTimer = dealerAnimTimer + dt
+        if dealerAnimTimer >= DEALER_ANIM_SPEED then
+            dealerAnimTimer = dealerAnimTimer - DEALER_ANIM_SPEED
+            dealerFrameIndex = (dealerFrameIndex % #dealerFrames) + 1
+        end
+    end
     if mode == "perk_selection" and perkOptions then
         local mx, my = windowToGame(love.mouse.getPosition())
         hoveredPerk = PerkCard.getHovered(perkOptions, mx, my)
     elseif mode == "blackjack" then
         local mx, my = windowToGame(love.mouse.getPosition())
-        hoveredBlackjackButton = hitBlackjackButton(mx, my)
+        blackjackGame:updateHover(mx, my, GAME_WIDTH, GAME_HEIGHT)
+    elseif mode == "roulette" then
+        rouletteGame:update(dt, player)
     end
 end
 
 function saloon:keypressed(key)
     if mode == "main" then
         if key == "1" then
-            if player.gold < blackjackGame.minBet then
-                message = "Need at least $" .. blackjackGame.minBet .. " to play blackjack."
-                messageTimer = 2
-            else
-                mode = "blackjack"
-                blackjackGame:beginBetting()
-            end
+            mode = "casino_menu"
         elseif key == "2" then
             mode = "shop"
         elseif key == "return" or key == "3" then
             continueGame()
         end
-    elseif mode == "blackjack" then
-        if blackjackGame.state == "betting" then
-            if key == "left" or key == "a" or key == "-" or key == "kp-" then
-                blackjackGame:adjustWager(-blackjackGame.betStep, player.gold)
-            elseif key == "right" or key == "d" or key == "=" or key == "kp+" then
-                blackjackGame:adjustWager(blackjackGame.betStep, player.gold)
-            elseif key == "return" or key == "space" then
-                if blackjackGame.wager >= blackjackGame.minBet and player.gold >= blackjackGame.wager then
-                    player.gold = player.gold - blackjackGame.wager
-                    blackjackGame:deal(blackjackGame.wager)
-                else
-                    message = "Not enough gold to bet that much!"
-                    messageTimer = 2
-                end
-            elseif key == "escape" or key == "backspace" then
-                mode = "main"
-            end
-        elseif blackjackGame.state == "playing" then
-            if key == "h" then
-                blackjackGame:hit()
-            elseif key == "s" then
-                blackjackGame:stand()
-            elseif key == "d" then
-                local cost = blackjackGame:doubleDown(player.gold)
-                if cost then
-                    player.gold = player.gold - cost
-                else
-                    message = "Cannot double."
-                    messageTimer = 1.2
-                end
-            elseif key == "p" then
-                local cost = blackjackGame:split(player.gold)
-                if cost then
-                    player.gold = player.gold - cost
-                else
-                    message = "Cannot split."
-                    messageTimer = 1.2
-                end
-            end
-        elseif blackjackGame.state == "result" then
-            if key == "return" or key == "space" then
-                local reward = blackjackGame:getReward()
-                player.gold = player.gold + reward.gold
-                if reward.perkRarity == "rare" or reward.anyWin then
-                    perkOptions = Perks.rollPerks(3, player.stats.luck)
-                    mode = "perk_selection"
-                else
-                    mode = "main"
-                end
-            end
+    elseif mode == "casino_menu" then
+        if key == "1" then
+            applyBlackjackOutcome(blackjackGame:enterTable(player.gold))
+        elseif key == "2" then
+            applyBlackjackOutcome(rouletteGame:enterTable(player.gold))
+        elseif key == "escape" or key == "backspace" then
+            mode = "main"
         end
+    elseif mode == "blackjack" then
+        applyBlackjackOutcome(blackjackGame:handleKey(key, player))
+    elseif mode == "roulette" then
+        applyBlackjackOutcome(rouletteGame:handleKey(key, player))
     elseif mode == "shop" then
         local num = tonumber(key)
         if num and num >= 1 and num <= #shop.items then
@@ -141,7 +146,7 @@ function saloon:keypressed(key)
         local num = tonumber(key)
         if num and num >= 1 and num <= #perkOptions then
             player:applyPerk(perkOptions[num])
-            mode = "main"
+            mode = blackjackGame:completePerkSelection()
             perkOptions = nil
         end
     end
@@ -150,16 +155,16 @@ end
 function saloon:mousepressed(x, y, button)
     if mode == "perk_selection" and button == 1 and hoveredPerk then
         player:applyPerk(perkOptions[hoveredPerk])
-        mode = "main"
+        mode = blackjackGame:completePerkSelection()
         perkOptions = nil
         return
     end
-    if mode == "blackjack" and button == 1 then
+    if mode == "blackjack" then
         local mx, my = windowToGame(x, y)
-        local action = hitBlackjackButton(mx, my)
-        if action then
-            handleBlackjackAction(action)
-        end
+        applyBlackjackOutcome(blackjackGame:handleMousePressed(mx, my, button, GAME_WIDTH, GAME_HEIGHT, player))
+    elseif mode == "roulette" then
+        local mx, my = windowToGame(x, y)
+        applyBlackjackOutcome(rouletteGame:handleMousePressed(mx, my, button, GAME_WIDTH, GAME_HEIGHT, player))
     end
 end
 
@@ -209,8 +214,12 @@ function saloon:draw()
 
     if mode == "main" then
         drawMainMenu(screenW, screenH)
+    elseif mode == "casino_menu" then
+        drawCasinoMenu(screenW, screenH)
     elseif mode == "blackjack" then
-        drawBlackjack(screenW, screenH)
+        blackjackGame:draw(screenW, screenH, fonts)
+    elseif mode == "roulette" then
+        rouletteGame:draw(screenW, screenH, fonts)
     elseif mode == "shop" then
         drawShop(screenW, screenH)
     elseif mode == "perk_selection" then
@@ -230,7 +239,7 @@ end
 function drawMainMenu(screenW, screenH)
     local y = screenH * 0.35
     local opts = {
-        "[1] Blackjack Table  (wager gold for perks)",
+        "[1] Casino  (Gambling tables)",
         "[2] Bartender  (buy supplies)",
         "[3/ENTER] Hit the Road  (continue to next rooms)",
     }
@@ -241,12 +250,17 @@ function drawMainMenu(screenW, screenH)
     end
 end
 
-function drawBlackjack(screenW, screenH)
-    local y = 130
-    love.graphics.setFont(fonts.card)
-
-    -- Wager
+function drawCasinoMenu(screenW, screenH)
+    local y = screenH * 0.35
     love.graphics.setColor(1, 0.85, 0.2)
+    love.graphics.setFont(fonts.shopTitle or fonts.title)
+    love.graphics.printf("CASINO", 0, y - 40, screenW, "center")
+    love.graphics.setFont(fonts.body)
+    love.graphics.setColor(0.9, 0.8, 0.6)
+    love.graphics.printf("[1] Blackjack", 0, y + 20, screenW, "center")
+    love.graphics.printf("[2] Roulette", 0, y + 60, screenW, "center")
+    love.graphics.setColor(0.7, 0.7, 0.7)
+    love.graphics.printf("[ESC] Back", 0, y + 120, screenW, "center")
     love.graphics.printf("Wager: $" .. blackjackGame.wager, 0, y, screenW, "center")
     y = y + 40
 
@@ -262,6 +276,18 @@ function drawBlackjack(screenW, screenH)
             { id = "leave", label = "Back" },
         })
         return
+    end
+
+    -- Dealer sprite
+    if dealerFrames and #dealerFrames > 0 then
+        local frame = dealerFrames[dealerFrameIndex]
+        local fw, fh = frame:getDimensions()
+        local scale = 2
+        local dx = screenW * 0.5 - (fw * scale) * 0.5
+        local dy = y - 10
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.draw(frame, dx, dy, 0, scale, scale)
+        y = y + fh * scale + 4
     end
 
     -- Dealer hand

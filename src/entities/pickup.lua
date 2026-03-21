@@ -3,6 +3,9 @@ local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
 local Vision = require("src.data.vision")
 
+-- Coin sprite (lazy-loaded from HUD sprite sheet)
+local coinSheet, coinQuad
+
 local Pickup = {}
 Pickup.__index = Pickup
 
@@ -112,17 +115,67 @@ function Pickup:draw(player, camera, shakeX, shakeY, room)
     end
     local dy = self.bobOffset or 0
     if self.pickupType == "xp" then
-        love.graphics.setColor(0.3, 0.7, 1.0)
-        love.graphics.circle("fill", self.x + self.w/2, self.y + self.h/2 + dy, 5)
+        local cx = self.x + self.w / 2
+        local cy = self.y + self.h / 2 + dy
+        local r1, r2 = 5, 2.2
+        local rot = self.bobTimer * 0.9   -- slowly spinning
+        -- Build 4-pointed star polygon
+        local pts = {}
+        for i = 0, 7 do
+            local a = rot + i * math.pi * 0.25
+            local r = (i % 2 == 0) and r1 or r2
+            pts[#pts + 1] = cx + math.cos(a) * r
+            pts[#pts + 1] = cy + math.sin(a) * r
+        end
+        -- Soft glow
+        love.graphics.setColor(0.2, 0.55, 1.0, 0.32)
+        love.graphics.circle("fill", cx, cy, r1 + 4)
+        -- Star body
+        love.graphics.setColor(0.45, 0.78, 1.0)
+        love.graphics.polygon("fill", pts)
+        -- Bright centre sparkle
+        love.graphics.setColor(0.9, 0.97, 1.0, 0.95)
+        love.graphics.circle("fill", cx, cy, 1.5)
     elseif self.pickupType == "gold" then
-        love.graphics.setColor(1.0, 0.85, 0.2)
-        love.graphics.circle("fill", self.x + self.w/2, self.y + self.h/2 + dy, 5)
-        love.graphics.setColor(0.8, 0.65, 0.1)
-        love.graphics.circle("line", self.x + self.w/2, self.y + self.h/2 + dy, 5)
+        if not coinSheet then
+            local ok, img = pcall(love.graphics.newImage, "assets/ui/western_cowboy_roguelike_hud_sprite_sheet.png")
+            if ok then
+                img:setFilter("nearest", "nearest")
+                coinSheet = img
+                local sw, sh = coinSheet:getDimensions()
+                coinQuad = love.graphics.newQuad(80, 508, 64, 64, sw, sh)
+            end
+        end
+        local cx = self.x + self.w / 2
+        local cy = self.y + self.h / 2 + dy
+        if coinSheet and coinQuad then
+            local scale = 0.22   -- 64 × 0.22 ≈ 14 px
+            love.graphics.setColor(1, 1, 1)
+            love.graphics.draw(coinSheet, coinQuad, cx, cy, 0, scale, scale, 32, 32)
+        else
+            love.graphics.setColor(1.0, 0.85, 0.2)
+            love.graphics.circle("fill", cx, cy, 5)
+        end
     elseif self.pickupType == "health" then
-        love.graphics.setColor(0.9, 0.2, 0.2)
-        love.graphics.rectangle("fill", self.x + 2, self.y + dy, 6, self.h)
-        love.graphics.rectangle("fill", self.x, self.y + 2 + dy, self.w, 6)
+        local cx = self.x + self.w / 2
+        local cy = self.y + self.h / 2 + dy
+        local pulse = 1 + 0.14 * math.sin(self.bobTimer * 5)
+        local hw = 2.5 * pulse   -- cross arm half-width
+        local hl = 5.0 * pulse   -- cross arm half-length
+        -- Soft outer glow
+        love.graphics.setColor(1.0, 0.1, 0.1, 0.28)
+        love.graphics.circle("fill", cx, cy, hl + 3)
+        -- White border so cross pops on any background
+        love.graphics.setColor(1, 1, 1, 0.55)
+        love.graphics.rectangle("fill", cx - hw - 1, cy - hl - 1, (hw + 1) * 2, (hl + 1) * 2)
+        love.graphics.rectangle("fill", cx - hl - 1, cy - hw - 1, (hl + 1) * 2, (hw + 1) * 2)
+        -- Red cross
+        love.graphics.setColor(0.95, 0.18, 0.18)
+        love.graphics.rectangle("fill", cx - hw, cy - hl, hw * 2, hl * 2)
+        love.graphics.rectangle("fill", cx - hl, cy - hw, hl * 2, hw * 2)
+        -- Bright centre highlight
+        love.graphics.setColor(1, 0.6, 0.6, 0.7)
+        love.graphics.circle("fill", cx, cy, hw * 0.75)
     elseif self.pickupType == "weapon" and self.gunDef then
         local t = love.timer.getTime()
         local pulse = 0.7 + 0.3 * math.sin(t * 4)

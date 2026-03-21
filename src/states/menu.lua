@@ -10,6 +10,7 @@ local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
+local Settings = require("src.systems.settings")
 local BootIntroData = require("src.data.boot_intro")
 local MenuBgm = require("src.systems.menu_bgm")
 
@@ -51,9 +52,15 @@ local function beginDevArena()
     Gamestate.switch(game, { devArena = true, introCountdown = false })
 end
 
+local function beginFakeSession()
+    local game = require("src.states.game")
+    Gamestate.switch(game, { fakeSession = true })
+end
+
 local function menuButtons()
     local list = {
         { id = "start", label = "Start game" },
+        { id = "editor", label = "Level Editor" },
     }
     if DEV_TOOLS_ENABLED or DEBUG then
         list[#list + 1] = { id = "dev_arena", label = "Dev arena" }
@@ -250,6 +257,10 @@ function menu:mousepressed(x, y, button)
                     beginGameWithIntroCountdown()
                 elseif r.id == "dev_arena" then
                     beginDevArena()
+                elseif r.id == "editor" then
+                    MenuBgm.stop()
+                    local editorState = require("src.states.editor")
+                    Gamestate.switch(editorState)
                 elseif r.id == "settings" then
                     view = "settings"
                 elseif r.id == "quit" then
@@ -272,6 +283,7 @@ function menu:mousepressed(x, y, button)
                 settingsSliderDragKey = nil
             end
             if r.startBind then settingsBindCapture = r.startBind end
+            if r.action == "fake_session" then beginFakeSession() end
         end
     end
 end
@@ -320,6 +332,10 @@ function menu:keypressed(key)
             beginGameWithIntroCountdown()
         elseif id == "dev_arena" then
             beginDevArena()
+        elseif id == "editor" then
+            MenuBgm.stop()
+            local editorState = require("src.states.editor")
+            Gamestate.switch(editorState)
         elseif id == "settings" then
             view = "settings"
         elseif id == "quit" then

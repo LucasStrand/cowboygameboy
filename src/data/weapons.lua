@@ -9,10 +9,17 @@ local Weapons = {}
 Weapons.defaults = {
     gun = Guns.default,
     melee = {
-        id      = "dagger",
-        name    = "Dagger",
+        id      = "knife",
+        name    = "Knife",
         slot    = "melee",
         tier    = 0,
+        -- Items.png: 176×112 → 11×7 tiles @ 16×16; knife = row1 col2 (0-based col 1, row 0)
+        icon    = {
+            sheet = "assets/weapons/Items.png",
+            tile  = 16,
+            col   = 1,
+            row   = 0,
+        },
         stats   = {
             meleeDamage   = 20,
             meleeRange    = 36,
@@ -25,6 +32,13 @@ Weapons.defaults = {
         name    = "Wooden Shield",
         slot    = "shield",
         tier    = 0,
+        -- Plain round wooden shield: row2 col8 → 0-based col 7, row 1
+        icon    = {
+            sheet = "assets/weapons/Items.png",
+            tile  = 16,
+            col   = 7,
+            row   = 1,
+        },
         stats   = {
             -- Fraction of incoming damage absorbed while blocking (0–1).
             blockReduction = 0.6,

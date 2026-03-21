@@ -34,7 +34,12 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
             local hitY = b.y + b.h / 2
             b.hitEnemy:takeDamage(b.damage, world)
             DamageNumbers.spawn(hitX, hitY, b.damage, "out")
-            ImpactFX.spawn(hitX, hitY, "hit_enemy")
+            -- Ult bullets get a massive explosion effect
+            local fxScale = b.ultBullet and 2.0 or nil
+            ImpactFX.spawn(hitX, hitY, "hit_enemy", fxScale)
+            if b.ultBullet then
+                ImpactFX.spawn(hitX, hitY - 8, "melee", fxScale)
+            end
             if not b.fromEnemy then
                 Sfx.play("hit_enemy")
             end
@@ -88,6 +93,9 @@ end
 
 function Combat.onEnemyKilled(enemy, player)
     local drops = {}
+
+    -- Build ultimate charge
+    player:addUltCharge()
 
     if player.stats.lifestealOnKill > 0 then
         player:heal(player.stats.lifestealOnKill)
@@ -239,6 +247,8 @@ end
 
 function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB, camera, nightMode, shakeX, shakeY)
     if not player.autoMelee or player.blocking then return end
+    -- Only when the active slot has no gun (melee stance); gun slot uses auto-fire instead
+    if player:getActiveGun() then return end
     local s = player:getEffectiveStats()
     if s.meleeDamage <= 0 then return end
     if player.meleeCooldown > 0 or player.meleeSwingTimer > 0 then return end
@@ -273,7 +283,7 @@ function Combat.checkPlayerMelee(player, enemies)
                hy < e.y + e.h and hy + hh > e.y then
                 e:takeDamage(dmg, nil)
                 DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, dmg, "out")
-                ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee")
+                ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee", nil, player.meleeAimAngle)
                 Sfx.play("melee_hit")
                 player.meleeHitEnemies[e] = true
                 player.meleeHitFlashTimer = 0.2
@@ -310,8 +320,7 @@ function Combat.checkPickups(pickups, player, world)
         if p.pickupType == "weapon" and p.gunDef then
             -- Weapon: close contact only (no attraction)
             if dist < PICKUP_COLLECT_RADIUS then
-                local slot = player.weapons[2] and player.weapons[2].gun and player.activeWeaponSlot or 2
-                player:equipWeapon(p.gunDef, slot)
+                player:equipWeapon(p.gunDef, player.activeWeaponSlot)
                 local cx = p.x + p.w / 2
                 local cy = p.y + p.h / 2
                 DamageNumbers.spawnPickup(cx, cy, p.gunDef.name, "weapon")

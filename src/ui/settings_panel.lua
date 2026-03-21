@@ -1,6 +1,5 @@
---- Tabbed settings UI (Video / Audio / Gameplay / Controls). Shared by main menu and pause menu.
+--- Tabbed settings UI (Video / Audio / Gameplay). Shared by main menu and pause menu.
 local Settings = require("src.systems.settings")
-local Keybinds = require("src.systems.keybinds")
 local TextLayout = require("src.ui.text_layout")
 
 local SettingsPanel = {}
@@ -9,7 +8,6 @@ local BASE_TABS = {
     { id = "video", label = "Video" },
     { id = "audio", label = "Audio" },
     { id = "gameplay", label = "Gameplay" },
-    { id = "controls", label = "Controls" },
 }
 
 local function buildTabList()
@@ -20,13 +18,13 @@ local function buildTabList()
     return tabs
 end
 
-local function tabBarLayout(screenW, y0, tabFont, tabDefs)
+local function tabBarLayout(screenW, y0, tabFont, tabs)
     local gap = 10
-    local n = #tabDefs
+    local n = #tabs
     local pad = 24 -- horizontal padding inside each tab (keeps label on one line)
     local widths = {}
     local total = 0
-    for _, t in ipairs(tabDefs) do
+    for _, t in ipairs(tabs) do
         local w = tabFont:getWidth(t.label) + pad
         widths[#widths + 1] = w
         total = total + w
@@ -38,13 +36,13 @@ local function tabBarLayout(screenW, y0, tabFont, tabDefs)
     if total > maxRow then
         local avail = maxRow - gap * (n - 1)
         local sumText = 0
-        for _, t in ipairs(tabDefs) do
+        for _, t in ipairs(tabs) do
             sumText = sumText + tabFont:getWidth(t.label)
         end
         local padEach = (avail - sumText) / (2 * n)
         padEach = math.max(4, padEach)
         total = 0
-        for i, t in ipairs(tabDefs) do
+        for i, t in ipairs(tabs) do
             widths[i] = tabFont:getWidth(t.label) + 2 * padEach
             total = total + widths[i]
         end
@@ -53,9 +51,9 @@ local function tabBarLayout(screenW, y0, tabFont, tabDefs)
 
     local x0 = (screenW - total) * 0.5
     local x = x0
-    local layout = {}
-    for i, t in ipairs(tabDefs) do
-        layout[i] = {
+    local tabs = {}
+    for i, t in ipairs(tabs) do
+        tabs[i] = {
             id = t.id,
             label = t.label,
             x = x,
@@ -65,7 +63,7 @@ local function tabBarLayout(screenW, y0, tabFont, tabDefs)
         }
         x = x + widths[i] + gap
     end
-    return layout
+    return tabs
 end
 
 -- Centered column so rows aren’t stretched edge-to-edge on ultrawide / large windows.
@@ -99,13 +97,16 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
     if activeTabId == "video" then
         rows[1] = { key = "fullscreen", kind = "toggle", label = "Fullscreen", rect = rowRect(screenW, contentTop, rowH) }
         rows[2] = { key = "vsync", kind = "toggle", label = "VSync", rect = rowRect(screenW, contentTop + rowH + 6, rowH) }
+        rows[3] = { key = "debug_saloon", kind = "action", label = "Debug: enter saloon", value = "Go >", rect = rowRect(screenW, contentTop + (rowH + 6) * 2, rowH) }
+        rows[4] = { key = "debug_add_gold", kind = "action", label = "Debug: add gold", value = "+10", rect = rowRect(screenW, contentTop + (rowH + 6) * 3, rowH) }
+        rows[5] = { key = "debug_sub_gold", kind = "action", label = "Debug: subtract gold", value = "-10", rect = rowRect(screenW, contentTop + (rowH + 6) * 4, rowH) }
+        rows[6] = { key = "fake_session", kind = "action", label = "Fake session", value = "Start >", rect = rowRect(screenW, contentTop + (rowH + 6) * 5, rowH) }
     elseif activeTabId == "audio" then
         local y = contentTop
         for i, spec in ipairs({
             { key = "masterVolume", label = "Master volume" },
             { key = "musicVolume", label = "Music" },
             { key = "sfxVolume", label = "Sound effects" },
-            { key = "vfxVolume", label = "Visual effects" },
         }) do
             local r = rowRect(screenW, y, rowH)
             local labelReserve = math.min(210, math.floor(r.w * 0.48))
@@ -131,49 +132,9 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
             label = "Mouse idle delay",
             rect = rowRect(screenW, contentTop + (gh + gap) * 2, gh),
         }
-        rows[4] = { key = "showCrosshair", kind = "toggle", label = "Show aim crosshair", rect = rowRect(screenW, contentTop + (gh + gap) * 3, gh) }
-        rows[5] = {
-            kind = "reset",
-            resetType = "keybinds",
-            label = "Reset keybinds to defaults",
-            rect = rowRect(screenW, contentTop + (gh + gap) * 4, gh),
-        }
-        rows[6] = {
-            kind = "reset",
-            resetType = "all",
-            label = "Reset all settings to defaults",
-            rect = rowRect(screenW, contentTop + (gh + gap) * 5, gh),
-        }
-    elseif activeTabId == "controls" then
-        local rh = 38
-        local gap = 6
-        local spec = {
-            { action = "character", label = "Character sheet" },
-            { action = "interact", label = "Interact / door" },
-            { action = "jump", label = "Jump" },
-            { action = "drop", label = "Drop through platform" },
-            { action = "dash", label = "Dash" },
-            { action = "melee", label = "Melee" },
-            { action = "block", label = "Block" },
-            { action = "ult", label = "Ult (Dead Eye)" },
-            { action = "reload", label = "Reload" },
-        }
-        for i, s in ipairs(spec) do
-            rows[i] = {
-                kind = "bind",
-                action = s.action,
-                label = s.label,
-                rect = rowRect(screenW, contentTop + (i - 1) * (rh + gap), rh),
-            }
-        end
     end
 
     local backY = screenH * 0.72
-    if activeTabId == "controls" then
-        backY = screenH * 0.88
-    elseif activeTabId == "gameplay" then
-        backY = screenH * 0.84
-    end
     local bw, bh = 280, 48
     local back = {
         x = (screenW - bw) * 0.5,
@@ -191,18 +152,6 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
         tabY = tabY,
         contentTop = contentTop,
     }
-end
-
---- While dragging a slider: map pointer X to 0..1 along that slider's track (by key).
-function SettingsPanel.sliderValueFromPointerX(screenW, screenH, activeTabId, tabFont, key, gx)
-    local L = SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
-    for _, row in ipairs(L.rows) do
-        if row.kind == "slider" and row.key == key and row.track then
-            local tr = row.track
-            local u = (gx - tr.x) / tr.w
-            return math.max(0, math.min(1, u))
-        end
-    end
 end
 
 function SettingsPanel.hitTest(screenW, screenH, activeTabId, gx, gy, tabFont)
@@ -235,7 +184,6 @@ local function toggleLabel(key)
     if key == "fullscreen" then return d.fullscreen and "On" or "Off" end
     if key == "vsync" then return d.vsync == 1 and "On" or "Off" end
     if key == "defaultAutoGun" then return d.defaultAutoGun and "On" or "Off" end
-    if key == "showCrosshair" then return d.showCrosshair and "On" or "Off" end
     return "?"
 end
 
@@ -250,9 +198,8 @@ local function drawRowLabelValue(font, row, valueText)
     love.graphics.printf(valueText, r.x + split, y, r.w - split - 12, "right")
 end
 
-function SettingsPanel.draw(screenW, screenH, activeTabId, fonts, hover, bindCaptureAction)
+function SettingsPanel.draw(screenW, screenH, activeTabId, fonts, hover)
     -- fonts: { title, tab, row, hint }
-    -- bindCaptureAction: optional string (e.g. "reload") while waiting for a key
     local L = SettingsPanel.build(screenW, screenH, activeTabId, fonts.tab)
     local d = Settings.data
 
@@ -285,28 +232,21 @@ function SettingsPanel.draw(screenW, screenH, activeTabId, fonts, hover, bindCap
             (hover.kind == "row" and hover.index == i)
             or (hover.kind == "slider" and hover.index == i)
         )
-        local capRow = bindCaptureAction and row.kind == "bind" and row.action == bindCaptureAction
-        if hovRow or capRow then
-            love.graphics.setColor(capRow and 0.22 or 0.18, capRow and 0.16 or 0.12, 0.08, capRow and 0.5 or 0.35)
+        if hovRow then
+            love.graphics.setColor(0.18, 0.12, 0.08, 0.35)
             love.graphics.rectangle("fill", row.rect.x, row.rect.y, row.rect.w, row.rect.h, 4, 4)
         end
 
         if row.kind == "toggle" then
             drawRowLabelValue(fonts.row, row, toggleLabel(row.key))
-        elseif row.kind == "reset" then
-            drawRowLabelValue(fonts.row, row, "Reset  >")
         elseif row.kind == "cycle" then
             local vt
             if row.key == "screenShake" then vt = Settings.labelScreenShake()
             elseif row.key == "mouseAimIdle" then vt = Settings.labelMouseAimIdle()
             else vt = "?" end
             drawRowLabelValue(fonts.row, row, vt .. "  >")
-        elseif row.kind == "bind" then
-            local vt = Keybinds.formatActionKey(row.action)
-            if bindCaptureAction == row.action then
-                vt = "…"
-            end
-            drawRowLabelValue(fonts.row, row, vt)
+        elseif row.kind == "action" then
+            drawRowLabelValue(fonts.row, row, row.value or "Run >")
         elseif row.kind == "slider" then
             local v = d[row.key] or 0
             local r = row.rect
@@ -350,17 +290,7 @@ function SettingsPanel.draw(screenW, screenH, activeTabId, fonts, hover, bindCap
 
     love.graphics.setFont(fonts.hint)
     love.graphics.setColor(0.45, 0.45, 0.48)
-    if bindCaptureAction then
-        love.graphics.printf("Press a key to bind  ·  ESC to cancel", 0, screenH * 0.88, screenW, "center")
-    else
-        love.graphics.printf(
-            "Click or drag sliders  ·  [ / ] switch tabs  ·  ESC or Back",
-            0,
-            screenH * 0.88,
-            screenW,
-            "center"
-        )
-    end
+    love.graphics.printf("Click rows to change  ·  [ / ] switch tabs  ·  ESC or Back", 0, screenH * 0.88, screenW, "center")
 end
 
 function SettingsPanel.applyHit(hit, player)
@@ -379,27 +309,12 @@ function SettingsPanel.applyHit(hit, player)
     end
     if hit.kind == "row" then
         local row = hit.row
-        if row.kind == "bind" then
-            return { startBind = row.action }
-        end
-        if row.kind == "reset" then
-            if row.resetType == "keybinds" then
-                Settings.resetKeybindsOnly()
-            elseif row.resetType == "all" then
-                Settings.resetAllToDefaults()
-            end
-            Settings.save()
-            Settings.apply()
-            if player and row.resetType == "all" then
-                player.autoGun = Settings.getDefaultAutoGun()
-            end
-            return {}
-        end
-        if row.kind == "toggle" then
+        if row.kind == "action" then
+            return { action = row.key }
+        elseif row.kind == "toggle" then
             if row.key == "fullscreen" then Settings.toggleFullscreen()
             elseif row.key == "vsync" then Settings.toggleVsync()
             elseif row.key == "defaultAutoGun" then Settings.toggleDefaultAutoGun()
-            elseif row.key == "showCrosshair" then Settings.toggleShowCrosshair()
             end
         elseif row.kind == "cycle" then
             if row.key == "screenShake" then Settings.cycleScreenShake()
