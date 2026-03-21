@@ -332,6 +332,12 @@ function Blackjack.new()
     self.payoutGoldApplied = false
     self.payoutScheduledAmount = nil
     self.pendingFloorGold = nil
+    -- Streak tracking (predatory engagement)
+    self.winStreak = 0
+    self.lossStreak = 0
+    self.handsPlayed = 0
+    self.totalWon = 0
+    self.totalLost = 0
     BlackjackVisuals.load()
     return self
 end
@@ -596,6 +602,7 @@ function Blackjack:deal(wager)
             wait(FLIP_HALF_TIME * 2 + 0.1)
 
             self.state = "result"
+            self.handsPlayed = self.handsPlayed + 1
             if playerBJ and dealerBJ then
                 hand.result = "push"
                 self.result = "push"
@@ -610,14 +617,25 @@ function Blackjack:deal(wager)
                 self.payout = math.floor(hand.wager * 2.5)
                 self.anyWin = true
                 self.anyBlackjack = true
+                self.winStreak = self.winStreak + 1
+                self.lossStreak = 0
+                self.totalWon = self.totalWon + self.payout
                 CasinoFx.spawnFloat(self.screenW * 0.5, 300, "BLACKJACK!", {1, 0.85, 0.2}, {scale = 1.4, life = 2.0})
                 sfxRandom("chips_collide", 4)
+                if self.winStreak >= 3 then
+                    CasinoFx.spawnFloat(self.screenW * 0.5, 260, "HOT STREAK!", {1, 0.7, 0.1}, {scale = 1.1, life = 1.8, vy = -15})
+                end
             else
                 hand.result = "lose"
                 self.result = "lose"
                 self.resultMessage = "Dealer blackjack."
+                self.lossStreak = self.lossStreak + 1
+                self.winStreak = 0
                 CasinoFx.spawnFloat(self.screenW * 0.5, 340, "DEALER BLACKJACK", {1, 0.3, 0.3})
                 CasinoFx.startShake(4, 0.2)
+                if self.lossStreak >= 2 then
+                    CasinoFx.spawnFloat(self.screenW * 0.5, 370, "Next hand's yours!", {0.9, 0.8, 0.5}, {life = 1.5, vy = -10})
+                end
             end
         end
 
@@ -676,11 +694,11 @@ function Blackjack:finishDealer()
             wait(FLIP_HALF_TIME * 2 + 0.15)
         end
 
-        -- Dealer draws
+        -- Dealer draws (hits on soft 17 — standard casino rules)
         if anyLive then
             while true do
                 local dv, soft = handValue(self.dealerHand)
-                if dv < 17 then
+                if dv < 17 or (dv == 17 and soft) then
                     wait(DEALER_THINK_TIME)
                     BlackjackVisuals.setDealerAnim("dealing")
                     local raw = self:drawCard()
@@ -738,21 +756,51 @@ function Blackjack:finishDealer()
         self.anyWin = anyWin
         self.anyBlackjack = anyBlackjack
         self.state = "result"
+        self.handsPlayed = self.handsPlayed + 1
 
         if anyWin then
             self.result = "win"
+            self.winStreak = self.winStreak + 1
+            self.lossStreak = 0
+            self.totalWon = self.totalWon + payout
             self.resultMessage = "Payout: $" .. payout
             CasinoFx.spawnFloat(self.screenW * 0.5, 300, "+$" .. payout, {0.2, 1, 0.2}, {life = 1.5})
             sfxRandom("chips_collide", 4)
+            -- Predatory streak messages
+            if self.winStreak >= 5 then
+                CasinoFx.spawnFloat(self.screenW * 0.5, 260, "UNSTOPPABLE!", {1, 0.85, 0.2}, {scale = 1.3, life = 2.0, vy = -15})
+            elseif self.winStreak >= 3 then
+                CasinoFx.spawnFloat(self.screenW * 0.5, 260, "HOT STREAK!", {1, 0.7, 0.1}, {scale = 1.1, life = 1.8, vy = -15})
+            elseif self.winStreak == 2 then
+                CasinoFx.spawnFloat(self.screenW * 0.5, 260, "On a roll!", {1, 0.9, 0.4}, {life = 1.2, vy = -15})
+            end
         elseif payout > 0 then
             self.result = "push"
             self.resultMessage = "Push. Payout: $" .. payout
             CasinoFx.spawnFloat(self.screenW * 0.5, 340, "PUSH", {1, 0.9, 0.4})
         else
             self.result = "lose"
-            self.resultMessage = "No wins."
+            self.lossStreak = self.lossStreak + 1
+            self.winStreak = 0
+            self.totalLost = self.totalLost + (self.hands[1] and self.hands[1].wager or 0)
             CasinoFx.startShake(3, 0.2)
             CasinoFx.spawnFloat(self.screenW * 0.5, 340, "LOSE", {1, 0.3, 0.3})
+            -- Predatory loss-chasing messages
+            local lossMessages = {
+                "Almost had it!",
+                "So close...",
+                "Next hand's yours!",
+                "The cards are warming up...",
+                "One more try!",
+                "You're due for a win!",
+            }
+            if self.lossStreak >= 2 then
+                local msg = lossMessages[math.random(#lossMessages)]
+                self.resultMessage = msg
+                CasinoFx.spawnFloat(self.screenW * 0.5, 370, msg, {0.9, 0.8, 0.5}, {life = 1.5, vy = -10})
+            else
+                self.resultMessage = "Better luck next hand."
+            end
         end
 
         if payout > 0 then
@@ -1021,22 +1069,29 @@ function Blackjack:drawButtons(screenW, screenH, baseY, fonts, labels, wagerCont
         BlackjackVisuals.drawButton(r, hov, disabled, r.label, fonts.card or fonts.body)
     end
 
-    if self.state == "result" and self.resultMessage and self.resultMessage ~= "" then
-        local resultColor = {1, 1, 1}
-        if self.result == "win" or self.result == "blackjack" then
-            resultColor = {0.2, 1, 0.2}
-        elseif self.result == "push" then
-            resultColor = {1, 0.9, 0.4}
-        elseif self.result == "lose" or self.result == "bust" then
-            resultColor = {1, 0.3, 0.3}
+    if self.state == "result" then
+        if self.resultMessage and self.resultMessage ~= "" then
+            local resultColor = {1, 1, 1}
+            if self.result == "win" or self.result == "blackjack" then
+                resultColor = {0.2, 1, 0.2}
+            elseif self.result == "push" then
+                resultColor = {1, 0.9, 0.4}
+            elseif self.result == "lose" or self.result == "bust" then
+                resultColor = {1, 0.3, 0.3}
+            end
+            love.graphics.setColor(resultColor[1], resultColor[2], resultColor[3])
+            love.graphics.setFont(fonts.body)
+            local lastRect = rects[#rects]
+            local msgX = lastRect.x + lastRect.w + 24
+            local msgY = lastRect.y + 14
+            local msgW = math.max(0, screenW - msgX - 16)
+            love.graphics.printf(self.resultMessage, msgX, msgY, msgW, "left")
         end
-        love.graphics.setColor(resultColor[1], resultColor[2], resultColor[3])
-        love.graphics.setFont(fonts.body)
-        local lastRect = rects[#rects]
-        local msgX = lastRect.x + lastRect.w + 24
-        local msgY = lastRect.y + 14
-        local msgW = math.max(0, screenW - msgX - 16)
-        love.graphics.printf(self.resultMessage, msgX, msgY, msgW, "left")
+        -- Pulsing "deal again" encouragement
+        local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 3)
+        love.graphics.setColor(1, 0.85, 0.2, pulse * 0.7)
+        love.graphics.setFont(fonts.card or fonts.body)
+        love.graphics.printf("Press D to deal again!", 0, screenH * 0.96, screenW, "center")
     end
 end
 
@@ -1074,6 +1129,25 @@ function Blackjack:draw(screenW, screenH, fonts)
         love.graphics.printf("A/D or -/+ to change bet  |  ENTER to deal  |  ESC to leave", 1, y + 1, screenW, "center")
         love.graphics.setColor(0.9, 0.8, 0.6)
         love.graphics.printf("A/D or -/+ to change bet  |  ENTER to deal  |  ESC to leave", 0, y, screenW, "center")
+
+        -- Streak / session stats (predatory engagement)
+        if self.handsPlayed > 0 then
+            local statsY = y + 28
+            love.graphics.setFont(fonts.card or fonts.body)
+            if self.winStreak >= 2 then
+                local streakColor = self.winStreak >= 5 and {1, 0.7, 0.1} or (self.winStreak >= 3 and {1, 0.85, 0.2} or {0.9, 0.9, 0.5})
+                local streakText = "Win Streak: " .. self.winStreak .. "x"
+                love.graphics.setColor(0, 0, 0, 0.5)
+                love.graphics.printf(streakText, 1, statsY + 1, screenW, "center")
+                love.graphics.setColor(streakColor[1], streakColor[2], streakColor[3])
+                love.graphics.printf(streakText, 0, statsY, screenW, "center")
+            elseif self.lossStreak >= 2 then
+                love.graphics.setColor(0, 0, 0, 0.5)
+                love.graphics.printf("The cards are about to turn...", 1, statsY + 1, screenW, "center")
+                love.graphics.setColor(0.85, 0.75, 0.5)
+                love.graphics.printf("The cards are about to turn...", 0, statsY, screenW, "center")
+            end
+        end
 
         self:drawButtons(screenW, screenH, y + 12, fonts, self:getButtonLabels(), {
             wager = self.wager,

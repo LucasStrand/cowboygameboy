@@ -5,6 +5,7 @@ local bump = require("lib.bump")
 local Font = require("src.ui.font")
 local Blackjack = require("src.systems.blackjack")
 local Roulette = require("src.systems.roulette")
+local Slots = require("src.systems.slots")
 local Shop = require("src.systems.shop")
 local PerkCard = require("src.ui.perk_card")
 local Cursor = require("src.ui.cursor")
@@ -33,6 +34,7 @@ local DOOR_FRAME_SIZE = 48
 -- Bar decoration sprites (loaded once)
 local decor = {}
 local rouletteTableQuad = nil
+local slotMachineQuad = nil
 
 -- Per-visit state
 local player = nil
@@ -45,9 +47,11 @@ local walls = {}
 local exitDoor = nil
 local difficulty = 1
 
-local mode = "walking"  -- walking | blackjack | roulette | casino_menu | shop | perk_selection
+local mode = "walking"  -- walking | blackjack | roulette | slots | casino_menu | shop | perk_selection
 local blackjackGame = nil
 local rouletteGame = nil
+local slotsGame = nil
+local casinoMenuRects = {}
 local shop = nil
 local message = ""
 local messageTimer = 0
@@ -216,6 +220,11 @@ local function tryFlushCasinoGoldToFloor()
     if rouletteGame and rouletteGame.pendingFloorGold and rouletteGame.pendingFloorGold > 0 then
         local a = rouletteGame.pendingFloorGold
         rouletteGame.pendingFloorGold = nil
+        spawnSaloonGoldDrops(a)
+    end
+    if slotsGame and slotsGame.pendingFloorGold and slotsGame.pendingFloorGold > 0 then
+        local a = slotsGame.pendingFloorGold
+        slotsGame.pendingFloorGold = nil
         spawnSaloonGoldDrops(a)
     end
 end
@@ -415,6 +424,11 @@ local function loadDecorations()
     loadDecorSprite("fridge", "assets/Bar_by_Styl0o/individuals sprite/fridge.png")
 
     -- Casino tileset (roulette table)
+    loadDecorSprite("slot_machine", "assets/slot.png")
+    if decor.slot_machine and not slotMachineQuad then
+        local sw, sh = decor.slot_machine:getDimensions()
+        slotMachineQuad = love.graphics.newQuad(86, 27, 86, 229, sw, sh)
+    end
     loadDecorSprite("casino_sheet", "assets/Bar_by_Styl0o/2D Top Down Pixel Art Tileset Casino/2D Top Down Pixel Art Tileset Casino/2D_TopDown_Tileset_Casino_640x512.png")
     if decor.casino_sheet and not rouletteTableQuad then
         local sw, sh = decor.casino_sheet:getDimensions()
@@ -455,6 +469,15 @@ local function findNearbyNPC()
         end
     end
     return nil
+end
+
+local function nearSlotMachine()
+    local sm = saloonRoom.slotMachine
+    if not sm or not player then return false end
+    local px = player.x + player.w / 2
+    local py = player.y + player.h / 2
+    local dx, dy = px - sm.cx, py - sm.cy
+    return dx * dx + dy * dy <= sm.r * sm.r
 end
 
 ---------------------------------------------------------------------------
@@ -585,6 +608,7 @@ function saloon:enter(_, _player, _roomManager)
     -- Game systems
     blackjackGame = Blackjack.new()
     rouletteGame = Roulette.new()
+    slotsGame = Slots.new()
     shop = Shop.new(difficulty)
     pickups = {}
     DamageNumbers.clear()
@@ -683,6 +707,8 @@ function saloon:update(dt)
         blackjackGame:update(dt, player)
     elseif mode == "roulette" then
         rouletteGame:update(dt, player)
+    elseif mode == "slots" then
+        slotsGame:update(dt, player)
     end
 end
 
@@ -784,6 +810,10 @@ function saloon:keypressed(key)
 
     if mode == "walking" then
         if Keybinds.matches("interact", key) then
+            if nearSlotMachine() and slotsGame then
+                applyOutcome(slotsGame:enterTable(player.gold, "walking"))
+                return
+            end
             if nearbyNPC then
                 if nearbyNPC.type == "dealer" then
                     mode = "casino_menu"
@@ -817,6 +847,8 @@ function saloon:keypressed(key)
             applyOutcome(blackjackGame:enterTable(player.gold))
         elseif key == "2" then
             applyOutcome(rouletteGame:enterTable(player.gold))
+        elseif key == "3" then
+            applyOutcome(slotsGame:enterTable(player.gold, "casino_menu"))
         elseif key == "escape" or key == "backspace" then
             mode = "walking"
         end
@@ -838,6 +870,9 @@ function saloon:keypressed(key)
             end
         end
         applyOutcome(rouletteGame:handleKey(key, player))
+
+    elseif mode == "slots" then
+        applyOutcome(slotsGame:handleKey(key, player))
 
     elseif mode == "shop" then
         local num = tonumber(key)
@@ -977,12 +1012,31 @@ function saloon:mousepressed(x, y, button)
         perkOptions = nil
         return
     end
-    if mode == "blackjack" then
+    if mode == "casino_menu" and button == 1 then
+        local mx, my = gx, gy
+        for _, r in ipairs(casinoMenuRects) do
+            if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+                if r.id == "blackjack" then
+                    applyOutcome(blackjackGame:enterTable(player.gold))
+                elseif r.id == "roulette" then
+                    applyOutcome(rouletteGame:enterTable(player.gold))
+                elseif r.id == "slots" then
+                    applyOutcome(slotsGame:enterTable(player.gold, "casino_menu"))
+                elseif r.id == "back" then
+                    mode = "walking"
+                end
+                return
+            end
+        end
+    elseif mode == "blackjack" then
         local mx, my = gx, gy
         applyOutcome(blackjackGame:handleMousePressed(mx, my, button, GAME_WIDTH, GAME_HEIGHT, player))
     elseif mode == "roulette" then
         local mx, my = gx, gy
         applyOutcome(rouletteGame:handleMousePressed(mx, my, button, GAME_WIDTH, GAME_HEIGHT, player, fonts))
+    elseif mode == "slots" then
+        local mx, my = gx, gy
+        applyOutcome(slotsGame:handleMousePressed(mx, my, button, GAME_WIDTH, GAME_HEIGHT, player))
     end
 end
 
@@ -1088,6 +1142,18 @@ function saloon:draw()
     -- === LAYER 4: NPCs (behind furniture — they stand behind counter/table) ===
     for _, npc in ipairs(npcs) do
         npc:draw()
+    end
+
+    -- === LAYER 5a: Slot machine (left of dealer)
+    if decor.slot_machine and slotMachineQuad then
+        local smScale = 0.195
+        local iw, ih = 86, 229
+        local drawW = iw * smScale
+        local drawH = ih * smScale
+        local drawX = 4
+        local drawY = floorY - drawH
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.draw(decor.slot_machine, slotMachineQuad, drawX, drawY, 0, smScale, smScale)
     end
 
     -- === LAYER 5a: Roulette table in front of dealer ===
@@ -1208,6 +1274,17 @@ function saloon:draw()
         npc:drawPrompt()
     end
 
+    if mode == "walking" and player and nearSlotMachine() then
+        love.graphics.setFont(fonts.default)
+        local label = "[E] Slots"
+        local sm = saloonRoom.slotMachine
+        local tw = fonts.default:getWidth(label)
+        love.graphics.setColor(0, 0, 0, 0.7)
+        love.graphics.print(label, math.floor(sm.cx - tw / 2) + 1, math.floor(sm.cy - 42) + 1)
+        love.graphics.setColor(1, 0.9, 0.5)
+        love.graphics.print(label, math.floor(sm.cx - tw / 2), math.floor(sm.cy - 42))
+    end
+
     if DEBUG and devShowHitboxes and world then
         love.graphics.setColor(0, 1, 0, 0.3)
         local items, len = world:getItems()
@@ -1233,6 +1310,8 @@ function saloon:draw()
             blackjackGame:draw(screenW, screenH, fonts)
         elseif mode == "roulette" then
             rouletteGame:draw(screenW, screenH, fonts, player)
+        elseif mode == "slots" then
+            slotsGame:draw(screenW, screenH, fonts)
         elseif mode == "shop" then
             drawShop(screenW, screenH)
         elseif mode == "perk_selection" then
@@ -1404,20 +1483,107 @@ function drawSaloonHUD(screenW, screenH)
     love.graphics.printf("SALOON", 0, 6, screenW - 10, "right")
 end
 
+local function getCasinoMenuLayout(screenW, screenH)
+    local btnW = math.min(280, screenW * 0.35)
+    local btnH = 60
+    local gap = 16
+    local cx = screenW * 0.5
+    local titleY = screenH * 0.18
+    local startY = titleY + 72
+    local rects = {}
+    rects[1] = { id = "blackjack", x = cx - btnW * 0.5, y = startY, w = btnW, h = btnH,
+                 label = "BLACKJACK", sublabel = "Beat the dealer to 21" }
+    rects[2] = { id = "roulette", x = cx - btnW * 0.5, y = startY + btnH + gap, w = btnW, h = btnH,
+                 label = "ROULETTE", sublabel = "Spin the wheel, test your luck" }
+    rects[3] = { id = "slots", x = cx - btnW * 0.5, y = startY + (btnH + gap) * 2, w = btnW, h = btnH,
+                 label = "SLOTS", sublabel = "Three reels, match them all" }
+    local backW = math.min(160, btnW * 0.6)
+    local backH = 44
+    rects[4] = { id = "back", x = cx - backW * 0.5, y = startY + (btnH + gap) * 3 + 10, w = backW, h = backH,
+                 label = "BACK", sublabel = nil }
+    casinoMenuRects = rects
+    return rects, titleY
+end
+
 function drawCasinoMenu(screenW, screenH)
-    local y = screenH * 0.30
-    love.graphics.setColor(1, 0.85, 0.2)
+    local rects, titleY = getCasinoMenuLayout(screenW, screenH)
+    local mx, my = 0, 0
+    if windowToGame then
+        mx, my = windowToGame(love.mouse.getPosition())
+    end
+
+    -- Title with glow
     love.graphics.setFont(fonts.shopTitle or fonts.title)
-    love.graphics.printf("CASINO", 0, y, screenW, "center")
-    y = y + 50
-    love.graphics.setFont(fonts.body)
-    love.graphics.setColor(0.9, 0.8, 0.6)
-    love.graphics.printf("[1] Blackjack", 0, y, screenW, "center")
-    y = y + 40
-    love.graphics.printf("[2] Roulette", 0, y, screenW, "center")
-    y = y + 60
-    love.graphics.setColor(0.7, 0.7, 0.7)
-    love.graphics.printf("[ESC] Back", 0, y, screenW, "center")
+    love.graphics.setColor(1, 0.75, 0.1, 0.15)
+    love.graphics.printf("CASINO", -2, titleY - 2, screenW + 4, "center")
+    love.graphics.setColor(0, 0, 0, 0.6)
+    love.graphics.printf("CASINO", 2, titleY + 2, screenW, "center")
+    love.graphics.setColor(1, 0.85, 0.2)
+    love.graphics.printf("CASINO", 0, titleY, screenW, "center")
+
+    -- Subtitle
+    love.graphics.setFont(fonts.body or fonts.default)
+    love.graphics.setColor(0.8, 0.7, 0.5, 0.8)
+    love.graphics.printf("Feeling lucky, partner?", 0, titleY + 42, screenW, "center")
+
+    -- Buttons
+    local btnFont = fonts.body or fonts.default
+    local subFont = fonts.default or fonts.body
+
+    for _, r in ipairs(rects) do
+        local hov = mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h
+
+        -- Button background
+        if r.id == "back" then
+            love.graphics.setColor(0.15, 0.1, 0.08, hov and 0.85 or 0.6)
+        else
+            love.graphics.setColor(0.22, 0.14, 0.08, hov and 0.95 or 0.75)
+        end
+        love.graphics.rectangle("fill", r.x, r.y, r.w, r.h, 8, 8)
+
+        -- Border
+        local borderAlpha = hov and 1 or 0.5
+        if r.id == "back" then
+            love.graphics.setColor(0.6, 0.5, 0.35, borderAlpha)
+        else
+            love.graphics.setColor(0.85, 0.65, 0.2, borderAlpha)
+        end
+        love.graphics.setLineWidth(hov and 2.5 or 1.5)
+        love.graphics.rectangle("line", r.x, r.y, r.w, r.h, 8, 8)
+        love.graphics.setLineWidth(1)
+
+        -- Shine on hover
+        if hov and r.id ~= "back" then
+            love.graphics.setColor(1, 0.85, 0.2, 0.08)
+            love.graphics.rectangle("fill", r.x + 2, r.y + 2, r.w - 4, r.h * 0.4, 6, 6)
+        end
+
+        -- Label
+        love.graphics.setFont(btnFont)
+        if r.sublabel then
+            local labelY = r.y + r.h * 0.22
+            love.graphics.setColor(0, 0, 0, 0.7)
+            love.graphics.printf(r.label, r.x + 2, labelY + 1, r.w, "center")
+            love.graphics.setColor(1, 0.95, 0.75, hov and 1 or 0.85)
+            love.graphics.printf(r.label, r.x, labelY, r.w, "center")
+            -- Sub-label
+            love.graphics.setFont(subFont)
+            love.graphics.setColor(0.7, 0.65, 0.5, hov and 0.9 or 0.6)
+            love.graphics.printf(r.sublabel, r.x, labelY + btnFont:getHeight() + 2, r.w, "center")
+        else
+            local labelY = r.y + (r.h - btnFont:getHeight()) * 0.5
+            love.graphics.setColor(0, 0, 0, 0.7)
+            love.graphics.printf(r.label, r.x + 1, labelY + 1, r.w, "center")
+            love.graphics.setColor(0.8, 0.75, 0.6, hov and 1 or 0.7)
+            love.graphics.printf(r.label, r.x, labelY, r.w, "center")
+        end
+    end
+
+    -- Key hints
+    love.graphics.setFont(subFont)
+    love.graphics.setColor(0.5, 0.45, 0.35, 0.7)
+    local hintY = rects[#rects].y + rects[#rects].h + 20
+    love.graphics.printf("[1] Blackjack   [2] Roulette   [3] Slots   [ESC] Back", 0, hintY, screenW, "center")
 end
 
 function drawShop(screenW, screenH)

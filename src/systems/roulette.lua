@@ -251,6 +251,14 @@ function Roulette.new()
     self.showResult = false
     self.winningBets = {}
 
+    -- Streak tracking (predatory engagement)
+    self.winStreak = 0
+    self.lossStreak = 0
+    self.spinsPlayed = 0
+    self.totalWon = 0
+    self.totalLost = 0
+    self.nearMissMessage = nil
+
     -- Hover state (updated each frame in draw)
     self.hoverBet = nil -- { key, nums, chipX, chipY }
 
@@ -927,15 +935,73 @@ function Roulette:update(dt, player)
             end
         end
 
+        self.spinsPlayed = self.spinsPlayed + 1
+        self.nearMissMessage = nil
+
         if payout > 0 then
             local net = payout - (self.reserved or 0)
+            self.winStreak = self.winStreak + 1
+            self.lossStreak = 0
+            self.totalWon = self.totalWon + net
             self.resultMessage = string.format("Landed on %d (%s). Won $%d!", num, color:upper(), net)
             CasinoFx.spawnFloat(self.vpW * 0.5, 260, "+$" .. net, {0.2, 1, 0.2}, {scale = 1.2, life = 2.0})
             sfxRandom("chips_collide", 4)
+            -- Predatory streak messages
+            if self.winStreak >= 5 then
+                CasinoFx.spawnFloat(self.vpW * 0.5, 230, "UNSTOPPABLE!", {1, 0.85, 0.2}, {scale = 1.3, life = 2.0, vy = -12})
+            elseif self.winStreak >= 3 then
+                CasinoFx.spawnFloat(self.vpW * 0.5, 230, "HOT TABLE!", {1, 0.7, 0.1}, {scale = 1.1, life = 1.8, vy = -12})
+            elseif self.winStreak == 2 then
+                CasinoFx.spawnFloat(self.vpW * 0.5, 230, "Luck is on your side!", {1, 0.9, 0.4}, {life = 1.4, vy = -12})
+            end
         else
-            self.resultMessage = string.format("Landed on %d (%s). Lost $%d.", num, color:upper(), (self.reserved or 0))
+            self.lossStreak = self.lossStreak + 1
+            self.winStreak = 0
+            self.totalLost = self.totalLost + (self.reserved or 0)
             CasinoFx.startShake(3, 0.2)
             CasinoFx.spawnFloat(self.vpW * 0.5, 280, "-$" .. (self.reserved or 0), {1, 0.3, 0.3}, {life = 1.5})
+
+            -- Near-miss detection: check if any straight-up bet was 1-2 positions away
+            local nearMiss = false
+            local landedIdx = self.numToSegIdx[num] or 1
+            for betKey, _ in pairs(placed) do
+                if betKey:sub(1,2) == "i:" then
+                    local betNums = {}
+                    for s in betKey:sub(3):gmatch("[^,]+") do betNums[#betNums+1] = tonumber(s) end
+                    if #betNums <= 2 then
+                        for _, bn in ipairs(betNums) do
+                            local betIdx = self.numToSegIdx[bn]
+                            if betIdx then
+                                local diff = math.abs(betIdx - landedIdx)
+                                if diff > self.numSegments / 2 then diff = self.numSegments - diff end
+                                if diff <= 2 and diff > 0 then
+                                    nearMiss = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if nearMiss then break end
+                end
+            end
+
+            if nearMiss then
+                self.nearMissMessage = "SO CLOSE!"
+                CasinoFx.spawnFloat(self.vpW * 0.5, 310, "SO CLOSE!", {1, 0.8, 0.2}, {scale = 1.1, life = 1.8, vy = -8})
+            end
+
+            -- Predatory loss-chasing messages
+            local lossMessages = {
+                "Landed on %d (%s). Try again!",
+                "Landed on %d (%s). Next spin's yours!",
+                "Landed on %d (%s). So close...",
+                "Landed on %d (%s). The wheel is warming up!",
+            }
+            if self.lossStreak >= 2 then
+                self.resultMessage = string.format(lossMessages[math.random(#lossMessages)], num, color:upper())
+            else
+                self.resultMessage = string.format("Landed on %d (%s). Lost $%d.", num, color:upper(), (self.reserved or 0))
+            end
         end
 
         self.reserved = 0
@@ -988,6 +1054,14 @@ function Roulette:handleKey(key, player)
             self.ball.visible = false
             self.winningBets = {}
             return self:buildResult(nil, msg, 3)
+        elseif key == "escape" or key == "backspace" then
+            self:flushPendingPayout(player)
+            self.state = "betting"
+            self.resultNumber = nil
+            self.showResult = false
+            self.ball.visible = false
+            self.winningBets = {}
+            return self:buildResult("casino_menu")
         end
     end
     return nil
@@ -1069,8 +1143,17 @@ function Roulette:handleMousePressed(mx, my, button, screenW, screenH, player, f
             return self:buildResult("casino_menu")
         end
     elseif self.state == "result" then
-        if isInside(mx, my, spinRect) or isInside(mx, my, repeatRect)
-            or isInside(mx, my, returnRect) or isInside(mx, my, backRect) then
+        if isInside(mx, my, backRect) then
+            -- BACK exits directly from result
+            self:flushPendingPayout(player)
+            self.state = "betting"
+            self.resultNumber = nil
+            self.showResult = false
+            self.ball.visible = false
+            self.winningBets = {}
+            return self:buildResult("casino_menu")
+        elseif isInside(mx, my, spinRect) or isInside(mx, my, repeatRect)
+            or isInside(mx, my, returnRect) then
             self:flushPendingPayout(player)
             local msg = self.resultMessage or ""
             self.state = "betting"
@@ -1679,6 +1762,33 @@ function Roulette:draw(screenW, screenH, fonts, player)
         self:drawChipSelector(screenW, screenH, mx, my, chipRowY, chipSize, chipGap, fonts)
     end
 
+    -- Streak / session stats (predatory engagement)
+    if self.spinsPlayed > 0 and self.state == "betting" then
+        local streakFont = (fonts and fonts.default) or love.graphics.getFont()
+        love.graphics.setFont(streakFont)
+        local streakY = wheelCy + wheelRadius + 16
+        if self.winStreak >= 2 then
+            local streakColor = self.winStreak >= 5 and {1, 0.7, 0.1} or (self.winStreak >= 3 and {1, 0.85, 0.2} or {0.9, 0.9, 0.5})
+            local streakText = "Win Streak: " .. self.winStreak .. "x"
+            love.graphics.setColor(0, 0, 0, 0.5)
+            love.graphics.printf(streakText, wheelCx - 100 + 1, streakY + 1, 200, "center")
+            love.graphics.setColor(streakColor[1], streakColor[2], streakColor[3])
+            love.graphics.printf(streakText, wheelCx - 100, streakY, 200, "center")
+        elseif self.lossStreak >= 2 then
+            local tauntMessages = {
+                "The wheel is due...",
+                "Feeling lucky?",
+                "One more spin...",
+                "Your number's coming!",
+            }
+            local taunt = tauntMessages[((self.spinsPlayed - 1) % #tauntMessages) + 1]
+            love.graphics.setColor(0, 0, 0, 0.5)
+            love.graphics.printf(taunt, wheelCx - 100 + 1, streakY + 1, 200, "center")
+            love.graphics.setColor(0.85, 0.75, 0.5)
+            love.graphics.printf(taunt, wheelCx - 100, streakY, 200, "center")
+        end
+    end
+
     -- Key hints
     love.graphics.setColor(0.5, 0.48, 0.38)
     love.graphics.printf("[ENTER] Spin   [B] Repeat / Double   [R] Clear   [TAB] Chip   [ESC] Back",
@@ -1733,8 +1843,13 @@ function Roulette:draw(screenW, screenH, fonts, player)
         love.graphics.setFont((fonts and fonts.body) or love.graphics.getFont())
         love.graphics.setColor(1, 0.92, 0.7)
         love.graphics.printf(self.resultMessage or "", 0, screenH * 0.62, screenW, "center")
-        love.graphics.setColor(0.75, 0.75, 0.6)
-        love.graphics.printf("[ENTER] Continue", 0, screenH * 0.67, screenW, "center")
+
+        -- More enticing continue prompt
+        local pulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
+        love.graphics.setColor(1, 0.85, 0.2, pulse)
+        love.graphics.printf("Click anywhere or press ENTER to spin again!", 0, screenH * 0.67, screenW, "center")
+        love.graphics.setColor(0.55, 0.5, 0.4, 0.6)
+        love.graphics.printf("[ESC] to leave", 0, screenH * 0.72, screenW, "center")
     end
 
     love.graphics.pop()

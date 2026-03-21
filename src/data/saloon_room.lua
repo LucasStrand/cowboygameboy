@@ -48,4 +48,7 @@ return {
 
     -- Exit door on the right side
     exitDoor = { x = 296, y = 120, w = 24, h = 48 },
+
+    -- Slot machine (world prop + interact — center matches draw in saloon.lua ~scale 0.195)
+    slotMachine = { cx = 12, cy = 146, r = 40 },
 }

@@ -76,7 +76,15 @@
       "Bash(cd:*)",
       "Bash(python3 -c \"from PIL import Image; print\\(''Pillow available''\\)\")",
       "Bash(pip install:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Read(//c/github/cowboygameboy/BEGIN{d=0} /bfunction/b/{d++} /^/s*end/s*$/{d--} END{print \"\"\"\"function/**)",
+      "Bash(luac -p src/systems/blackjack.lua)",
+      "Bash(luac -p src/states/saloon.lua)",
+      "Bash(where.exe love:*)",
+      "Bash(love . --test)",
+      "Bash(timeout 5 cat C:\\\\Users\\\\lucstr01\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--github-cowboygameboy\\\\44b01009-9bb7-4297-bb13-8404b5c279fb\\\\tasks\\\\biij8rqjw.output)",
+      "Bash(timeout 4 love .)",
+      "Bash(echo \"Exit: $?\")"
     ]
   }
 }
