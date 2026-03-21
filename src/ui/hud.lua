@@ -744,11 +744,25 @@ function HUD.draw(player)
         end
     end
 
-    -- ── Active buff/debuff icons (below HP bar, left side) ──
+    -- ── Active buff/debuff icons (just above HP label, aligned with bar column) ──
     if player.buffs then
         local Buffs = require("src.systems.buffs")
-        local buffY = 36
-        Buffs.drawIcons(player.buffs, 8, buffY, 2)
+        local lineH = HUD._lineH
+        local rowGap = 4
+        local bottomPad = 24
+        local iconGap = 6
+        local totalW = ICON_SZ + iconGap + BAR_W
+        local barX = math.floor((screenW - totalW) / 2) + ICON_SZ + iconGap
+        local iconX = barX - iconGap - ICON_SZ
+        local xpBarY = screenH - bottomPad - BAR_H
+        local xpTextY = xpBarY - lineH + 2
+        local hpBarY = xpTextY - rowGap - BAR_H
+        local hpTextY = hpBarY - lineH + 2
+        local buffScale = 2
+        local buffRowH = 16 * buffScale + 3
+        local buffY = hpTextY - 8 - buffRowH
+        local buffX = math.max(6, iconX - 2)
+        Buffs.drawIcons(player.buffs, buffX, buffY, buffScale)
     end
 
     love.graphics.setFont(prevFont)

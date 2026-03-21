@@ -21,6 +21,8 @@ local Settings = require("src.systems.settings")
 local SettingsPanel = require("src.ui.settings_panel")
 local Progression = require("src.systems.progression")
 local Sfx = require("src.systems.sfx")
+local Buffs = require("src.systems.buffs")
+local HUD = require("src.ui.hud")
 
 local saloonRoom = require("src.data.saloon_room")
 
@@ -537,7 +539,6 @@ function saloon:enter(_, _player, _roomManager)
     fonts.card = Font.new(20)
     fonts.shopTitle = Font.new(24)
     fonts.default = Font.new(12)
-    fonts.hud = Font.new(14)
     Cursor.setDefault()
 
     -- Create bump world
@@ -684,6 +685,10 @@ function saloon:update(dt)
 
     if messageTimer > 0 then
         messageTimer = messageTimer - dt
+    end
+
+    if player and player.buffs then
+        Buffs.update(player.buffs, dt, player)
     end
 
     if mode == "walking" then
@@ -1444,8 +1449,13 @@ function saloon:draw()
         end
     end
 
-    -- HUD bar
-    drawSaloonHUD(screenW, screenH)
+    -- HUD — same pipeline as game state (saloon is another map)
+    HUD.draw(player)
+    DevLog.drawOverlay(screenW, screenH)
+    if roomManager then
+        HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
+    end
+    HUD.drawDeadEye(player)
 
     -- Message toast
     if messageTimer > 0 then
@@ -1455,8 +1465,6 @@ function saloon:draw()
         love.graphics.setColor(1, 1, 0.5)
         love.graphics.printf(message, 0, screenH - 50, screenW, "center")
     end
-
-    DevLog.drawOverlay(screenW, screenH)
 
     if characterSheetOpen and not paused then
         love.graphics.setColor(0, 0, 0, 0.35)
@@ -1594,20 +1602,6 @@ end
 ---------------------------------------------------------------------------
 -- Sub-draw functions
 ---------------------------------------------------------------------------
-function drawSaloonHUD(screenW, screenH)
-    love.graphics.setFont(fonts.hud)
-    love.graphics.setColor(0, 0, 0, 0.5)
-    love.graphics.rectangle("fill", 0, 0, screenW, 28)
-
-    local stats = player:getEffectiveStats()
-    local text = "Gold: $" .. player.gold .. "    HP: " .. player.hp .. "/" .. stats.maxHP .. "    Level: " .. player.level
-    love.graphics.setColor(1, 0.85, 0.2)
-    love.graphics.printf(text, 10, 6, screenW - 20, "left")
-
-    love.graphics.setColor(0.8, 0.65, 0.35)
-    love.graphics.printf("SALOON", 0, 6, screenW - 10, "right")
-end
-
 local function getCasinoMenuLayout(screenW, screenH)
     local btnW = math.min(280, screenW * 0.35)
     local btnH = 60

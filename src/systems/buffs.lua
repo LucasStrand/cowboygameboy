@@ -61,6 +61,7 @@ end
 -- Built-in definitions
 ---------------------------------------------------------------------------
 
+-- Saloon Monster Energy: icon + timer only — actual move speed is Player.monsterMoveBonus.
 Buffs.define({
     id = "speed_boost",
     name = "Caffeinated",
@@ -68,7 +69,6 @@ Buffs.define({
     isBuff = true,
     duration = 20,
     maxStacks = 5,
-    statMods = { moveSpeed = 15 },
 })
 
 Buffs.define({
@@ -78,7 +78,8 @@ Buffs.define({
     isBuff = false,
     duration = 12,
     maxStacks = 3,
-    visual = { jitter = { amp = 1.25, freq = 20 } },
+    -- Stacks add amplitude; base kept low so early drinks are subtle.
+    visual = { jitter = { amp = 0.42, freq = 18 } },
 })
 
 Buffs.define({

@@ -12,9 +12,10 @@ local Buffs = require("src.systems.buffs")
 -- Monster Energy (saloon): each drink heals to full; walk-speed bonus stacks with diminishing returns.
 local MONSTER_MOVE_FIRST = 44
 local MONSTER_MOVE_DECAY = 0.71
-local MONSTER_JITTER_BASE_CHANCE = 0.11
-local MONSTER_JITTER_PER_DRINK = 0.125
-local MONSTER_JITTER_CAP = 0.88
+-- Jitter never rolls on the 1st drink; from the 2nd on, chance and shake ramp up.
+local MONSTER_JITTER_BASE_CHANCE = 0.06
+local MONSTER_JITTER_PER_DRINK = 0.11
+local MONSTER_JITTER_CAP = 0.78
 local MONSTER_SPEECH_CHANCE = 0.42
 local MONSTER_SPEECH_DURATION = 3.0
 
@@ -214,6 +215,7 @@ function Player.new(x, y)
     self.monsterDrinks = 0
     self.monsterMoveBonus = 0
     self.monsterJitteryTimer = 0
+    self.monsterJitterShakeMul = 0
     self.monsterSpeechText = nil
     self.monsterSpeechLife = 0
     self._monsterSpeechFont = nil
@@ -376,6 +378,9 @@ function Player:update(dt, world, enemies)
 
     if (self.monsterJitteryTimer or 0) > 0 then
         self.monsterJitteryTimer = math.max(0, self.monsterJitteryTimer - dt)
+        if self.monsterJitteryTimer <= 0 then
+            self.monsterJitterShakeMul = 0
+        end
     end
 
     -- Update buff/debuff system
@@ -1005,13 +1010,18 @@ function Player:consumeMonsterEnergy()
     local increment = MONSTER_MOVE_FIRST * (MONSTER_MOVE_DECAY ^ (n - 1))
     self.monsterMoveBonus = (self.monsterMoveBonus or 0) + increment
 
-    local jitterChance = math.min(
-        MONSTER_JITTER_CAP,
-        MONSTER_JITTER_BASE_CHANCE + n * MONSTER_JITTER_PER_DRINK
-    )
+    local jitterChance = 0
+    if n >= 2 then
+        jitterChance = math.min(
+            MONSTER_JITTER_CAP,
+            MONSTER_JITTER_BASE_CHANCE + (n - 2) * MONSTER_JITTER_PER_DRINK
+        )
+    end
     if math.random() < jitterChance then
-        self.monsterJitteryTimer = 8.0 + math.random() * 5.0
-        -- Also apply jitter debuff through buff system
+        -- Longer / shakier as drinks mount (still mild on 2nd drink)
+        local intensity = math.min(1.15, 0.35 + (n - 2) * 0.18)
+        self.monsterJitteryTimer = (6.0 + intensity * 5.0) + math.random() * (3.0 + intensity * 2.0)
+        self.monsterJitterShakeMul = intensity
         Buffs.apply(self.buffs, "jitter")
     end
 
@@ -1228,8 +1238,9 @@ function Player:draw()
     else
         local jx, jy = 0, 0
         if (self.monsterJitteryTimer or 0) > 0 then
-            jx = (math.sin(t * 22.7) + math.sin(t * 16.2)) * 1.25
-            jy = (math.cos(t * 19.1) + math.sin(t * 14.4)) * 0.95
+            local mul = self.monsterJitterShakeMul or 0.35
+            jx = (math.sin(t * 22.7) + math.sin(t * 16.2)) * 1.25 * mul
+            jy = (math.cos(t * 19.1) + math.sin(t * 14.4)) * 0.95 * mul
         end
         -- Buff system jitter (stacks with monster jitter)
         if self.buffs then
