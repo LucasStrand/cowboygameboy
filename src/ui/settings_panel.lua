@@ -4,19 +4,27 @@ local TextLayout = require("src.ui.text_layout")
 
 local SettingsPanel = {}
 
-local TABS = {
+local BASE_TABS = {
     { id = "video", label = "Video" },
     { id = "audio", label = "Audio" },
     { id = "gameplay", label = "Gameplay" },
 }
 
-local function tabBarLayout(screenW, y0, tabFont)
+local function buildTabList()
+    local tabs = {}
+    for _, t in ipairs(BASE_TABS) do
+        tabs[#tabs + 1] = t
+    end
+    return tabs
+end
+
+local function tabBarLayout(screenW, y0, tabFont, tabs)
     local gap = 10
-    local n = #TABS
+    local n = #tabs
     local pad = 24 -- horizontal padding inside each tab (keeps label on one line)
     local widths = {}
     local total = 0
-    for _, t in ipairs(TABS) do
+    for _, t in ipairs(tabs) do
         local w = tabFont:getWidth(t.label) + pad
         widths[#widths + 1] = w
         total = total + w
@@ -28,13 +36,13 @@ local function tabBarLayout(screenW, y0, tabFont)
     if total > maxRow then
         local avail = maxRow - gap * (n - 1)
         local sumText = 0
-        for _, t in ipairs(TABS) do
+        for _, t in ipairs(tabs) do
             sumText = sumText + tabFont:getWidth(t.label)
         end
         local padEach = (avail - sumText) / (2 * n)
         padEach = math.max(4, padEach)
         total = 0
-        for i, t in ipairs(TABS) do
+        for i, t in ipairs(tabs) do
             widths[i] = tabFont:getWidth(t.label) + 2 * padEach
             total = total + widths[i]
         end
@@ -44,7 +52,7 @@ local function tabBarLayout(screenW, y0, tabFont)
     local x0 = (screenW - total) * 0.5
     local x = x0
     local tabs = {}
-    for i, t in ipairs(TABS) do
+    for i, t in ipairs(tabs) do
         tabs[i] = {
             id = t.id,
             label = t.label,
@@ -80,7 +88,8 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
     local titleY = screenH * 0.12
     -- Extra gap below title so tabs aren’t cramped under “Settings”
     local tabY = titleY + 82
-    local tabs = tabBarLayout(screenW, tabY, tabFont)
+    local tabsList = buildTabList()
+    local tabs = tabBarLayout(screenW, tabY, tabFont, tabsList)
     local contentTop = tabY + 46
     local rowH = 44
     local rows = {}
@@ -88,6 +97,9 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
     if activeTabId == "video" then
         rows[1] = { key = "fullscreen", kind = "toggle", label = "Fullscreen", rect = rowRect(screenW, contentTop, rowH) }
         rows[2] = { key = "vsync", kind = "toggle", label = "VSync", rect = rowRect(screenW, contentTop + rowH + 6, rowH) }
+        rows[3] = { key = "debug_saloon", kind = "action", label = "Debug: enter saloon", value = "Go >", rect = rowRect(screenW, contentTop + (rowH + 6) * 2, rowH) }
+        rows[4] = { key = "debug_add_gold", kind = "action", label = "Debug: add gold", value = "+10", rect = rowRect(screenW, contentTop + (rowH + 6) * 3, rowH) }
+        rows[5] = { key = "debug_sub_gold", kind = "action", label = "Debug: subtract gold", value = "-10", rect = rowRect(screenW, contentTop + (rowH + 6) * 4, rowH) }
     elseif activeTabId == "audio" then
         local y = contentTop
         for i, spec in ipairs({
@@ -232,6 +244,8 @@ function SettingsPanel.draw(screenW, screenH, activeTabId, fonts, hover)
             elseif row.key == "mouseAimIdle" then vt = Settings.labelMouseAimIdle()
             else vt = "?" end
             drawRowLabelValue(fonts.row, row, vt .. "  >")
+        elseif row.kind == "action" then
+            drawRowLabelValue(fonts.row, row, row.value or "Run >")
         elseif row.kind == "slider" then
             local v = d[row.key] or 0
             local r = row.rect
@@ -294,7 +308,9 @@ function SettingsPanel.applyHit(hit, player)
     end
     if hit.kind == "row" then
         local row = hit.row
-        if row.kind == "toggle" then
+        if row.kind == "action" then
+            return { action = row.key }
+        elseif row.kind == "toggle" then
             if row.key == "fullscreen" then Settings.toggleFullscreen()
             elseif row.key == "vsync" then Settings.toggleVsync()
             elseif row.key == "defaultAutoGun" then Settings.toggleDefaultAutoGun()
@@ -315,7 +331,10 @@ function SettingsPanel.applyHit(hit, player)
 end
 
 function SettingsPanel.cycleTab(activeTabId, dir)
-    local order = { "video", "audio", "gameplay" }
+    local order = {}
+    for _, t in ipairs(buildTabList()) do
+        order[#order + 1] = t.id
+    end
     local idx = 1
     for i, id in ipairs(order) do
         if id == activeTabId then

@@ -46,6 +46,25 @@ local pauseSettingsHover = nil
 -- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
 local offScreenEnemyHintActive = false
 
+local function handleDebugAction(action)
+    if not action or not player then return end
+    if action == "debug_saloon" then
+        local saloon = require("src.states.saloon")
+        paused = false
+        pauseMenuView = "main"
+        pauseSelectedIndex = 1
+        pauseHoverIndex = nil
+        Gamestate.push(saloon, player, roomManager)
+        DevLog.push("sys", "Debug: Entered saloon")
+    elseif action == "debug_add_gold" then
+        player.gold = player.gold + 10
+        DevLog.push("sys", "Debug: +10 gold")
+    elseif action == "debug_sub_gold" then
+        player.gold = math.max(0, player.gold - 10)
+        DevLog.push("sys", "Debug: -10 gold")
+    end
+end
+
 -- Intro countdown (3→2→1) after menu: room + enemies loaded; gameplay frozen until done.
 local introCountdownActive = false
 local introCountdownN = 0
@@ -905,6 +924,7 @@ function game:mousepressed(x, y, button)
             if r then
                 if r.setTab then pauseSettingsTab = r.setTab end
                 if r.goBack then pauseMenuView = "main" end
+                if r.action then handleDebugAction(r.action) end
             end
         end
         return

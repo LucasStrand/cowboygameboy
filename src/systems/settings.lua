@@ -1,5 +1,6 @@
 --- Persisted user settings (save dir: settings.lua). Apply after load and on change.
 local Settings = {}
+local DevLog = require("src.ui.devlog")
 
 local defaults = {
     fullscreen = false,
