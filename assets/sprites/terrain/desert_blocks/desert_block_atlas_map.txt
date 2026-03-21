@@ -1,0 +1,9 @@
+Atlas: desert_block_atlas.png
+Grid: 4 columns x 2 rows
+Tile size: 32x32
+
+[1,1] desert_dirt_sandy_top.png
+[2,1] light_sand_block.png
+[3,1] cracked_dirt_block.png
+[4,1] layered_desert_block.png
+[1,2] western_platform_block.png

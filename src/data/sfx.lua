@@ -15,6 +15,8 @@ SfxData.paths = {
     ricochet = "Impact/impactMetal_light_001.ogg",
     explosion = "SoundPack/Retro/explosion_small.wav",
     hurt = "SoundPack/Retro/hurt.wav",
+    --- Low-HP heartbeat (MusicDirector; soft one-shot, timed)
+    heartbeat = "SoundPack/Items/heart_collect.wav",
     pickup_gold = "SoundPack/Items/coin_collect.wav",
     pickup_xp = "SoundPack/Items/coins_gather_small.wav",
     pickup_health = "Impact/impactGeneric_light_002.ogg",

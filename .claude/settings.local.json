@@ -90,7 +90,27 @@
       "Bash(grep -v \"-- \")",
       "Bash(grep -r \"VerArc\\\\|status\" C:githubcowboygameboysrc --include=*.lua)",
       "Bash(xargs grep:*)",
-      "Bash(wc -l C:githubcowboygameboyassets[VerArc Stash] Basic_Skills_and_BuffsBuffs/*.png)"
+      "Bash(identify \"C:/github/cowboygameboy/assets/Cowboy \\(Animated Pixel Art\\)/Bandit pixel art/BanditWalking.png\")",
+      "Bash(python3 -c \"from PIL import Image; img=Image.open\\(''C:/github/cowboygameboy/assets/Cowboy \\(Animated Pixel Art\\)/Bandit pixel art/BanditWalking.png''\\); print\\(img.size\\)\")",
+      "Bash(love --version)",
+      "Bash(py --version)",
+      "Bash(lua -p src/states/game.lua)",
+      "Bash(luac -p src/states/game.lua)",
+      "Bash(luac -p src/data/guns.lua src/data/weapons.lua src/entities/player.lua src/entities/pickup.lua src/systems/combat.lua src/ui/hud.lua src/states/game.lua src/ui/damage_numbers.lua)",
+      "Bash(identify \"C:/github/cowboygameboy/assets/weapons/Weapons/AK47.png\" \"C:/github/cowboygameboy/assets/weapons/Weapons/Blunderbuss.png\" \"C:/github/cowboygameboy/assets/weapons/Weapons/ColtSingleActionArmy.png\")",
+      "Bash(python3 -c \"from PIL import Image; img = Image.open\\(''C:/github/cowboygameboy/assets/ui/western_cowboy_roguelike_hud_sprite_sheet.png''\\); print\\(f''Size: {img.size}''\\); print\\(f''Mode: {img.mode}''\\)\")",
+      "Bash(python -c \"from PIL import Image; img = Image.open\\(''C:/github/cowboygameboy/assets/ui/western_cowboy_roguelike_hud_sprite_sheet.png''\\); print\\(f''Size: {img.size}''\\); print\\(f''Mode: {img.mode}''\\)\")",
+      "Bash(identify \"C:/github/cowboygameboy/assets/ui/western_cowboy_roguelike_hud_sprite_sheet.png\")",
+      "Bash(find C:/github/cowboygameboy/assets -type f -name *.wav -o -name *.ogg -o -name *.mp3 -o -name *.flac)",
+      "Bash(find C:/github/cowboygameboy/assets -type f \\\\\\(-name *.png -o -name *.jpg -o -name *.jpeg \\\\\\))",
+      "Bash(lua -e \"loadfile\\(''src/states/game.lua''\\)\")",
+      "Bash(magick identify:*)",
+      "Bash(find /c/github/cowboygameboy/assets -type f \\\\\\(-iname *.png -o -iname *.jpg -o -iname *.jpeg \\\\\\))",
+      "Bash(find /c/github/cowboygameboy/assets/sounds -type f -name *.wav -o -name *.ogg)",
+      "Bash(find /c/github/cowboygameboy/assets -path */Tiles/Tiles/* -o -path */Tiles/Assets/*)",
+      "Bash(love . --fused)",
+      "Bash(unzip -o blackjack_dealer.zip -d sprites/blackjack_dealer/)",
+      "Bash(lua -e \":*)"
     ]
   }
 }

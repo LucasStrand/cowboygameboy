@@ -23,6 +23,8 @@ local Progression = require("src.systems.progression")
 local Sfx = require("src.systems.sfx")
 local Buffs = require("src.systems.buffs")
 local HUD = require("src.ui.hud")
+local MusicDirector = require("src.systems.music_director")
+local Perks = require("src.data.perks")
 
 local saloonRoom = require("src.data.saloon_room")
 
@@ -161,7 +163,6 @@ local function pauseGoToMainMenu()
 end
 
 local function devPerkById(pid)
-    local Perks = require("src.data.perks")
     for _, p in ipairs(Perks.pool) do
         if p.id == pid then return p end
     end
@@ -511,6 +512,8 @@ function saloon:enter(_, _player, _roomManager)
     player.combatDisabled = true
     player.vx = 0
     player.vy = 0
+
+    MusicDirector.suspendGameplay()
 
     -- Load persistent assets
     if not bgImage then
@@ -1703,6 +1706,124 @@ function drawCasinoMenu(screenW, screenH)
     love.graphics.setColor(0.5, 0.45, 0.35, 0.7)
     local hintY = rects[#rects].y + rects[#rects].h + 20
     love.graphics.printf("[1] Blackjack   [2] Roulette   [3] Slots   [ESC] Back", 0, hintY, screenW, "center")
+end
+
+local function blackjackButtonLayout(screenW, screenH, labels)
+    local bw, bh = 140, 44
+    local gap = 12
+    local totalW = #labels * bw + (#labels - 1) * gap
+    local x0 = (screenW - totalW) * 0.5
+    local y = screenH * 0.76
+    local rects = {}
+    for i, b in ipairs(labels) do
+        rects[i] = { id = b.id, label = b.label, x = x0 + (i - 1) * (bw + gap), y = y, w = bw, h = bh }
+    end
+    return rects
+end
+
+function drawBlackjackButtons(screenW, screenH, labels)
+    local rects = blackjackButtonLayout(screenW, screenH, labels)
+    for _, r in ipairs(rects) do
+        local hov = hoveredBlackjackButton == r.id
+        if hov then
+            love.graphics.setColor(0.22, 0.14, 0.08, 0.9)
+        else
+            love.graphics.setColor(0.12, 0.08, 0.06, 0.75)
+        end
+        love.graphics.rectangle("fill", r.x, r.y, r.w, r.h, 6, 6)
+        love.graphics.setColor(0.85, 0.65, 0.35, hov and 1 or 0.65)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", r.x, r.y, r.w, r.h, 6, 6)
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 0.95, 0.82)
+        love.graphics.setFont(fonts.body)
+        love.graphics.printf(r.label, r.x, r.y + 12, r.w, "center")
+    end
+end
+
+function hitBlackjackButton(mx, my)
+    if mode ~= "blackjack" then return nil end
+    local labels = nil
+    if blackjackGame.state == "betting" then
+        labels = {
+            { id = "bet_down", label = "-" },
+            { id = "bet_up", label = "+" },
+            { id = "deal", label = "Deal" },
+            { id = "leave", label = "Back" },
+        }
+    elseif blackjackGame.state == "playing" then
+        labels = {
+            { id = "hit", label = "Hit" },
+            { id = "stand", label = "Stand" },
+            { id = "double", label = "Double" },
+            { id = "split", label = "Split" },
+        }
+    elseif blackjackGame.state == "result" then
+        labels = {
+            { id = "continue", label = "Continue" },
+        }
+    end
+    if not labels then return nil end
+    local rects = blackjackButtonLayout(GAME_WIDTH, GAME_HEIGHT, labels)
+    for _, r in ipairs(rects) do
+        if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+            return r.id
+        end
+    end
+    return nil
+end
+
+function handleBlackjackAction(action)
+    if blackjackGame.state == "betting" then
+        if action == "bet_down" then
+            blackjackGame:adjustWager(-blackjackGame.betStep, player.gold)
+        elseif action == "bet_up" then
+            blackjackGame:adjustWager(blackjackGame.betStep, player.gold)
+        elseif action == "deal" then
+            if blackjackGame.wager >= blackjackGame.minBet and player.gold >= blackjackGame.wager then
+                player.gold = player.gold - blackjackGame.wager
+                blackjackGame:deal(blackjackGame.wager)
+            else
+                message = "Not enough gold to bet that much!"
+                messageTimer = 2
+            end
+        elseif action == "leave" then
+            mode = "main"
+        end
+    elseif blackjackGame.state == "playing" then
+        if action == "hit" then
+            blackjackGame:hit()
+        elseif action == "stand" then
+            blackjackGame:stand()
+        elseif action == "double" then
+            local cost = blackjackGame:doubleDown(player.gold)
+            if cost then
+                player.gold = player.gold - cost
+            else
+                message = "Cannot double."
+                messageTimer = 1.2
+            end
+        elseif action == "split" then
+            local cost = blackjackGame:split(player.gold)
+            if cost then
+                player.gold = player.gold - cost
+            else
+                message = "Cannot split."
+                messageTimer = 1.2
+            end
+        end
+    elseif blackjackGame.state == "result" then
+        if action == "continue" then
+            local reward = blackjackGame:getReward()
+            player.gold = player.gold + reward.gold
+            if reward.perkRarity == "rare" or reward.anyWin then
+                perkOptions = Perks.rollPerks(3, player.stats.luck)
+                mode = "perk_selection"
+            else
+                mode = "main"
+            end
+        end
+    end
 end
 
 function drawShop(screenW, screenH)
