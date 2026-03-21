@@ -33,7 +33,12 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
             local hitY = b.y + b.h / 2
             b.hitEnemy:takeDamage(b.damage, world)
             DamageNumbers.spawn(hitX, hitY, b.damage, "out")
-            ImpactFX.spawn(hitX, hitY, "hit_enemy")
+            -- Ult bullets get a massive explosion effect
+            local fxScale = b.ultBullet and 2.0 or nil
+            ImpactFX.spawn(hitX, hitY, "hit_enemy", fxScale)
+            if b.ultBullet then
+                ImpactFX.spawn(hitX, hitY - 8, "melee", fxScale)
+            end
             if not b.fromEnemy then
                 Sfx.play("hit_enemy")
             end
@@ -87,6 +92,9 @@ end
 
 function Combat.onEnemyKilled(enemy, player)
     local drops = {}
+
+    -- Build ultimate charge
+    player:addUltCharge()
 
     if player.stats.lifestealOnKill > 0 then
         player:heal(player.stats.lifestealOnKill)

@@ -117,6 +117,16 @@ function Player.new(x, y)
     self.iframes = 0
     self.deadEyeTimer = 0
 
+    -- Ultimate: Dead Man's Hand
+    self.ultCharge = 0           -- 0..1, fills by killing enemies
+    self.ultChargePerKill = 0.1  -- 10 kills = full charge
+    self.ultActive = false       -- true during barrage
+    self.ultPhase = "none"       -- "none", "barrage", "cooldown"
+    self.ultTimer = 0
+    self.ultTargets = {}         -- enemies marked for barrage
+    self.ultShotIndex = 0        -- which target we're firing at next
+    self.ultShotTimer = 0        -- delay between barrage shots
+
     self.gear = {
         hat    = nil,
         vest   = nil,
@@ -828,11 +838,31 @@ function Player:reload()
     self:startReloadSlot(self.activeWeaponSlot)
 end
 
---- Dead Eye ult (same duration as post-reload proc); only if Dead Eye perk is active.
+--- Dead Man's Hand ultimate: mark all enemies and fire explosive barrage.
+--- Returns true if activation succeeded.
 function Player:tryActivateUlt()
-    if self.dying then return end
-    if not self:getEffectiveStats().deadEye then return end
-    self.deadEyeTimer = 3.0
+    if self.dying then return false end
+    if self.ultActive then return false end
+    if self.ultCharge < 1 then return false end
+    self.ultCharge = 0
+    self.ultActive = true
+    self.ultPhase = "barrage"
+    self.ultTimer = 0
+    self.ultTargets = {}
+    self.ultShotIndex = 1
+    self.ultShotTimer = 0.1      -- brief pause before first shot
+    self.iframes = 6.0           -- invincible throughout
+    return true
+end
+
+--- Call when player kills an enemy to build ult charge.
+function Player:addUltCharge(amount)
+    if self.ultActive then return end
+    local wasFull = self.ultCharge >= 1
+    self.ultCharge = math.min(1, self.ultCharge + (amount or self.ultChargePerKill))
+    if not wasFull and self.ultCharge >= 1 then
+        Sfx.play("ult_ready")
+    end
 end
 
 function Player:takeDamage(amount)

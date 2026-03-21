@@ -41,7 +41,8 @@ end
 
 --- Spawn an impact effect at world position (cx, cy).
 --- `kind` is one of: "hit_enemy", "hit_wall", "melee"
-function ImpactFX.spawn(cx, cy, kind)
+--- `scale` overrides the default draw scale (default = SCALE = 0.5, i.e. 32×32)
+function ImpactFX.spawn(cx, cy, kind, scale)
     init()
     local row = ANIM[kind or "hit_enemy"] or 1
     table.insert(active, {
@@ -50,6 +51,7 @@ function ImpactFX.spawn(cx, cy, kind)
         row   = row,
         frame = 1,
         timer = 0,
+        scale = scale or SCALE,
     })
 end
 
@@ -79,9 +81,9 @@ function ImpactFX.draw()
     for _, fx in ipairs(active) do
         local q = quads[fx.row] and quads[fx.row][fx.frame]
         if q then
-            local drawX = fx.x - (FRAME_SIZE * SCALE) / 2
-            local drawY = fx.y - (FRAME_SIZE * SCALE) / 2
-            love.graphics.draw(sheet, q, drawX, drawY, 0, SCALE, SCALE)
+            local drawX = fx.x - (FRAME_SIZE * fx.scale) / 2
+            local drawY = fx.y - (FRAME_SIZE * fx.scale) / 2
+            love.graphics.draw(sheet, q, drawX, drawY, 0, fx.scale, fx.scale)
         end
     end
     love.graphics.setColor(1, 1, 1)
