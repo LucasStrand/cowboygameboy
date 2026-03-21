@@ -1,133 +1,73 @@
--- Tile renderer draws walls and platforms from a themed atlas instead of
--- plain colored rectangles. The default atlas remains the original terrain
--- sheet, while the dev arena can switch to a desert proof-of-concept atlas.
+-- Tile renderer — draws walls and platforms using the tile atlas instead of
+-- plain colored rectangles.  Loads assets/Tiles/Tiles/Assets/Assets.png as a
+-- 16×16 grid (400×400 image → 25 columns).
 
 local TileRenderer = {}
 
-local DRAW_TILE = 16     -- world-space pixels per tile
+local TILE = 16          -- pixels per tile in the atlas
 local atlas = nil
-local quads = {}         -- quads[row][col] (1-indexed)
-local activeTheme = "default"
+local quads = {}         -- quads[row][col]  (1-indexed)
 
-local THEMES = {
-    default = {
-        atlasPath = "assets/Tiles/Tiles/Assets/Assets.png",
-        sourceTile = 16,
-        spacing = 0,
-        tiles = {
-            grass_l = {3, 1},
-            grass_m = {4, 1},
-            grass_r = {5, 1},
-            grass_bl = {2, 2},
-            grass_bm = {5, 2},
-            grass_br = {6, 2},
-            dirt = {4, 4},
-            dirt2 = {3, 4},
-            dirt3 = {5, 4},
-            dirt_l = {2, 3},
-            dirt_r = {6, 3},
-            dirt_bl = {3, 6},
-            dirt_bm = {4, 6},
-            dirt_br = {5, 6},
-            plank_l = {7, 9},
-            plank_m = {8, 9},
-            plank_r = {9, 9},
-        },
-    },
-    desert = {
-        atlasPath = "assets/terrain/platformer-blocks/Tilemap/sand_packed.png",
-        sourceTile = 18,
-        spacing = 0,
-        tiles = {
-            grass_l = { {1, 4}, {4, 4}, {7, 4}, {1, 7}, {4, 7}, {7, 7} },
-            grass_m = { {2, 4}, {5, 4}, {8, 4}, {2, 7}, {5, 7}, {8, 7} },
-            grass_r = { {3, 4}, {6, 4}, {9, 4}, {3, 7}, {6, 7}, {9, 7} },
-            grass_bl = { {1, 5}, {4, 5}, {7, 5}, {1, 8}, {4, 8}, {7, 8} },
-            grass_bm = { {2, 5}, {5, 5}, {8, 5}, {2, 8}, {5, 8}, {8, 8} },
-            grass_br = { {3, 5}, {6, 5}, {9, 5}, {3, 8}, {6, 8}, {9, 8} },
-            dirt = { {2, 5}, {5, 5}, {8, 5}, {2, 8}, {5, 8}, {8, 8} },
-            dirt2 = { {1, 5}, {4, 5}, {7, 5}, {1, 8}, {4, 8}, {7, 8} },
-            dirt3 = { {3, 5}, {6, 5}, {9, 5}, {3, 8}, {6, 8}, {9, 8} },
-            dirt_l = { {1, 5}, {4, 5}, {7, 5}, {1, 8}, {4, 8}, {7, 8} },
-            dirt_r = { {3, 5}, {6, 5}, {9, 5}, {3, 8}, {6, 8}, {9, 8} },
-            dirt_bl = { {1, 6}, {4, 6}, {7, 6}, {1, 9}, {4, 9}, {7, 9} },
-            dirt_bm = { {2, 6}, {5, 6}, {8, 6}, {2, 9}, {5, 9}, {8, 9} },
-            dirt_br = { {3, 6}, {6, 6}, {9, 6}, {3, 9}, {6, 9}, {9, 9} },
-            plank_l = { {1, 4}, {4, 4}, {7, 4}, {1, 7}, {4, 7}, {7, 7} },
-            plank_m = { {2, 4}, {5, 4}, {8, 4}, {2, 7}, {5, 7}, {8, 7} },
-            plank_r = { {3, 4}, {6, 4}, {9, 4}, {3, 7}, {6, 7}, {9, 7} },
-        },
-    },
+-- Tile coordinates {col, row} in the 16×16 grid (1-indexed).
+-- Identified by analysing average RGB of each cell in the 400×400 atlas.
+local TILES = {
+    -- Green grass top (bright green tiles from the terrain top edge)
+    grass_l   = {3, 1},   -- (82,114,45) green, left-ish
+    grass_m   = {4, 1},   -- (82,113,46) green, middle (100% fill)
+    grass_r   = {5, 1},   -- (85,131,45) green, right-ish
+    -- Grass-to-dirt transition row (greenish-brown, below the grass)
+    grass_bl  = {2, 2},   -- (82,114,45) green-tinted dirt
+    grass_bm  = {5, 2},   -- (82,96,48)  green-brown transition
+    grass_br  = {6, 2},   -- (85,131,45) green edge
+    -- Brown dirt fill (interior terrain, ~107,62,64 range)
+    dirt      = {4, 4},   -- (107,62,64) solid brown fill (100%)
+    dirt2     = {3, 4},   -- (107,62,64) solid brown fill (99%)
+    dirt3     = {5, 4},   -- (107,62,64) solid brown fill (98%)
+    -- Dirt edges (border tiles of the terrain mass)
+    dirt_l    = {2, 3},   -- (108,63,64) left edge
+    dirt_r    = {6, 3},   -- (109,63,65) right edge
+    dirt_bl   = {3, 6},   -- (96,56,60) bottom-left darker
+    dirt_bm   = {4, 6},   -- (84,50,56) bottom middle darker
+    dirt_br   = {5, 6},   -- (93,54,59) bottom-right darker
+    -- Wooden plank tiles (lighter brown ~158,96,80 for platforms)
+    plank_l   = {7, 9},   -- (158,96,80) wood left
+    plank_m   = {8, 9},   -- (158,96,80) wood middle
+    plank_r   = {9, 9},   -- (161,99,80) wood right
 }
-
-function TileRenderer.setTheme(name)
-    local nextTheme = THEMES[name] and name or "default"
-    if activeTheme == nextTheme and atlas then
-        return
-    end
-    activeTheme = nextTheme
-    atlas = nil
-    quads = {}
-end
-
-local function theme()
-    return THEMES[activeTheme] or THEMES.default
-end
 
 local function init()
     if atlas then return end
 
-    local cfg = theme()
-    atlas = love.graphics.newImage(cfg.atlasPath)
+    atlas = love.graphics.newImage("assets/Tiles/Tiles/Assets/Assets.png")
     atlas:setFilter("nearest", "nearest")
-
     local sw, sh = atlas:getDimensions()
-    local tile = cfg.sourceTile
-    local spacing = cfg.spacing or 0
-    local step = tile + spacing
-    local cols = math.floor((sw + spacing) / step)
-    local rows = math.floor((sh + spacing) / step)
-
+    local cols = math.floor(sw / TILE)
+    local rows = math.floor(sh / TILE)
     for r = 1, rows do
         quads[r] = {}
         for c = 1, cols do
             quads[r][c] = love.graphics.newQuad(
-                (c - 1) * step,
-                (r - 1) * step,
-                tile,
-                tile,
-                sw,
-                sh
+                (c - 1) * TILE, (r - 1) * TILE,
+                TILE, TILE, sw, sh
             )
         end
     end
 end
 
-local function getQuad(name, variant)
-    local t = theme().tiles[name]
+local function getQuad(name)
+    local t = TILES[name]
     if not t then return nil end
     local col, row
-    if type(t[1]) == "table" then
-        local idx = ((variant or 1) - 1) % #t + 1
-        col, row = t[idx][1], t[idx][2]
-    else
-        col, row = t[1], t[2]
-    end
+    col, row = t[1], t[2]
     return quads[row] and quads[row][col]
-end
-
-local function drawTile(quad, x, y)
-    if not quad then return end
-    local scale = DRAW_TILE / theme().sourceTile
-    love.graphics.draw(atlas, quad, x, y, 0, scale, scale)
 end
 
 function TileRenderer.drawWall(x, y, w, h)
     init()
     love.graphics.setColor(1, 1, 1)
 
-    local tilesW = math.ceil(w / DRAW_TILE)
-    local tilesH = math.ceil(h / DRAW_TILE)
+    local tilesW = math.ceil(w / TILE)
+    local tilesH = math.ceil(h / TILE)
 
     for ty = 0, tilesH - 1 do
         for tx = 0, tilesW - 1 do
@@ -139,36 +79,38 @@ function TileRenderer.drawWall(x, y, w, h)
 
             if isTop then
                 if isLeft then
-                    quad = getQuad("grass_l", ty + 1)
+                    quad = getQuad("grass_l")
                 elseif isRight then
-                    quad = getQuad("grass_r", ty + 1)
+                    quad = getQuad("grass_r")
                 else
-                    quad = getQuad("grass_m", tx + 1)
+                    quad = getQuad("grass_m")
                 end
             elseif isBottom then
                 if isLeft then
-                    quad = getQuad("dirt_bl", tx + 1)
+                    quad = getQuad("dirt_bl")
                 elseif isRight then
-                    quad = getQuad("dirt_br", tx + 1)
+                    quad = getQuad("dirt_br")
                 else
-                    quad = getQuad("dirt_bm", tx + 1)
+                    quad = getQuad("dirt_bm")
                 end
             elseif isLeft then
-                quad = getQuad("dirt_l", ty + 1)
+                quad = getQuad("dirt_l")
             elseif isRight then
-                quad = getQuad("dirt_r", ty + 1)
+                quad = getQuad("dirt_r")
             else
                 local v = (tx + ty) % 3
                 if v == 0 then
-                    quad = getQuad("dirt", tx + ty + 1)
+                    quad = getQuad("dirt")
                 elseif v == 1 then
-                    quad = getQuad("dirt2", tx + ty + 1)
+                    quad = getQuad("dirt2")
                 else
-                    quad = getQuad("dirt3", tx + ty + 1)
+                    quad = getQuad("dirt3")
                 end
             end
 
-            drawTile(quad, x + tx * DRAW_TILE, y + ty * DRAW_TILE)
+            if quad then
+                love.graphics.draw(atlas, quad, x + tx * TILE, y + ty * TILE)
+            end
         end
     end
 end
@@ -177,8 +119,8 @@ function TileRenderer.drawPlatform(x, y, w, h)
     init()
     love.graphics.setColor(1, 1, 1)
 
-    local tilesW = math.ceil(w / DRAW_TILE)
-    local tilesH = math.max(1, math.ceil(h / DRAW_TILE))
+    local tilesW = math.ceil(w / TILE)
+    local tilesH = math.max(1, math.ceil(h / TILE))
 
     for ty = 0, tilesH - 1 do
         for tx = 0, tilesW - 1 do
@@ -187,27 +129,29 @@ function TileRenderer.drawPlatform(x, y, w, h)
 
             if isTop then
                 if tx == 0 then
-                    quad = getQuad("plank_l", tx + 1)
+                    quad = getQuad("plank_l")
                 elseif tx == tilesW - 1 then
-                    quad = getQuad("plank_r", tx + 1)
+                    quad = getQuad("plank_r")
                 else
-                    quad = getQuad("plank_m", tx + 1)
+                    quad = getQuad("plank_m")
                 end
             else
                 if tx == 0 then
-                    quad = getQuad("dirt_l", ty + 1)
+                    quad = getQuad("dirt_l")
                 elseif tx == tilesW - 1 then
-                    quad = getQuad("dirt_r", ty + 1)
+                    quad = getQuad("dirt_r")
                 else
                     if (tx + ty) % 2 == 0 then
-                        quad = getQuad("dirt", tx + ty + 1)
+                        quad = getQuad("dirt")
                     else
-                        quad = getQuad("dirt3", tx + ty + 1)
+                        quad = getQuad("dirt3")
                     end
                 end
             end
 
-            drawTile(quad, x + tx * DRAW_TILE, y + ty * DRAW_TILE)
+            if quad then
+                love.graphics.draw(atlas, quad, x + tx * TILE, y + ty * TILE)
+            end
         end
     end
 end

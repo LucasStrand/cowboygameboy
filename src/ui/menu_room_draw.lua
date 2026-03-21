@@ -28,7 +28,6 @@ end
 --- @param showLockedLabel boolean show "Locked" when door closed (combat lock)
 function M.draw(camera, currentRoom, bgImage, doorOpen, showLockedLabel)
     if not currentRoom then return end
-    TileRenderer.setTheme("default")
 
     local camX, camY = camera:position()
     local viewW = GAME_WIDTH / CAM_ZOOM

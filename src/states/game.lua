@@ -2002,7 +2002,6 @@ function game:draw()
         end
 
         -- Walls (left, right, ceiling)
-        TileRenderer.setTheme(currentRoom.devArena and "desert" or "default")
         for _, wall in ipairs(currentRoom.walls) do
             TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h)
         end
@@ -2010,10 +2009,8 @@ function game:draw()
         -- Platforms
         for _, plat in ipairs(currentRoom.platforms) do
             if plat.h >= 32 then
-                TileRenderer.setTheme(currentRoom.devArena and "desert" or "default")
                 TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h)
             else
-                TileRenderer.setTheme("default")
                 TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h)
             end
         end
