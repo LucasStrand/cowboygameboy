@@ -1,6 +1,7 @@
 local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
 local GearIcons = require("src.ui.gear_icons")
+local GoldCoin = require("src.ui.gold_coin")
 
 local HUD = {}
 
@@ -473,7 +474,10 @@ function HUD.draw(player)
         local gx = screenW - totalW - CORNER_SZ - 18  -- clear of corner ornament
         local gy = 10
 
-        drawSprite("coin", gx, gy + (goldLineH - coinSz) / 2, coinScale)
+        local coinY = gy + (goldLineH - coinSz) / 2
+        if not GoldCoin.drawHeadsTopLeft(gx, coinY, coinSz) then
+            drawSprite("coin", gx, coinY, coinScale)
+        end
         shadowPrint(goldText, gx + coinSz + 8, gy, 1, 0.92, 0.6, 1)
     end
 

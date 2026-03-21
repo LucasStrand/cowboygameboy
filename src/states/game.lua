@@ -67,6 +67,27 @@ local devShowHitboxes = true
 -- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
 local offScreenEnemyHintActive = false
 
+--- Spawn world gold pickups (same as loot) instead of crediting instantly — for dev cheats.
+local function spawnCheatGoldDrops(amount)
+    if not amount or amount <= 0 or not player or not world then return end
+    local pw = 10
+    local n = math.min(28, math.max(1, math.ceil(amount / 25)))
+    local base = math.floor(amount / n)
+    local rem = amount - base * n
+    for i = 1, n do
+        local v = base + (i <= rem and 1 or 0)
+        if v <= 0 then break end
+        local spread = (i - 1 - (n - 1) * 0.5) * 18
+        local px = player.x + player.w / 2 - pw / 2 + spread + (math.random() - 0.5) * 8
+        local py = player.y - 6 - math.random() * 16
+        local p = Pickup.new(px, py, "gold", v)
+        p.vy = -150 - math.random() * 130
+        p.vx = (math.random() - 0.5) * 200
+        world:add(p, p.x, p.y, p.w, p.h)
+        table.insert(pickups, p)
+    end
+end
+
 local function handleDebugAction(action)
     if not action or not player then return end
     if action == "debug_saloon" then
@@ -78,8 +99,8 @@ local function handleDebugAction(action)
         Gamestate.push(saloon, player, roomManager)
         DevLog.push("sys", "Debug: Entered saloon")
     elseif action == "debug_add_gold" then
-        player.gold = player.gold + 10
-        DevLog.push("sys", "Debug: +10 gold")
+        spawnCheatGoldDrops(10)
+        DevLog.push("sys", "Debug: +10 gold (drops)")
     elseif action == "debug_sub_gold" then
         player.gold = math.max(0, player.gold - 10)
         DevLog.push("sys", "Debug: -10 gold")
@@ -601,11 +622,11 @@ local function devApplyAction(id)
         player.ultCharge = 1
         DevLog.push("sys", "[dev] ult charge full")
     elseif id == "gold_100" then
-        player:addGold(100)
-        DevLog.push("sys", "[dev] +100 gold")
+        spawnCheatGoldDrops(100)
+        DevLog.push("sys", "[dev] +100 gold (drops)")
     elseif id == "gold_500" then
-        player:addGold(500)
-        DevLog.push("sys", "[dev] +500 gold")
+        spawnCheatGoldDrops(500)
+        DevLog.push("sys", "[dev] +500 gold (drops)")
     elseif id == "xp_50" then
         devPanelOpen = false
         characterSheetOpen = false

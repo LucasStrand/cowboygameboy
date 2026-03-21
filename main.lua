@@ -11,7 +11,7 @@ local saloon = require("src.states.saloon")
 -- HUD uses fixed pixel sizes in this space (does not scale up with resolution).
 GAME_WIDTH = 1280
 GAME_HEIGHT = 720
-DEBUG = true
+DEBUG = false
 
 local gameCanvas
 local canvasScale = 1
@@ -73,8 +73,9 @@ function love.resize(w, h)
 end
 
 function love.draw()
-    -- Render to a canvas matching the window; larger window ⇒ larger canvas ⇒ more world (see camera view)
-    love.graphics.setCanvas(gameCanvas)
+    -- Render to a canvas matching the window; larger window ⇒ larger canvas ⇒ more world (see camera view).
+    -- Table form: temporary stencil buffer for love.graphics.stencil (roulette wheel clip); LOVE 11+.
+    love.graphics.setCanvas({ gameCanvas, stencil = true })
     love.graphics.clear(0, 0, 0, 1)
     
     local current = Gamestate.current()

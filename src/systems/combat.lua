@@ -295,7 +295,7 @@ end
 
 function Combat.checkPickups(pickups, player, world)
     local leveledUp = false
-    local attractR = pickupAttractRadius(player)
+    local baseAttractR = pickupAttractRadius(player)
     local i = 1
     while i <= #pickups do
         local p = pickups[i]
@@ -304,6 +304,8 @@ function Combat.checkPickups(pickups, player, world)
         local dx = (p.x + p.w / 2) - px
         local dy = (p.y + p.h / 2) - py
         local dist = math.sqrt(dx * dx + dy * dy)
+
+        local attractR = p.casinoPayout and math.min(baseAttractR, 46) or baseAttractR
 
         -- Weapon pickups are NOT attracted — must walk over deliberately
         if dist < attractR and p.pickupType ~= "weapon" then

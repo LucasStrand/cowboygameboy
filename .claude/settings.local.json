@@ -51,7 +51,32 @@
       "Bash(where python:*)",
       "Bash(where py:*)",
       "Bash(where magick:*)",
-      "Bash(C:/Python312/python.exe -c \"\nfrom PIL import Image\nimg = Image.open\\('C:/github/cowboygameboy/assets/Bar_by_Styl0o/individuals sprite/bar.png'\\)\nprint\\('Bar counter:', img.size\\)\n\" 2>&1)"
+      "Bash(C:/Python312/python.exe -c \"\nfrom PIL import Image\nimg = Image.open\\('C:/github/cowboygameboy/assets/Bar_by_Styl0o/individuals sprite/bar.png'\\)\nprint\\('Bar counter:', img.size\\)\n\" 2>&1)",
+      "Bash(find /c/github/cowboygameboy/assets -name *lack* -o -name *card*)",
+      "Bash(lua5.1 -e \"loadfile\\(''src/systems/blackjack.lua''\\)\")",
+      "Bash(lua5.1 -e \"loadfile\\(''src/systems/roulette.lua''\\)\")",
+      "Bash(lua5.1 -e \"loadfile\\(''src/ui/casino_fx.lua''\\)\")",
+      "mcp__pixellab__create_map_object",
+      "mcp__pixellab__create_tiles_pro",
+      "mcp__pixellab__get_map_object",
+      "mcp__pixellab__get_tiles_pro",
+      "mcp__pixellab__list_tiles_pro",
+      "Bash(grep -o \"\"object_id\"\"[^}]* C:/Users/lucstr01/.claude/projects/C--github-cowboygameboy/766d1623-057f-4c53-90de-d888b52da0ce.jsonl)",
+      "Bash(curl --fail -o chip_white.png \"https://backblaze.pixellab.ai/file/pixellab-tiles/0a1d5c2c-293a-46ed-b939-30a3b801a118/71119a4d-dc7d-49ad-8cfe-e88430cd4cbc/tile_0.png\")",
+      "Bash(curl --fail -o chip_red.png \"https://backblaze.pixellab.ai/file/pixellab-tiles/0a1d5c2c-293a-46ed-b939-30a3b801a118/71119a4d-dc7d-49ad-8cfe-e88430cd4cbc/tile_1.png\")",
+      "Bash(curl --fail -o chip_green.png \"https://backblaze.pixellab.ai/file/pixellab-tiles/0a1d5c2c-293a-46ed-b939-30a3b801a118/71119a4d-dc7d-49ad-8cfe-e88430cd4cbc/tile_2.png\")",
+      "Bash(curl --fail -o chip_blue.png \"https://backblaze.pixellab.ai/file/pixellab-tiles/0a1d5c2c-293a-46ed-b939-30a3b801a118/71119a4d-dc7d-49ad-8cfe-e88430cd4cbc/tile_3.png\")",
+      "Bash(curl --fail -o chip_black.png \"https://backblaze.pixellab.ai/file/pixellab-tiles/0a1d5c2c-293a-46ed-b939-30a3b801a118/71119a4d-dc7d-49ad-8cfe-e88430cd4cbc/tile_4.png\")",
+      "Bash(lua -e \"local f = loadfile\\(''src/systems/roulette.lua''\\); if f then print\\(''Lua parse OK''\\) else print\\(''Parse error''\\) end\")",
+      "Bash(luac -p src/systems/roulette.lua)",
+      "Bash(curl --fail -o \"C:/github/cowboygameboy/assets/sprites/roulette/table.png\" \"https://api.pixellab.ai/mcp/map-objects/a7ad1e31-a226-43da-b853-86575383db50/download\")",
+      "Bash(curl:*)",
+      "Bash(mkdir -p \"C:/github/cowboygameboy/assets/sprites/blackjack_dealer_table\")",
+      "Bash(unzip -o /tmp/dealer_table.zip)",
+      "Bash(cd:*)",
+      "Bash(python3 -c \"from PIL import Image; print\\(''Pillow available''\\)\")",
+      "Bash(pip install:*)",
+      "Bash(python3:*)"
     ]
   }
 }
