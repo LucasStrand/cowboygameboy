@@ -662,13 +662,7 @@ function game:draw()
         love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
     end
 
-    -- Dead eye indicator
-    if player.deadEyeTimer > 0 then
-        love.graphics.setColor(1, 0.2, 0.2, 0.2)
-        love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
-        love.graphics.setColor(1, 0.5, 0.2)
-        love.graphics.printf("DEAD EYE", 0, GAME_HEIGHT / 2 - 100, GAME_WIDTH, "center")
-    end
+    HUD.drawDeadEye(player)
 
     -- Debug overlay (F1)
     if DEBUG then

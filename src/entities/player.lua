@@ -561,6 +561,47 @@ function Player.filter(item, other)
 end
 
 function Player:draw()
+    local es = self:getEffectiveStats()
+    -- HP bar: always above the cowboy (world space; follows camera with player)
+    do
+        local hpRatio = math.max(0, math.min(1, self.hp / math.max(1, es.maxHP)))
+        local hbw, hbh = 56, 6
+        local hx = self.x + self.w * 0.5 - hbw * 0.5
+        local hy = self.y - 28
+        love.graphics.setColor(0, 0, 0, 0.4)
+        love.graphics.rectangle("fill", hx - 2, hy - 2, hbw + 4, hbh + 4)
+        love.graphics.setColor(0.14, 0.05, 0.05, 0.92)
+        love.graphics.rectangle("fill", hx, hy, hbw, hbh)
+        love.graphics.setColor(0.35, 0.1, 0.1)
+        love.graphics.rectangle("fill", hx, hy, hbw * hpRatio, hbh)
+        love.graphics.setColor(0.92, 0.22, 0.18)
+        love.graphics.rectangle("fill", hx, hy, hbw * hpRatio, hbh)
+        love.graphics.setColor(1, 0.5, 0.42, 0.55)
+        love.graphics.rectangle("fill", hx, hy, hbw * hpRatio, math.min(3, hbh))
+        love.graphics.setColor(0.95, 0.35, 0.28, 0.65)
+        love.graphics.rectangle("line", hx, hy, hbw, hbh)
+        love.graphics.setColor(1, 1, 1)
+    end
+
+    -- Reload progress: thin bar just under HP (world space)
+    if self.reloading then
+        local total = es.reloadSpeed
+        local pct = (total > 0) and (1 - self.reloadTimer / total) or 1
+        pct = math.max(0, math.min(1, pct))
+        local bw, bh = 48, 3
+        local bx = self.x + self.w * 0.5 - bw * 0.5
+        local by = self.y - 18
+        love.graphics.setColor(0, 0, 0, 0.28)
+        love.graphics.rectangle("fill", bx - 1, by - 1, bw + 2, bh + 2)
+        love.graphics.setColor(0.2, 0.18, 0.16, 0.45)
+        love.graphics.rectangle("fill", bx, by, bw, bh)
+        love.graphics.setColor(0.42, 0.36, 0.26, 0.55)
+        love.graphics.rectangle("fill", bx, by, bw * pct, bh)
+        love.graphics.setColor(0.65, 0.58, 0.42, 0.35)
+        love.graphics.rectangle("line", bx, by, bw, bh)
+        love.graphics.setColor(1, 1, 1)
+    end
+
     local t = love.timer.getTime()
     -- Smash-style energy bubble while blocking (drawn behind the fighter)
     if self.blocking and self.gear.shield then
