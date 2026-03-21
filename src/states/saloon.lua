@@ -191,7 +191,7 @@ local function openDevPanel()
     devPanelOpen = true
     characterSheetOpen = false
     devPanelScroll = 0
-    devPanelRows = DevPanel.buildRows(devShowHitboxes)
+    devPanelRows = DevPanel.buildRows({ showHitboxes = devShowHitboxes })
     if not saloon.devPanelTitleFont then
         saloon.devPanelTitleFont = Font.new(16)
     end
@@ -276,7 +276,7 @@ local function saloonDevApplyAction(id)
         DevLog.push("sys", "[dev] hurt 1")
     elseif id == "toggle_hitboxes" then
         devShowHitboxes = not devShowHitboxes
-        devPanelRows = DevPanel.buildRows(devShowHitboxes)
+        devPanelRows = DevPanel.buildRows({ showHitboxes = devShowHitboxes })
         devClampScroll()
         DevLog.push("sys", "[dev] hitboxes " .. (devShowHitboxes and "on" or "off"))
     elseif id == "toggle_god" then
@@ -669,7 +669,7 @@ function saloon:enter(_, _player, _roomManager)
     devPanelScroll = 0
     devPanelHover = nil
     devShowHitboxes = true
-    devPanelRows = DevPanel.buildRows(devShowHitboxes)
+    devPanelRows = DevPanel.buildRows({ showHitboxes = devShowHitboxes })
 end
 
 function saloon:leave()
