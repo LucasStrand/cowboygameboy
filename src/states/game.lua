@@ -538,6 +538,9 @@ function game:keypressed(key)
     if key == "f" then
         player:meleeAttack()
     end
+    if key == "h" then
+        player:spinHolster()
+    end
     if key == "e" then
         tryExitThroughDoor()
     end

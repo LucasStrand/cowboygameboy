@@ -17,7 +17,8 @@ local ANIMS = {
     jump    = { file = "draw.png",      frames = 1,  fps = 1,  loop = true, startFrame = 1 },
     fall    = { file = "draw.png",      frames = 1,  fps = 1,  loop = true, startFrame = 2 },
     shoot   = { file = "shoot.png",     frames = 5,  fps = 14, loop = false },
-    holster = { file = "holster.png",   frames = 8,  fps = 12, loop = false },
+    holster      = { file = "holster.png",      frames = 8,  fps = 12, loop = false },
+    holster_spin = { file = "holster_spin.png", frames = 14, fps = 14, loop = false },
     dash    = { file = "draw.png",      frames = 3,  fps = 16, loop = true, startFrame = 1 },
     melee   = { file = "quickdraw.png", frames = 6,  fps = 14, loop = false, startFrame = 1 },
 }

@@ -4,6 +4,27 @@ local PlatformCollision = require("src.systems.platform_collision")
 local Enemy = {}
 Enemy.__index = Enemy
 
+-- Bandit sprite constants
+local BANDIT_FRAME_H = 48
+local BANDIT_SPRITE_SCALE = 0.85
+local _banditSheet = nil
+local _banditQuads = nil
+local BANDIT_WALK_FRAMES = 8
+local BANDIT_WALK_FPS   = 10
+
+local function loadBanditSprite()
+    if _banditSheet then return end
+    _banditSheet = love.graphics.newImage("assets/sprites/bandit/walk.png")
+    _banditSheet:setFilter("nearest", "nearest")
+    local sw, sh = _banditSheet:getDimensions()
+    _banditQuads = {}
+    for i = 0, BANDIT_WALK_FRAMES - 1 do
+        _banditQuads[i + 1] = love.graphics.newQuad(
+            i * BANDIT_FRAME_H, 0, BANDIT_FRAME_H, BANDIT_FRAME_H, sw, sh
+        )
+    end
+end
+
 local ELITE_HP = 1.9
 local ELITE_DMG = 1.15
 local ELITE_LOOT = 1.75
@@ -68,6 +89,14 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     self.swoopTarget = nil
     self.homeY = y
 
+    -- Bandit sprite animation
+    if typeId == "bandit" then
+        loadBanditSprite()
+        self.spriteFrame = 1
+        self.spriteTimer = 0
+        self.attackAnimTimer = 0  -- counts down during slash visual
+    end
+
     return self
 end
 
@@ -82,6 +111,26 @@ function Enemy:update(dt, world, playerX, playerY)
     local dist = math.sqrt(dx * dx + dy * dy)
 
     self.facingRight = dx > 0
+
+    -- Update bandit attack animation timer
+    if self.attackAnimTimer and self.attackAnimTimer > 0 then
+        self.attackAnimTimer = self.attackAnimTimer - dt
+    end
+
+    -- Update bandit walk animation
+    if self.spriteTimer then
+        if math.abs(self.vx) > 10 then
+            self.spriteTimer = self.spriteTimer + dt
+            local interval = 1 / BANDIT_WALK_FPS
+            if self.spriteTimer >= interval then
+                self.spriteTimer = self.spriteTimer - interval
+                self.spriteFrame = (self.spriteFrame % BANDIT_WALK_FRAMES) + 1
+            end
+        else
+            self.spriteFrame = 1
+            self.spriteTimer = 0
+        end
+    end
 
     local bulletsToSpawn = nil
 
@@ -368,6 +417,9 @@ function Enemy:onContactDamage()
     if self.behavior == "melee" or self.behavior == "flying" then
         self.attackTimer = self.attackCooldown
     end
+    if self.attackAnimTimer then
+        self.attackAnimTimer = 0.3
+    end
 end
 
 function Enemy.filter(item, other)
@@ -392,27 +444,68 @@ end
 function Enemy:draw()
     if not self.alive then return end
     local c = self.color
-    if self.hurtTimer > 0 then
-        love.graphics.setColor(1, 1, 1)
-    else
-        love.graphics.setColor(c[1], c[2], c[3])
-    end
 
-    if self.elite then
+    if self.elite and self.typeId ~= "bandit" then
         love.graphics.setColor(0.92, 0.72, 0.15)
         love.graphics.rectangle("line", self.x - 2, self.y - 2, self.w + 4, self.h + 4)
-        if self.hurtTimer <= 0 then
-            love.graphics.setColor(c[1], c[2], c[3])
-        else
-            love.graphics.setColor(1, 1, 1)
-        end
     end
 
-    love.graphics.rectangle("fill", self.x, self.y, self.w, self.h)
+    -- Bandit: draw sprite instead of rectangle
+    if self.typeId == "bandit" and _banditSheet then
+        local quad = _banditQuads[self.spriteFrame]
+        if quad then
+            if self.hurtTimer > 0 then
+                love.graphics.setColor(1, 0.4, 0.4)
+            else
+                love.graphics.setColor(1, 1, 1)
+            end
+            local scaledW = BANDIT_FRAME_H * BANDIT_SPRITE_SCALE
+            local scaledH = BANDIT_FRAME_H * BANDIT_SPRITE_SCALE
+            local cx = self.x + self.w / 2
+            local footY = self.y + self.h
 
-    -- Simple hat for all enemies
-    love.graphics.setColor(c[1] * 0.6, c[2] * 0.6, c[3] * 0.6)
-    love.graphics.rectangle("fill", self.x - 2, self.y - 4, self.w + 4, 4)
+            -- Lunge forward during attack
+            local attacking = self.attackAnimTimer and self.attackAnimTimer > 0
+            local lungeOffset = 0
+            if attacking then
+                local t = self.attackAnimTimer / 0.3  -- 1→0
+                lungeOffset = math.sin(t * math.pi) * 6
+                if not self.facingRight then lungeOffset = -lungeOffset end
+            end
+
+            local drawX = cx - scaledW / 2 + lungeOffset
+            local drawY = footY - scaledH
+            local sx = self.facingRight and BANDIT_SPRITE_SCALE or -BANDIT_SPRITE_SCALE
+            local flipShift = self.facingRight and 0 or scaledW
+            love.graphics.draw(_banditSheet, quad, drawX + flipShift, drawY, 0, sx, BANDIT_SPRITE_SCALE)
+
+            -- Slash arc during attack
+            if attacking then
+                local t = self.attackAnimTimer / 0.3
+                local alpha = t  -- fades out
+                local dir = self.facingRight and 1 or -1
+                local arcCx = cx + dir * 16
+                local arcCy = self.y + self.h * 0.4
+                local radius = 12
+                local startAngle = self.facingRight and -math.pi * 0.6 or math.pi * 0.4
+                local sweep = math.pi * 0.8 * (1 - t)  -- grows as timer counts down
+                love.graphics.setColor(1, 0.95, 0.7, alpha * 0.9)
+                love.graphics.setLineWidth(2)
+                love.graphics.arc("line", "open", arcCx, arcCy, radius, startAngle, startAngle + sweep * dir, 8)
+                love.graphics.setLineWidth(1)
+            end
+        end
+    else
+        if self.hurtTimer > 0 then
+            love.graphics.setColor(1, 1, 1)
+        else
+            love.graphics.setColor(c[1], c[2], c[3])
+        end
+        love.graphics.rectangle("fill", self.x, self.y, self.w, self.h)
+        -- Simple hat for non-sprite enemies
+        love.graphics.setColor(c[1] * 0.6, c[2] * 0.6, c[3] * 0.6)
+        love.graphics.rectangle("fill", self.x - 2, self.y - 4, self.w + 4, 4)
+    end
 
     -- HP bar
     if self.hp < self.maxHP then

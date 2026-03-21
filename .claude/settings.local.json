@@ -9,7 +9,10 @@
       "Bash(do echo:*)",
       "Bash(xxd -l 30 \"$f\")",
       "Bash(done)",
-      "Bash(timeout 5 love .)"
+      "Bash(timeout 5 love .)",
+      "Bash(identify \"C:/github/cowboygameboy/assets/Cowboy \\(Animated Pixel Art\\)/Bandit pixel art/BanditWalking.png\")",
+      "Bash(python3 -c \"from PIL import Image; img=Image.open\\(''C:/github/cowboygameboy/assets/Cowboy \\(Animated Pixel Art\\)/Bandit pixel art/BanditWalking.png''\\); print\\(img.size\\)\")",
+      "Bash(love --version)"
     ]
   }
 }
