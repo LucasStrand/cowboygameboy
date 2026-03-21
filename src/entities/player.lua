@@ -45,6 +45,8 @@ function Player.new(x, y)
         damageMultiplier = 1.0,
         armor = 0,
         luck = 0,
+        -- Distance at which pickups on the ground start moving toward the player
+        pickupRadius = 20,
         reloadSpeed = 1.2,
         cylinderSize = 6,
         bulletSpeed = 500,
@@ -499,7 +501,7 @@ function Player:takeDamage(amount)
         debugLog(string.format("Took %d dmg  HP %d→%d%s", finalDamage, self.hp + finalDamage, self.hp, suffix))
     end
 
-    return true
+    return true, finalDamage
 end
 
 function Player:heal(amount)

@@ -3,12 +3,14 @@ local Camera = require("lib.hump.camera")
 local bump = require("lib.bump")
 
 local Player = require("src.entities.player")
+local Enemy  = require("src.entities.enemy")
 local Pickup = require("src.entities.pickup")
 
 local Combat = require("src.systems.combat")
 local RoomManager = require("src.systems.room_manager")
 local HUD    = require("src.ui.hud")
 local DevLog = require("src.ui.devlog")
+local DamageNumbers = require("src.ui.damage_numbers")
 
 local game = {}
 
@@ -29,6 +31,34 @@ local transitionTimer
 local paused
 -- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
 local offScreenEnemyHintActive = false
+
+local function pendingEnemiesIncoming()
+    return currentRoom and currentRoom.pendingEnemySpawns and #currentRoom.pendingEnemySpawns > 0
+end
+
+local function roomHasLivingThreat()
+    return #enemies > 0 or pendingEnemiesIncoming()
+end
+
+local function processPendingEnemySpawns(dt)
+    if not currentRoom or not currentRoom.pendingEnemySpawns or not roomManager then return end
+    local q = currentRoom.pendingEnemySpawns
+    local i = 1
+    while i <= #q do
+        local e = q[i]
+        e.time = e.time - dt
+        if e.time <= 0 then
+            local enemy = Enemy.new(e.type, e.x, e.y, roomManager.difficulty, { elite = e.elite })
+            table.remove(q, i)
+            if enemy then
+                world:add(enemy, enemy.x, enemy.y, enemy.w, enemy.h)
+                table.insert(enemies, enemy)
+            end
+        else
+            i = i + 1
+        end
+    end
+end
 
 -- Route the global debugLog used by combat.lua → DevLog combat category
 function debugLog(msg)
@@ -217,6 +247,7 @@ function game:enter()
 end
 
 function loadNextRoom()
+    DamageNumbers.clear()
     -- Remove every bump body (forward loop on a stale snapshot can skip items → broken transitions)
     while world:countItems() > 0 do
         local items, n = world:getItems()
@@ -280,6 +311,8 @@ function game:update(dt)
         end
         return
     end
+
+    processPendingEnemySpawns(dt)
 
     -- Aim point in world (same coords as shooting) for omnidirectional melee
     do
@@ -356,6 +389,8 @@ function game:update(dt)
     -- Contact damage
     Combat.checkContactDamage(enemies, player)
 
+    DamageNumbers.update(dt)
+
     -- Pickups update
     for _, p in ipairs(pickups) do
         p:update(dt, world, player.x + player.w / 2, player.y + player.h / 2)
@@ -384,8 +419,8 @@ function game:update(dt)
         Gamestate.push(levelup, player, function() end)
     end
 
-    -- Check if all enemies dead -> open door
-    if #enemies == 0 and not doorOpen and currentRoom then
+    -- Check if all enemies dead (and no staggered spawns left) -> open door
+    if #enemies == 0 and not doorOpen and currentRoom and not pendingEnemiesIncoming() then
         doorOpen = true
         if currentRoom.door then
             currentRoom.door.locked = false
@@ -394,9 +429,9 @@ function game:update(dt)
     end
 
     -- Latch off-screen enemy hints: touch locked exit once, keep arrows until room clears
-    if doorOpen or #enemies == 0 then
+    if doorOpen or (#enemies == 0 and not pendingEnemiesIncoming()) then
         offScreenEnemyHintActive = false
-    elseif currentRoom and currentRoom.door and not doorOpen and #enemies > 0 and playerOverlapsDoorAABB() then
+    elseif currentRoom and currentRoom.door and not doorOpen and roomHasLivingThreat() and playerOverlapsDoorAABB() then
         offScreenEnemyHintActive = true
     end
 
@@ -560,7 +595,7 @@ function game:draw()
             love.graphics.setColor(0.8, 0.7, 0.4)
             love.graphics.rectangle("line", door.x, door.y, door.w, door.h)
 
-            if not doorOpen and #enemies > 0 then
+            if not doorOpen and roomHasLivingThreat() then
                 love.graphics.setColor(1, 0.85, 0.35, 0.75)
                 love.graphics.printf("Locked", door.x - 16, door.y - 18, door.w + 32, "center")
             end
@@ -593,6 +628,8 @@ function game:draw()
     for _, b in ipairs(bullets) do
         b:draw()
     end
+
+    DamageNumbers.draw()
 
     -- Debug
     if DEBUG then

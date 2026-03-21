@@ -206,15 +206,25 @@ function RoomManager:loadRoom(room, world, player)
     table.insert(walls, rightWall)
     table.insert(walls, ceiling)
 
-    -- Spawn enemies
+    -- Spawn enemies (extra spawns + staggered arrivals handled in game state)
     local enemies = {}
-    local spawns = RoomData.getSpawnsForDifficulty(room, self.difficulty)
-    for _, spawn in ipairs(spawns) do
-        local enemy = Enemy.new(spawn.type, spawn.x, spawn.y, self.difficulty)
+    local pendingEnemySpawns = {}
+    local plan = RoomData.buildSpawnPlan(room, self.difficulty, player.level or 1)
+    for _, spawn in ipairs(plan.immediate) do
+        local enemy = Enemy.new(spawn.type, spawn.x, spawn.y, self.difficulty, { elite = spawn.elite })
         if enemy then
             world:add(enemy, enemy.x, enemy.y, enemy.w, enemy.h)
             table.insert(enemies, enemy)
         end
+    end
+    for _, spawn in ipairs(plan.delayed) do
+        table.insert(pendingEnemySpawns, {
+            type = spawn.type,
+            x = spawn.x,
+            y = spawn.y,
+            elite = spawn.elite,
+            time = spawn.delay or 0.5,
+        })
     end
 
     -- Exit door
@@ -239,6 +249,7 @@ function RoomManager:loadRoom(room, world, player)
         platforms = platforms,
         walls = walls,
         enemies = enemies,
+        pendingEnemySpawns = pendingEnemySpawns,
         door = door,
         width = room.width,
         height = room.height,
