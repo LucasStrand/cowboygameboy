@@ -1,3 +1,5 @@
+local ImpactFX = require("src.systems.impact_fx")
+
 local Bullet = {}
 Bullet.__index = Bullet
 
@@ -66,6 +68,7 @@ function Bullet:update(dt, world)
                 if debugLog then debugLog("Ricochet bounce (" .. self.ricochet .. " left)") end
                 return
             else
+                ImpactFX.spawn(self.x + self.w / 2, self.y + self.h / 2, "hit_wall")
                 self.alive = false
                 return
             end

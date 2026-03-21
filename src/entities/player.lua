@@ -400,7 +400,7 @@ function Player:update(dt, world, enemies)
         anim:play("holster", true)
     end
     local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee"
-                            or anim.current == "holster") and not anim.done
+                            or anim.current == "holster" or anim.current == "holster_spin") and not anim.done
     if not oneShotPlaying then
         if self.dashTimer > 0 then
             anim:play("dash")
@@ -572,6 +572,15 @@ function Player:getMeleeHitboxAABB(angle)
     return minx, miny, maxx - minx, maxy - miny
 end
 
+function Player:spinHolster()
+    local anim = self.anim
+    -- Only play if no one-shot animation is active
+    local busy = (anim.current == "shoot" or anim.current == "melee"
+                  or anim.current == "holster" or anim.current == "holster_spin") and not anim.done
+    if busy then return end
+    anim:play("holster_spin", true)
+end
+
 function Player:meleeAttack(aimX, aimY)
     local s = self:getEffectiveStats()
     if self.meleeCooldown > 0 or s.meleeDamage <= 0 then return false end
@@ -614,6 +623,7 @@ function Player:reload()
     if self.ammo >= self:getEffectiveStats().cylinderSize then return end
     self.reloading = true
     self.reloadTimer = self:getEffectiveStats().reloadSpeed
+    self.anim:play("holster_spin", true)
 end
 
 function Player:takeDamage(amount)
