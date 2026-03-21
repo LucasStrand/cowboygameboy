@@ -1,11 +1,13 @@
 local RoomData = require("src.data.rooms")
+local RoomLoader = require("src.systems.room_loader")
+local Worlds = require("src.data.worlds")
 local Enemy = require("src.entities.enemy")
 local bump = require("lib.bump")
 
 local RoomManager = {}
 RoomManager.__index = RoomManager
 
-function RoomManager.new()
+function RoomManager.new(worldId)
     local self = setmetatable({}, RoomManager)
     self.currentRoomIndex = 0
     self.roomSequence = {}
@@ -13,13 +15,37 @@ function RoomManager.new()
     self.roomsCleared = 0
     self.totalRoomsCleared = 0
     self.checkpointReached = false
+    self.worldId = worldId or "forest"
+    self.worldDef = Worlds.get(self.worldId)
     return self
+end
+
+function RoomManager:setWorld(worldId)
+    self.worldId = worldId
+    self.worldDef = Worlds.get(worldId)
+end
+
+--- Get the active theme table for rendering (includes _atlasPath).
+function RoomManager:getTheme()
+    if not self.worldDef then return nil end
+    local theme = {}
+    for k, v in pairs(self.worldDef.theme) do
+        theme[k] = v
+    end
+    theme._atlasPath = self.worldDef.tileAtlas
+    return theme
 end
 
 function RoomManager:generateSequence()
     self.roomSequence = {}
-    local pool = RoomData.pool
-    for i = 1, RoomData.ROOMS_PER_CHECKPOINT do
+    local pool = RoomLoader.getPool(self.worldId)
+    if #pool == 0 then
+        -- Fallback to legacy pool
+        pool = RoomData.pool or {}
+    end
+    local roomsPerCheckpoint = (self.worldDef and self.worldDef.roomsPerCheckpoint)
+        or RoomData.ROOMS_PER_CHECKPOINT
+    for i = 1, roomsPerCheckpoint do
         local room = pool[math.random(#pool)]
         table.insert(self.roomSequence, room)
     end
@@ -59,7 +85,6 @@ local function mergeFloorSegments(segs)
     return merged
 end
 
--- Vertical rise per hop: double jump with default stats (~-380 vy, g 900) ≈ 130–145px; use margin.
 local MAX_JUMP_TIER = 138
 local STEP_W = 56
 local STEP_H = 16
@@ -75,7 +100,6 @@ local function overlapCenterX(a, b)
     return (x0 + x1) / 2
 end
 
---- Nearest walkable surface strictly below `upper` (higher y), preferring small vertical gap.
 local function findLandingBelow(upper, list, slack)
     local best, bestY = nil, math.huge
     for _, p in ipairs(list) do
@@ -145,7 +169,6 @@ local function addJumpChainsIfNeeded(room, world, platforms)
 end
 
 function RoomManager:loadRoom(room, world, player, opts)
-    -- Add platform colliders (thin ledges are one-way; thick floors are solid)
     local platforms = {}
     for _, plat in ipairs(room.platforms) do
         local oneWay = plat.oneWay
@@ -161,7 +184,6 @@ function RoomManager:loadRoom(room, world, player, opts)
         table.insert(platforms, p)
     end
 
-    -- Auto-bridge walkable gaps between thick floor segments so the level stays traversable
     local floorBand = room.height - 110
     local segs = {}
     for _, plat in ipairs(room.platforms) do
@@ -190,10 +212,8 @@ function RoomManager:loadRoom(room, world, player, opts)
         end
     end
 
-    -- One-way stepping ledges so every platform top is reachable with double-jump tiers (~138px each).
     addJumpChainsIfNeeded(room, world, platforms)
 
-    -- Add walls (left, right, ceiling) — extra tall to cover camera overshoot
     local walls = {}
     local wallH = room.height + 400
     local leftWall  = {x = -32, y = -200, w = 32, h = wallH, isWall = true}
@@ -206,7 +226,6 @@ function RoomManager:loadRoom(room, world, player, opts)
     table.insert(walls, rightWall)
     table.insert(walls, ceiling)
 
-    -- Spawn enemies (extra spawns + staggered arrivals handled in game state)
     local enemies = {}
     local pendingEnemySpawns = {}
     if not (opts and opts.skipEnemies) then
@@ -229,7 +248,6 @@ function RoomManager:loadRoom(room, world, player, opts)
         end
     end
 
-    -- Exit door
     local door = {
         x = room.exitDoor.x,
         y = room.exitDoor.y,
@@ -240,7 +258,6 @@ function RoomManager:loadRoom(room, world, player, opts)
     }
     world:add(door, door.x, door.y, door.w, door.h)
 
-    -- Position player
     player.x = room.playerSpawn.x
     player.y = room.playerSpawn.y
     player.vx = 0
@@ -265,7 +282,9 @@ function RoomManager:onRoomCleared()
 end
 
 function RoomManager:isCheckpoint()
-    return self.roomsCleared >= RoomData.ROOMS_PER_CHECKPOINT
+    local roomsPerCheckpoint = (self.worldDef and self.worldDef.roomsPerCheckpoint)
+        or RoomData.ROOMS_PER_CHECKPOINT
+    return self.roomsCleared >= roomsPerCheckpoint
 end
 
 function RoomManager:startNewCycle()

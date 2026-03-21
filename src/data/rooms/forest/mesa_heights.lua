@@ -1,0 +1,46 @@
+return {
+    id = "mesa_heights",
+    world = "forest",
+    width = 2600,
+    height = 900,
+    platforms = {
+        -- Ground
+        {x = 0,    y = 836, w = 400,  h = 64},
+        {x = 500,  y = 836, w = 300,  h = 64},
+        {x = 900,  y = 836, w = 500,  h = 64},
+        {x = 1500, y = 836, w = 400,  h = 64},
+        {x = 2000, y = 836, w = 600,  h = 64},
+        -- Mesa (big raised platforms)
+        {x = 200,  y = 680, w = 300, h = 32},
+        {x = 900,  y = 640, w = 350, h = 32},
+        {x = 1600, y = 660, w = 280, h = 32},
+        {x = 2200, y = 680, w = 250, h = 32},
+        -- Scattered high
+        {x = 100,  y = 540, w = 100, h = 16},
+        {x = 450,  y = 500, w = 120, h = 16},
+        {x = 750,  y = 480, w = 100, h = 16},
+        {x = 1100, y = 460, w = 140, h = 16},
+        {x = 1400, y = 500, w = 100, h = 16},
+        {x = 1750, y = 480, w = 120, h = 16},
+        {x = 2050, y = 520, w = 100, h = 16},
+        {x = 2350, y = 500, w = 120, h = 16},
+        -- Sky platforms
+        {x = 300,  y = 360, w = 80, h = 16},
+        {x = 600,  y = 320, w = 100, h = 16},
+        {x = 1000, y = 340, w = 80, h = 16},
+        {x = 1300, y = 360, w = 100, h = 16},
+        {x = 1900, y = 340, w = 80, h = 16},
+        {x = 2300, y = 360, w = 100, h = 16},
+    },
+    spawns = {
+        {x = 350,  y = 780, type = "bandit"},
+        {x = 700,  y = 780, type = "gunslinger"},
+        {x = 1100, y = 580, type = "gunslinger"},
+        {x = 1600, y = 780, type = "bandit"},
+        {x = 2100, y = 780, type = "bandit"},
+        {x = 800,  y = 400, type = "buzzard"},
+        {x = 1800, y = 400, type = "buzzard"},
+    },
+    playerSpawn = {x = 80, y = 780},
+    exitDoor = {x = 2540, y = 804, w = 32, h = 32},
+}
