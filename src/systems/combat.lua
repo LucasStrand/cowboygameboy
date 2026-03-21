@@ -1,7 +1,16 @@
 local Bullet = require("src.entities.bullet")
 local Pickup = require("src.entities.pickup")
+local DamageNumbers = require("src.ui.damage_numbers")
 
 local Combat = {}
+
+-- Must be this close to the player (after attraction) to collect
+local PICKUP_COLLECT_RADIUS = 26
+
+local function pickupAttractRadius(player)
+    local s = player:getEffectiveStats()
+    return math.max(48, (s.pickupRadius or 180) + (s.luck or 0) * 3)
+end
 
 function Combat.spawnBullet(world, data)
     local b = Bullet.new(data)
@@ -17,7 +26,10 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
         b:update(dt, world)
 
         if b.hitEnemy then
+            local hitX = b.x + b.w / 2
+            local hitY = b.y + b.h / 2
             b.hitEnemy:takeDamage(b.damage, world)
+            DamageNumbers.spawn(hitX, hitY, b.damage, "out")
 
             -- Explosive rounds: AOE damage to nearby enemies
             if b.explosive and not b.fromEnemy then
@@ -33,6 +45,7 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
                         local dist = math.sqrt((ex - bx)^2 + (ey - by)^2)
                         if dist <= explosionRadius then
                             e:takeDamage(aoeDamage, world)
+                            DamageNumbers.spawn(ex, ey - 4, aoeDamage, "out")
                             aoeHits = aoeHits + 1
                         end
                     end
@@ -44,7 +57,10 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
         end
 
         if b.hitPlayer then
-            player:takeDamage(b.damage)
+            local ok, dmg = player:takeDamage(b.damage)
+            if ok then
+                DamageNumbers.spawn(b.x + b.w / 2, b.y + b.h / 2, dmg, "in")
+            end
         end
 
         if not b.alive then
@@ -103,7 +119,11 @@ end
 function Combat.checkMeleeEnemies(enemies, player)
     for _, enemy in ipairs(enemies) do
         if enemy.alive and enemy:canDamagePlayer(player.x, player.y, player.w, player.h) then
-            if player:takeDamage(enemy.damage) then
+            local ok, dmg = player:takeDamage(enemy.damage)
+            if ok then
+                local mx = (enemy.x + enemy.w * 0.5 + player.x + player.w * 0.5) * 0.5
+                local my = (enemy.y + enemy.h * 0.5 + player.y + player.h * 0.5) * 0.5
+                DamageNumbers.spawn(mx, my, dmg, "in")
                 enemy:onContactDamage()
             end
         end
@@ -119,8 +139,13 @@ function Combat.checkContactDamage(enemies, player)
                 local px = player.x + player.w / 2
                 local py = player.y + player.h / 2
                 local dist = math.sqrt((ex - px)^2 + (ey - py)^2)
-                if dist <= enemy.attackRange then
-                    if player:takeDamage(enemy.damage) then
+                local hitR = enemy.contactRange or enemy.attackRange
+                if dist <= hitR then
+                    local ok, dmg = player:takeDamage(enemy.damage)
+                    if ok then
+                        local mx = (ex + px) * 0.5
+                        local my = (ey + py) * 0.5
+                        DamageNumbers.spawn(mx, my, dmg, "in")
                         enemy:onContactDamage()
                     else
                         -- Player has iframes but enemy is in range; don't waste the cooldown
@@ -217,6 +242,7 @@ function Combat.checkPlayerMelee(player, enemies)
             if hx < e.x + e.w and hx + hw > e.x and
                hy < e.y + e.h and hy + hh > e.y then
                 e:takeDamage(dmg, nil)
+                DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, dmg, "out")
                 player.meleeHitEnemies[e] = true
                 player.meleeHitFlashTimer = 0.2
                 -- Knockback along melee aim (same axis as the swing / shot)
@@ -233,6 +259,7 @@ end
 
 function Combat.checkPickups(pickups, player)
     local leveledUp = false
+    local attractR = pickupAttractRadius(player)
     local i = 1
     while i <= #pickups do
         local p = pickups[i]
@@ -242,17 +269,22 @@ function Combat.checkPickups(pickups, player)
         local dy = (p.y + p.h / 2) - py
         local dist = math.sqrt(dx * dx + dy * dy)
 
-        if dist < 180 then
+        if dist < attractR then
             p.attracted = true
         end
 
-        if p.attracted and dist < 24 then
+        if p.attracted and dist < PICKUP_COLLECT_RADIUS then
+            local cx = p.x + p.w / 2
+            local cy = p.y + p.h / 2
             if p.pickupType == "xp" then
                 leveledUp = player:addXP(p.value) or leveledUp
+                DamageNumbers.spawnPickup(cx, cy, p.value, "xp")
             elseif p.pickupType == "gold" then
                 player:addGold(p.value)
+                DamageNumbers.spawnPickup(cx, cy, p.value, "gold")
             elseif p.pickupType == "health" then
                 player:heal(p.value)
+                DamageNumbers.spawnPickup(cx, cy, p.value, "health")
             end
             p.alive = false
         end

@@ -1,4 +1,5 @@
 local Gamestate = require("lib.hump.gamestate")
+local Font = require("src.ui.font")
 local Blackjack = require("src.systems.blackjack")
 local Shop = require("src.systems.shop")
 local Perks = require("src.data.perks")
@@ -30,12 +31,12 @@ function saloon:enter(_, _player, _roomManager)
     perkOptions = nil
     hoveredPerk = nil
 
-    fonts.title = love.graphics.newFont(36)
-    fonts.stat = love.graphics.newFont(18)
-    fonts.body = love.graphics.newFont(16)
-    fonts.card = love.graphics.newFont(20)
-    fonts.shopTitle = love.graphics.newFont(24)
-    fonts.default = love.graphics.newFont(12)
+    fonts.title = Font.new(36)
+    fonts.stat = Font.new(18)
+    fonts.body = Font.new(16)
+    fonts.card = Font.new(20)
+    fonts.shopTitle = Font.new(24)
+    fonts.default = Font.new(12)
 end
 
 function saloon:update(dt)

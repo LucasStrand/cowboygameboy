@@ -1,4 +1,5 @@
 local Gamestate = require("lib.hump.gamestate")
+local Font = require("src.ui.font")
 
 local menu = {}
 
@@ -9,11 +10,11 @@ local fonts = {}
 function menu:enter()
     titleTimer = 0
     flickerTimer = 0
-    fonts.title = love.graphics.newFont(48)
-    fonts.subtitle = love.graphics.newFont(16)
-    fonts.prompt = love.graphics.newFont(20)
-    fonts.hint = love.graphics.newFont(14)
-    fonts.default = love.graphics.newFont(12)
+    fonts.title = Font.new(48)
+    fonts.subtitle = Font.new(16)
+    fonts.prompt = Font.new(20)
+    fonts.hint = Font.new(14)
+    fonts.default = Font.new(12)
 end
 
 function menu:update(dt)
@@ -67,7 +68,7 @@ function menu:draw()
     love.graphics.setColor(0.5, 0.5, 0.5)
     love.graphics.setFont(fonts.hint)
     love.graphics.printf("A/D - Move  |  SPACE - Jump  |  SHIFT - Dash  |  CTRL - Shield  |  F - Melee (aim w/ mouse)  |  E - Exit", 0, screenH * 0.70, screenW, "center")
-    love.graphics.printf("LMB shoot  |  RMB slots: auto gun/melee (+ shield only if shield allows)  |  R reload  |  F1 debug", 0, screenH * 0.76, screenW, "center")
+    love.graphics.printf("LMB (auto off)  |  Auto gun + mouse overrides aim  |  RMB: auto toggles  |  R reload  |  F1 debug", 0, screenH * 0.76, screenW, "center")
 
     love.graphics.setColor(1, 1, 1)
     love.graphics.setFont(fonts.default)

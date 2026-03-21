@@ -3,10 +3,10 @@ local EnemyData = {}
 EnemyData.types = {
     bandit = {
         name = "Bandit",
-        hp = 30,
-        damage = 10,
-        speed = 120,
-        xpValue = 15,
+        hp = 22,
+        damage = 8,
+        speed = 168,
+        xpValue = 12,
         goldValue = 5,
         width = 20,
         height = 28,
@@ -14,6 +14,8 @@ EnemyData.types = {
         behavior = "melee",
         attackRange = 24,
         attackCooldown = 0.8,
+        -- Only chase / commit when player is this close (reduces whole-map swarms)
+        aggroRange = 210,
     },
     gunslinger = {
         name = "Gunslinger",
@@ -29,6 +31,7 @@ EnemyData.types = {
         attackRange = 300,
         attackCooldown = 1.5,
         bulletSpeed = 250,
+        aggroRange = 300,
     },
     buzzard = {
         name = "Buzzard",
@@ -41,9 +44,13 @@ EnemyData.types = {
         height = 16,
         color = {0.5, 0.4, 0.2},
         behavior = "flying",
+        -- Swoop / aggro window (large)
         attackRange = 200,
+        -- Actual body contact — must match small hitbox; do not reuse attackRange here
+        contactRange = 26,
         attackCooldown = 2.0,
         swoopSpeed = 280,
+        aggroRange = 230,
     },
 }
 

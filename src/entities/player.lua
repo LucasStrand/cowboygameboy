@@ -20,6 +20,22 @@ local DASH_SPEED = 520
 local DASH_DURATION = 0.12
 local DASH_COOLDOWN = 0.52
 
+-- Face sprite toward horizontal aim; small deadzone only when aim is ~through torso
+local AIM_FACE_DEADZONE = 3
+
+-- Head/gun draw: turn relative to body forward so we never flip the cowboy upside down
+local MAX_HEAD_TURN = 1.32 -- ~75° each way from facing
+
+local function angleWrapPi(a)
+    while a > math.pi do a = a - 2 * math.pi end
+    while a < -math.pi do a = a + 2 * math.pi end
+    return a
+end
+
+local function angleDiff(a, b)
+    return angleWrapPi(a - b)
+end
+
 function Player.new(x, y)
     local self = setmetatable({}, Player)
     self.x = x
@@ -46,6 +62,8 @@ function Player.new(x, y)
         damageMultiplier = 1.0,
         armor = 0,
         luck = 0,
+        -- Distance at which pickups on the ground start moving toward the player
+        pickupRadius = 20,
         reloadSpeed = 1.2,
         cylinderSize = 6,
         bulletSpeed = 500,
@@ -105,7 +123,13 @@ function Player.new(x, y)
     self.aimWorldX = 0
     self.aimWorldY = 0
 
-    -- Loadout automation (toggled via HUD right-click). Gun + melee on by default.
+    -- Set in game state: cursor aim, auto-target, or cursor fallback — drives gun/head angle + crosshair.
+    self.effectiveAimX = nil
+    self.effectiveAimY = nil
+    -- While > love.timer.getTime(), shooting uses mouse aim instead of findAutoTarget.
+    self.mouseAimOverrideUntil = 0
+
+    -- Loadout automation (toggled via HUD right-click). Auto gun + mouse overrides aim while active.
     -- Shield auto-block only applies when equipped shield has stats.allowAutoBlock.
     self.autoGun   = true
     self.autoMelee = true
@@ -236,19 +260,37 @@ function Player:update(dt, world, enemies)
     end
 
     -- Horizontal movement (dash overrides walk; rooted block = no move)
+    local moveLeft = love.keyboard.isDown("a") or love.keyboard.isDown("left")
+    local moveRight = love.keyboard.isDown("d") or love.keyboard.isDown("right")
     if self.dashTimer > 0 and not blockRooted then
         self.vx = self.dashDir * DASH_SPEED
     elseif blockRooted then
         self.vx = 0
     else
         self.vx = 0
-        if love.keyboard.isDown("a") or love.keyboard.isDown("left") then
-            self.vx = -effectiveStats.moveSpeed
-            self.facingRight = false
+        if moveLeft then
+            self.vx = self.vx - effectiveStats.moveSpeed
         end
-        if love.keyboard.isDown("d") or love.keyboard.isDown("right") then
-            self.vx = effectiveStats.moveSpeed
+        if moveRight then
+            self.vx = self.vx + effectiveStats.moveSpeed
+        end
+    end
+
+    -- Facing follows effective aim (game: auto-target or cursor), not walk direction alone
+    do
+        local cx = self.x + self.w * 0.5
+        local ax = self.effectiveAimX or self.aimWorldX or cx
+        local aimDx = ax - cx
+        if math.abs(aimDx) > AIM_FACE_DEADZONE then
+            self.facingRight = aimDx > 0
+        elseif self.dashTimer > 0 and not blockRooted then
+            self.facingRight = self.dashDir > 0
+        elseif self.vx ~= 0 then
+            self.facingRight = self.vx > 0
+        elseif moveRight and not moveLeft then
             self.facingRight = true
+        elseif moveLeft and not moveRight then
+            self.facingRight = false
         end
     end
 
@@ -430,14 +472,33 @@ function Player:shoot(mx, my)
     return bullets
 end
 
---- Aim direction for melee when not locked into a swing (mouse world aim, else facing).
-function Player:getMeleeAimAngleLive()
+--- World angle (radians) from body center toward effective aim (auto target or cursor).
+function Player:getAimAngle()
     local cx = self.x + self.w * 0.5
     local cy = self.y + self.h * 0.5
-    if self.aimWorldX and self.aimWorldY then
-        return math.atan2(self.aimWorldY - cy, self.aimWorldX - cx)
+    local ax = self.effectiveAimX
+    local ay = self.effectiveAimY
+    if ax == nil or ay == nil then
+        ax = self.aimWorldX
+        ay = self.aimWorldY
+    end
+    if ax and ay then
+        return math.atan2(ay - cy, ax - cx)
     end
     return self.facingRight and 0 or math.pi
+end
+
+--- Tilt (radians) for head + gun vs body forward. Use with translate + optional scale(-1,1) — never rotate(π) or hat flips under the body.
+function Player:getHeadGunTilt()
+    local worldAim = self:getAimAngle()
+    local bodyAng = self.facingRight and 0 or math.pi
+    local rel = angleDiff(worldAim, bodyAng)
+    return math.max(-MAX_HEAD_TURN, math.min(MAX_HEAD_TURN, rel))
+end
+
+--- Aim direction for melee when not locked into a swing (mouse world aim, else facing).
+function Player:getMeleeAimAngleLive()
+    return self:getAimAngle()
 end
 
 -- Axis-aligned bounds of the oriented melee stroke at `angle` (radians).
@@ -536,7 +597,7 @@ function Player:takeDamage(amount)
         debugLog(string.format("Took %d dmg  HP %d→%d%s", finalDamage, self.hp + finalDamage, self.hp, suffix))
     end
 
-    return true
+    return true, finalDamage
 end
 
 function Player:heal(amount)
@@ -596,6 +657,26 @@ function Player.filter(item, other)
 end
 
 function Player:draw()
+    -- Reload progress: thin bar above the cowboy (world space)
+    if self.reloading then
+        local es = self:getEffectiveStats()
+        local total = es.reloadSpeed
+        local pct = (total > 0) and (1 - self.reloadTimer / total) or 1
+        pct = math.max(0, math.min(1, pct))
+        local bw, bh = 48, 3
+        local bx = self.x + self.w * 0.5 - bw * 0.5
+        local by = self.y - 16
+        love.graphics.setColor(0, 0, 0, 0.28)
+        love.graphics.rectangle("fill", bx - 1, by - 1, bw + 2, bh + 2)
+        love.graphics.setColor(0.2, 0.18, 0.16, 0.45)
+        love.graphics.rectangle("fill", bx, by, bw, bh)
+        love.graphics.setColor(0.42, 0.36, 0.26, 0.55)
+        love.graphics.rectangle("fill", bx, by, bw * pct, bh)
+        love.graphics.setColor(0.65, 0.58, 0.42, 0.35)
+        love.graphics.rectangle("line", bx, by, bw, bh)
+        love.graphics.setColor(1, 1, 1)
+    end
+
     local t = love.timer.getTime()
     -- Smash-style energy bubble while blocking (drawn behind the fighter)
     if self.blocking and self.gear.shield then

@@ -63,7 +63,7 @@ Difficulty rises as rooms are cleared (`RoomManager`), not only at the saloon.
 | **Gear** | Three slots: hat, vest, boots ([`src/data/gear.lua`](src/data/gear.lua), [`src/systems/inventory.lua`](src/systems/inventory.lua)) |
 | **UI** | HUD (HP, ammo cylinder, XP, gold), perk cards ([`src/ui/hud.lua`](src/ui/hud.lua), [`src/ui/perk_card.lua`](src/ui/perk_card.lua)) |
 | **Debug** | **F1** toggles global `DEBUG`; game state can append **`DEBUG_LOG`** lines ([`src/states/game.lua`](src/states/game.lua)) |
-| **Rendering** | Fixed **1280×720** canvas, **scale-to-cover** window fit, `windowToGame` for mouse ([`main.lua`](main.lua)) |
+| **Rendering** | Fixed **1280×720** game canvas; window is **letterboxed to a 1920×1080 (16:9) frame** (ultrawide gets side bars; game never stretches wider than 1080p-class 16:9). Canvas and UI fonts use **linear** filtering for smoother scaling; UI fonts via [`src/ui/font.lua`](src/ui/font.lua). `windowToGame` for mouse ([`main.lua`](main.lua)) |
 
 ---
 

@@ -3,12 +3,15 @@ local Camera = require("lib.hump.camera")
 local bump = require("lib.bump")
 
 local Player = require("src.entities.player")
+local Enemy  = require("src.entities.enemy")
 local Pickup = require("src.entities.pickup")
 
 local Combat = require("src.systems.combat")
 local RoomManager = require("src.systems.room_manager")
 local HUD    = require("src.ui.hud")
 local DevLog = require("src.ui.devlog")
+local DamageNumbers = require("src.ui.damage_numbers")
+local Font = require("src.ui.font")
 
 local game = {}
 
@@ -29,6 +32,68 @@ local transitionTimer
 local paused
 -- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
 local offScreenEnemyHintActive = false
+
+local function pendingEnemiesIncoming()
+    return currentRoom and currentRoom.pendingEnemySpawns and #currentRoom.pendingEnemySpawns > 0
+end
+
+local function roomHasLivingThreat()
+    return #enemies > 0 or pendingEnemiesIncoming()
+end
+
+local function processPendingEnemySpawns(dt)
+    if not currentRoom or not currentRoom.pendingEnemySpawns or not roomManager then return end
+    local q = currentRoom.pendingEnemySpawns
+    local i = 1
+    while i <= #q do
+        local e = q[i]
+        e.time = e.time - dt
+        if e.time <= 0 then
+            local enemy = Enemy.new(e.type, e.x, e.y, roomManager.difficulty, { elite = e.elite })
+            table.remove(q, i)
+            if enemy then
+                world:add(enemy, enemy.x, enemy.y, enemy.w, enemy.h)
+                table.insert(enemies, enemy)
+            end
+        else
+            i = i + 1
+        end
+    end
+end
+
+-- While LMB held, keep mouse aim overriding auto-target for shooting + visuals.
+local MOUSE_AIM_OVERRIDE_HOLD = 0.45
+
+local function refreshMouseAimOverride(pl)
+    if love.mouse.isDown(1) then
+        pl.mouseAimOverrideUntil = love.timer.getTime() + MOUSE_AIM_OVERRIDE_HOLD
+    end
+end
+
+local function drawAimCrosshair()
+    if not player then return end
+    local px = player.x + player.w * 0.5
+    local py = player.y + player.h * 0.5
+    local ax = player.effectiveAimX or player.aimWorldX
+    local ay = player.effectiveAimY or player.aimWorldY
+    local ang = math.atan2(ay - py, ax - px)
+    local cosA, sinA = math.cos(ang), math.sin(ang)
+    local len = 78
+    love.graphics.setColor(1, 0.92, 0.7, 0.28)
+    love.graphics.setLineWidth(1)
+    love.graphics.line(px, py, px + cosA * len, py + sinA * len)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+local function hasLivingEnemy()
+    for _, e in ipairs(enemies) do
+        if e.alive then
+            return true
+        end
+    end
+    return false
+end
 
 -- Route the global debugLog used by combat.lua → DevLog combat category
 function debugLog(msg)
@@ -217,6 +282,7 @@ function game:enter()
 end
 
 function loadNextRoom()
+    DamageNumbers.clear()
     -- Remove every bump body (forward loop on a stale snapshot can skip items → broken transitions)
     while world:countItems() > 0 do
         local items, n = world:getItems()
@@ -281,6 +347,8 @@ function game:update(dt)
         return
     end
 
+    processPendingEnemySpawns(dt)
+
     -- Aim point in world (same coords as shooting) for omnidirectional melee
     do
         local mx, my = love.mouse.getPosition()
@@ -290,17 +358,36 @@ function game:update(dt)
         player.aimWorldY = wy
     end
 
-    -- Player update
-    player:update(dt, world, enemies)
-
-    -- Auto-fire at optimal target (only when enemies are on screen; no gun while shielding)
     local camX, camY = camera:position()
     local halfW = GAME_WIDTH / (2 * CAM_ZOOM)
     local halfH = GAME_HEIGHT / (2 * CAM_ZOOM)
     local viewL, viewT = camX - halfW, camY - halfH
     local viewR, viewB = camX + halfW, camY + halfH
-    if player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
-        local tx, ty = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
+
+    refreshMouseAimOverride(player)
+    local tNow = love.timer.getTime()
+    local mouseAimOn = tNow < (player.mouseAimOverrideUntil or 0)
+    local autoTx, autoTy = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
+    if mouseAimOn then
+        player.effectiveAimX, player.effectiveAimY = player.aimWorldX, player.aimWorldY
+    elseif autoTx then
+        player.effectiveAimX, player.effectiveAimY = autoTx, autoTy
+    else
+        player.effectiveAimX, player.effectiveAimY = player.aimWorldX, player.aimWorldY
+    end
+
+    -- Player update
+    player:update(dt, world, enemies)
+
+    -- Auto-fire only when at least one enemy exists; otherwise don't spray into empty rooms
+    if player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0
+        and hasLivingEnemy() then
+        local tx, ty
+        if mouseAimOn then
+            tx, ty = player.aimWorldX, player.aimWorldY
+        else
+            tx, ty = autoTx, autoTy
+        end
         if tx then
             local bulletData = player:shoot(tx, ty)
             if bulletData then
@@ -356,6 +443,8 @@ function game:update(dt)
     -- Contact damage
     Combat.checkContactDamage(enemies, player)
 
+    DamageNumbers.update(dt)
+
     -- Pickups update
     for _, p in ipairs(pickups) do
         p:update(dt, world, player.x + player.w / 2, player.y + player.h / 2)
@@ -384,8 +473,8 @@ function game:update(dt)
         Gamestate.push(levelup, player, function() end)
     end
 
-    -- Check if all enemies dead -> open door
-    if #enemies == 0 and not doorOpen and currentRoom then
+    -- Check if all enemies dead (and no staggered spawns left) -> open door
+    if #enemies == 0 and not doorOpen and currentRoom and not pendingEnemiesIncoming() then
         doorOpen = true
         if currentRoom.door then
             currentRoom.door.locked = false
@@ -394,9 +483,9 @@ function game:update(dt)
     end
 
     -- Latch off-screen enemy hints: touch locked exit once, keep arrows until room clears
-    if doorOpen or #enemies == 0 then
+    if doorOpen or (#enemies == 0 and not pendingEnemiesIncoming()) then
         offScreenEnemyHintActive = false
-    elseif currentRoom and currentRoom.door and not doorOpen and #enemies > 0 and playerOverlapsDoorAABB() then
+    elseif currentRoom and currentRoom.door and not doorOpen and roomHasLivingThreat() and playerOverlapsDoorAABB() then
         offScreenEnemyHintActive = true
     end
 
@@ -458,18 +547,29 @@ function game:keypressed(key)
     end
 end
 
+function game:mousemoved(x, y, dx, dy)
+    if not player then return end
+    if math.abs(dx) + math.abs(dy) > 0.25 then
+        player.mouseAimOverrideUntil = love.timer.getTime() + 0.55
+    end
+end
+
 function game:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
     if button == 1 and not player.blocking then
-        local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
-        local bulletData = player:shoot(mx, my)
-        if bulletData then
-            for _, data in ipairs(bulletData) do
-                local b = Combat.spawnBullet(world, data)
-                table.insert(bullets, b)
+        player.mouseAimOverrideUntil = love.timer.getTime() + 0.55
+        -- Auto gun fires in update(); manual LMB only when auto is off (avoids double shot)
+        if not player.autoGun then
+            local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            local bulletData = player:shoot(mx, my)
+            if bulletData then
+                for _, data in ipairs(bulletData) do
+                    local b = Combat.spawnBullet(world, data)
+                    table.insert(bullets, b)
+                end
+                shakeTimer = 0.08
+                shakeIntensity = 2
             end
-            shakeTimer = 0.08
-            shakeIntensity = 2
         end
     end
     if button == 2 then
@@ -560,7 +660,7 @@ function game:draw()
             love.graphics.setColor(0.8, 0.7, 0.4)
             love.graphics.rectangle("line", door.x, door.y, door.w, door.h)
 
-            if not doorOpen and #enemies > 0 then
+            if not doorOpen and roomHasLivingThreat() then
                 love.graphics.setColor(1, 0.85, 0.35, 0.75)
                 love.graphics.printf("Locked", door.x - 16, door.y - 18, door.w + 32, "center")
             end
@@ -588,11 +688,14 @@ function game:draw()
 
     -- Player
     player:draw()
+    drawAimCrosshair()
 
     -- Bullets
     for _, b in ipairs(bullets) do
         b:draw()
     end
+
+    DamageNumbers.draw()
 
     -- Debug
     if DEBUG then
@@ -624,19 +727,13 @@ function game:draw()
         love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
     end
 
-    -- Dead eye indicator
-    if player.deadEyeTimer > 0 then
-        love.graphics.setColor(1, 0.2, 0.2, 0.2)
-        love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
-        love.graphics.setColor(1, 0.5, 0.2)
-        love.graphics.printf("DEAD EYE", 0, GAME_HEIGHT / 2 - 100, GAME_WIDTH, "center")
-    end
+    HUD.drawDeadEye(player)
 
     -- Debug overlay (F1)
     if DEBUG then
         local es = player:getEffectiveStats()
         if not game.debugFont then
-            game.debugFont = love.graphics.newFont(11)
+            game.debugFont = Font.new(11)
         end
         love.graphics.setFont(game.debugFont)
 
