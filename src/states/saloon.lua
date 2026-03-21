@@ -20,6 +20,7 @@ local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
 local SettingsPanel = require("src.ui.settings_panel")
 local Progression = require("src.systems.progression")
+local Sfx = require("src.systems.sfx")
 
 local saloonRoom = require("src.data.saloon_room")
 
@@ -60,6 +61,17 @@ local hoveredPerk = nil
 local fonts = {}
 
 local CAM_ZOOM = 3
+
+-- Camera + misc state packed to avoid upvalue limit
+local cam = {
+    lerpSpeed = 5,
+    lookAheadX = 60, lookAheadY = 30, groundedY = -15,
+    targetX = 0, targetY = 0,
+    currentX = 0, currentY = 0,
+}
+
+-- Monster Energy on the bar counter
+local monster = { img = nil, drunk = false, x = 0, y = 0 }
 
 local nearbyNPC = nil  -- NPC currently in interact range
 local pickups = {}
@@ -422,6 +434,11 @@ local function loadDecorations()
     -- Western props
     loadDecorSprite("wanted", "assets/wild_west_free_pack/wanted_pester.png")
     loadDecorSprite("fridge", "assets/Bar_by_Styl0o/individuals sprite/fridge.png")
+    loadDecorSprite("basin", "assets/wild_west_free_pack/basin.png")
+    loadDecorSprite("plant", "assets/wild_west_free_pack/plant_1.png")
+
+    -- Better wooden floor tile
+    loadDecorSprite("floor_wood", "assets/floor_wood.png")
 
     -- Casino tileset (roulette table)
     loadDecorSprite("slot_machine", "assets/slot.png")
@@ -601,9 +618,13 @@ function saloon:enter(_, _player, _roomManager)
     player.dashCooldown = 0
     world:add(player, player.x, player.y, player.w, player.h)
 
-    -- Camera
-    camera = Camera(saloonRoom.width / 2, saloonRoom.height / 2)
+    -- Camera — snap to player spawn on enter
+    camera = Camera(saloonRoom.playerSpawn.x, saloonRoom.playerSpawn.y)
     camera.scale = CAM_ZOOM
+    cam.currentX = saloonRoom.playerSpawn.x
+    cam.currentY = saloonRoom.playerSpawn.y
+    cam.targetX = cam.currentX
+    cam.targetY = cam.currentY
 
     -- Game systems
     blackjackGame = Blackjack.new()
@@ -612,6 +633,17 @@ function saloon:enter(_, _player, _roomManager)
     shop = Shop.new(difficulty)
     pickups = {}
     DamageNumbers.clear()
+
+    -- Monster Energy on the bar counter — reset each visit
+    monster.drunk = false
+    local _floorY = saloonRoom.platforms[1].y
+    monster.x = 368
+    monster.y = _floorY - 26
+    local okM, imgM = pcall(love.graphics.newImage, "assets/monster.png")
+    if okM and imgM then
+        imgM:setFilter("nearest", "nearest")
+        monster.img = imgM
+    end
 
     mode = "walking"
     message = ""
@@ -682,8 +714,39 @@ function saloon:update(dt)
             player.x = saloonRoom.width - player.w
         end
 
-        -- Camera (static — room fits in view)
-        camera:lockPosition(saloonRoom.width / 2, saloonRoom.height / 2)
+        -- Dead Cells-style smooth camera with look-ahead
+        local screenW, screenH = love.graphics.getDimensions()
+        local viewW = screenW / CAM_ZOOM
+        local viewH = screenH / CAM_ZOOM
+        local px = player.x + player.w / 2
+        local py = player.y + player.h / 2
+
+        local lookX = 0
+        if player.vx > 10 then
+            lookX = cam.lookAheadX
+        elseif player.vx < -10 then
+            lookX = -cam.lookAheadX
+        elseif player.facingRight then
+            lookX = cam.lookAheadX * 0.5
+        else
+            lookX = -cam.lookAheadX * 0.5
+        end
+
+        local lookY = 0
+        if player.grounded then
+            lookY = cam.groundedY
+        elseif player.vy and player.vy > 50 then
+            lookY = cam.lookAheadY
+        end
+
+        cam.targetX = math.max(viewW / 2, math.min(saloonRoom.width - viewW / 2, px + lookX))
+        cam.targetY = math.max(viewH / 2, math.min(saloonRoom.height - viewH / 2, py + lookY))
+
+        local t = 1 - math.exp(-cam.lerpSpeed * dt)
+        cam.currentX = cam.currentX + (cam.targetX - cam.currentX) * t
+        cam.currentY = cam.currentY + (cam.targetY - cam.currentY) * t
+
+        camera:lookAt(cam.currentX, cam.currentY)
 
         -- Update NPCs
         nearbyNPC = nil
@@ -813,6 +876,23 @@ function saloon:keypressed(key)
             if nearSlotMachine() and slotsGame then
                 applyOutcome(slotsGame:enterTable(player.gold, "walking"))
                 return
+            end
+            -- Monster Energy on bar counter
+            if not monster.drunk and monster.img then
+                local pcx = player.x + player.w / 2
+                local pcy = player.y + player.h / 2
+                local mcx = monster.x + 6
+                local mcy = monster.y + 8
+                local mdx = pcx - mcx
+                local mdy = pcy - mcy
+                if (mdx * mdx + mdy * mdy) <= 35 * 35 then
+                    monster.drunk = true
+                    player:consumeMonsterEnergy()
+                    message = "Full heal!"
+                    messageTimer = 2.5
+                    Sfx.play("pickup_gold")
+                    return
+                end
             end
             if nearbyNPC then
                 if nearbyNPC.type == "dealer" then
@@ -1112,32 +1192,38 @@ function saloon:draw()
 
     -- === LAYER 3: Decorations on the back wall ===
     -- Beam across ceiling area
-    drawSprite("beam", 0, floorY - 82, 1.3, 0.7)
+    drawSprite("beam", 0, floorY - 82, 2.0, 0.7)
 
     -- Hanging lamps from ceiling
-    drawSprite("ampule", 70, floorY - 78, 0.8, 0.8)
-    drawSprite("ampule", 160, floorY - 78, 0.8, 0.8)
-    drawSprite("ampule", 250, floorY - 78, 0.8, 0.8)
+    drawSprite("ampule", 80, floorY - 78, 0.8, 0.8)
+    drawSprite("ampule", 200, floorY - 78, 0.8, 0.8)
+    drawSprite("ampule", 340, floorY - 78, 0.8, 0.8)
+    drawSprite("ampule", 440, floorY - 78, 0.8, 0.8)
 
     -- Fridge to the left of the shelf
-    drawSpriteFromBottom("fridge", 178, floorY, 1.0, 1.0)
+    drawSpriteFromBottom("fridge", 298, floorY, 1.0, 1.0)
     -- Shelf behind bar area (right side)
-    drawSprite("shelf", 210, floorY - 60, 0.6, 0.5)
+    drawSprite("shelf", 330, floorY - 60, 0.6, 0.5)
     -- Bottles on shelf
-    drawSprite("bottles", 218, floorY - 52, 0.7, 0.7)
-    drawSprite("jars", 240, floorY - 50, 0.7, 0.7)
+    drawSprite("bottles", 338, floorY - 52, 0.7, 0.7)
+    drawSprite("jars", 360, floorY - 50, 0.7, 0.7)
     -- Greenboard (menu/specials)
-    drawSprite("greenboard", 140, floorY - 70, 0.6, 0.6)
+    drawSprite("greenboard", 220, floorY - 70, 0.6, 0.6)
     -- Watch on wall
-    drawSprite("watch", 280, floorY - 65, 0.6, 0.6)
+    drawSprite("watch", 400, floorY - 65, 0.6, 0.6)
     -- Wanted poster on left wall
     drawSprite("wanted", 12, floorY - 55, 0.35, 0.35)
     -- Vase decoration on dealer's table area
-    drawSprite("vase", 60, floorY - 30, 0.5, 0.5)
+    drawSprite("vase", 80, floorY - 30, 0.5, 0.5)
     -- Boxes in the left corner
     drawSprite("boxes", 4, floorY - 16, 0.5, 0.5)
     -- Umbrella/coat rack near entrance
-    drawSprite("umbrella", 290, floorY - 32, 0.6, 0.6)
+    drawSprite("umbrella", 420, floorY - 32, 0.6, 0.6)
+    -- Basin near the bar
+    drawSpriteFromBottom("basin", 290, floorY, 1.0, 1.0)
+    -- Desert plants
+    drawSpriteFromBottom("plant", 455, floorY, 0.9, 0.9)
+    drawSpriteFromBottom("plant", 45, floorY, 0.8, 0.8)
 
     -- === LAYER 4: NPCs (behind furniture — they stand behind counter/table) ===
     for _, npc in ipairs(npcs) do
@@ -1161,7 +1247,7 @@ function saloon:draw()
         local tableScale = 0.4
         local tableW = 108 * tableScale  -- ~43px
         local tableH = 64 * tableScale   -- ~26px
-        local dealerX = 100  -- dealer's x position
+        local dealerX = 140  -- dealer's x position
         local tableX = dealerX + 10 - tableW / 2  -- centered on dealer
         local woodH = 6                    -- wooden base height
         local woodTopY = floorY - woodH    -- wood panel top
@@ -1186,7 +1272,7 @@ function saloon:draw()
         -- Bar counter on right side, in front of bartender
         local bw, bh = decor.bar_counter:getDimensions()
         local barScale = 0.4
-        local barX = 200
+        local barX = 320
         local barY = floorY - bh * barScale
         love.graphics.draw(decor.bar_counter, barX, barY, 0, barScale, barScale)
     end
@@ -1196,27 +1282,45 @@ function saloon:draw()
         local sw, sh = decor.stool:getDimensions()
         local stoolScale = 0.5
         for i = 0, 2 do
-            drawSpriteFromBottom("stool", 205 + i * 22, floorY, stoolScale, stoolScale)
+            drawSpriteFromBottom("stool", 325 + i * 22, floorY, stoolScale, stoolScale)
         end
     end
 
     -- Glass on bar counter
-    drawSprite("glass", 220, floorY - 22, 0.7, 0.7)
-    drawSprite("glass", 236, floorY - 22, 0.7, 0.7)
+    drawSprite("glass", 340, floorY - 22, 0.7, 0.7)
+    drawSprite("glass", 356, floorY - 22, 0.7, 0.7)
 
-    -- === LAYER 6: Floor ===
-    if decor.floor_bar then
+    -- Monster Energy on bar counter
+    if not monster.drunk and monster.img then
+        love.graphics.setColor(1, 1, 1)
+        local mw, mh = monster.img:getDimensions()
+        local mScale = 0.4
+        love.graphics.draw(monster.img, monster.x, monster.y, 0, mScale, mScale)
+    end
+
+    -- === LAYER 6: Floor (tiled wooden planks) ===
+    if decor.floor_wood then
+        love.graphics.setColor(1, 1, 1)
+        local fw, fh = decor.floor_wood:getDimensions()
+        local tileScale = 1.0
+        local tw = fw * tileScale
+        local th = fh * tileScale
+        -- Tile across room width, stacking 2 rows
+        for tx = 0, roomW, tw do
+            love.graphics.draw(decor.floor_wood, tx, floorY, 0, tileScale, tileScale)
+            love.graphics.draw(decor.floor_wood, tx, floorY + th, 0, tileScale, tileScale)
+        end
+        -- Dark fill below the tiles
+        love.graphics.setColor(0.1, 0.06, 0.03)
+        love.graphics.rectangle("fill", 0, floorY + th * 2, roomW, 50)
+    elseif decor.floor_bar then
         love.graphics.setColor(1, 1, 1)
         local fw, fh = decor.floor_bar:getDimensions()
-        -- Scale floor to fill room width, positioned at floor level
         local floorScale = roomW / fw
-        local floorDrawH = fh * floorScale
         love.graphics.draw(decor.floor_bar, 0, floorY, 0, floorScale, floorScale)
-        -- Fill below floor edge if needed
         love.graphics.setColor(0.15, 0.1, 0.08)
-        love.graphics.rectangle("fill", 0, floorY + floorDrawH, roomW, 50)
+        love.graphics.rectangle("fill", 0, floorY + fh * floorScale, roomW, 50)
     else
-        -- Fallback floor
         love.graphics.setColor(0.25, 0.15, 0.08)
         love.graphics.rectangle("fill", 0, floorY, roomW, 32)
     end
@@ -1269,9 +1373,30 @@ function saloon:draw()
 
     DamageNumbers.draw()
 
-    -- === LAYER 10: NPC prompts (always on top in world space) ===
+    -- === LAYER 10: NPC prompts and speech (always on top in world space) ===
     for _, npc in ipairs(npcs) do
+        npc:drawSpeech()
         npc:drawPrompt()
+    end
+
+    -- Monster Energy "[E] Drink" prompt
+    if mode == "walking" and not monster.drunk and monster.img and player then
+        local pcx = player.x + player.w / 2
+        local pcy = player.y + player.h / 2
+        local mcx = monster.x + 6
+        local mcy = monster.y + 8
+        local mdx = pcx - mcx
+        local mdy = pcy - mcy
+        if (mdx * mdx + mdy * mdy) <= 35 * 35 then
+            love.graphics.setFont(fonts.default)
+            local label = "[E] Drink"
+            local tw = fonts.default:getWidth(label)
+            local bob = math.sin(love.timer.getTime() * 3) * 1.5
+            love.graphics.setColor(0, 0, 0, 0.7)
+            love.graphics.print(label, math.floor(mcx - tw / 2) + 1, math.floor(monster.y - 10 + bob) + 1)
+            love.graphics.setColor(0.4, 1, 0.4)
+            love.graphics.print(label, math.floor(mcx - tw / 2), math.floor(monster.y - 10 + bob))
+        end
     end
 
     if mode == "walking" and player and nearSlotMachine() then
@@ -1606,7 +1731,7 @@ function drawShop(screenW, screenH)
             else
                 love.graphics.setColor(0.6, 0.4, 0.3)
             end
-            love.graphics.printf("[" .. i .. "] " .. item.name .. "  ($" .. item.price .. ")", 0, y, screenW, "center")
+            love.graphics.printf("[" .. i .. "] " .. item.name .. "  $" .. item.price, 0, y, screenW, "center")
             y = y + 22
             love.graphics.setColor(0.6, 0.6, 0.6)
             love.graphics.printf("    " .. item.description, 0, y, screenW, "center")

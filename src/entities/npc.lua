@@ -181,6 +181,41 @@ function NPC.new(config)
     self.promptFont = Font.new(10)
     self.promptLabel = config.promptLabel or "[E] Talk"
 
+    -- Speech — quiet, rare, at most once per visit
+    self.speechText = nil
+    self.speechLife = 0
+    self.speechDuration = 3.0
+    self.speechHasSpoken = false
+    self.speechTimer = math.random(6, 20)  -- delay before maybe speaking
+    self.speechChance = 0.4  -- 40% chance they even say anything
+    self.speechLines = config.speechLines or {}
+
+    if #self.speechLines == 0 then
+        if self.type == "bartender" then
+            self.speechLines = {
+                "...",
+                "Mm.",
+                "Glass is clean enough.",
+                "Same old faces.",
+                "Hm.",
+                "Slow night.",
+                "You again.",
+                "Monster's in the fridge.",
+            }
+        elseif self.type == "dealer" then
+            self.speechLines = {
+                "...",
+                "Heh.",
+                "Cards don't lie.",
+                "Seen worse luck.",
+                "Table's open.",
+                "Mm-hm.",
+                "You remind me of someone.",
+                "Suit yourself.",
+            }
+        end
+    end
+
     return self
 end
 
@@ -222,6 +257,24 @@ function NPC:update(dt)
     end
 
     self.promptTimer = self.promptTimer + dt
+
+    -- Speech — once at most, maybe not at all
+    if self.speechText then
+        self.speechLife = self.speechLife + dt
+        if self.speechLife >= self.speechDuration then
+            self.speechText = nil
+            self.speechLife = 0
+        end
+    elseif not self.speechHasSpoken and #self.speechLines > 0 then
+        self.speechTimer = self.speechTimer - dt
+        if self.speechTimer <= 0 then
+            self.speechHasSpoken = true
+            if math.random() < self.speechChance then
+                self.speechText = self.speechLines[math.random(#self.speechLines)]
+                self.speechLife = 0
+            end
+        end
+    end
 end
 
 function NPC:canInteract(px, py, pw, ph)
@@ -294,6 +347,30 @@ function NPC:drawPrompt()
     love.graphics.setColor(1, 0.9, 0.5)
     love.graphics.print(self.promptLabel, math.floor(cx - tw / 2), math.floor(py))
 
+    love.graphics.setColor(1, 1, 1)
+end
+
+function NPC:drawSpeech()
+    if not self.speechText then return end
+
+    local cx = self.x + self.w / 2
+    local alpha = 1
+    if self.speechLife < 0.4 then
+        alpha = self.speechLife / 0.4
+    elseif self.speechLife > self.speechDuration - 0.8 then
+        alpha = (self.speechDuration - self.speechLife) / 0.8
+    end
+
+    local py = self.y - 38 - self.speechLife * 2
+
+    local font = self.promptFont
+    love.graphics.setFont(font)
+    local tw = font:getWidth(self.speechText)
+
+    love.graphics.setColor(0, 0, 0, 0.4 * alpha)
+    love.graphics.print(self.speechText, math.floor(cx - tw / 2) + 1, math.floor(py) + 1)
+    love.graphics.setColor(0.7, 0.65, 0.55, 0.7 * alpha)
+    love.graphics.print(self.speechText, math.floor(cx - tw / 2), math.floor(py))
     love.graphics.setColor(1, 1, 1)
 end
 
