@@ -1,10 +1,8 @@
 local PlatformCollision = require("src.systems.platform_collision")
 local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
+local GoldCoin = require("src.ui.gold_coin")
 local Vision = require("src.data.vision")
-
--- Coin sprite (lazy-loaded from HUD sprite sheet)
-local coinSheet, coinQuad
 
 local Pickup = {}
 Pickup.__index = Pickup
@@ -38,6 +36,9 @@ function Pickup.new(x, y, pickupType, value)
     self.attractSpeed = ATTRACT_SPEED_MIN
     self.bobTimer = math.random() * math.pi * 2
     self.bobOffset = 0
+    if pickupType == "gold" then
+        self.coinPhase = math.random() * 8.17
+    end
 
     -- Weapon pickup extras
     if pickupType == "weapon" then
@@ -88,15 +89,20 @@ function Pickup:update(dt, world, playerX, playerY)
         self.vy = self.vy + GRAVITY * dt
         if self.vy > 400 then self.vy = 400 end
 
+        local goalX = self.x + self.vx * dt
         local goalY = self.y + self.vy * dt
-        local actualX, actualY, cols, len = world:move(self, self.x, goalY, self.filter)
+        local actualX, actualY, cols, len = world:move(self, goalX, goalY, self.filter)
         self.x = actualX
         self.y = actualY
 
         for i = 1, len do
-            if cols[i].normal.y == -1 then
+            local ny = cols[i].normal.y
+            if ny == -1 then
                 self.grounded = true
                 self.vy = 0
+                self.vx = 0
+            elseif math.abs(cols[i].normal.x) > 0.5 then
+                self.vx = 0
             end
         end
     else
@@ -137,22 +143,10 @@ function Pickup:draw(player, camera, shakeX, shakeY, room)
         love.graphics.setColor(0.9, 0.97, 1.0, 0.95)
         love.graphics.circle("fill", cx, cy, 1.5)
     elseif self.pickupType == "gold" then
-        if not coinSheet then
-            local ok, img = pcall(love.graphics.newImage, "assets/ui/western_cowboy_roguelike_hud_sprite_sheet.png")
-            if ok then
-                img:setFilter("nearest", "nearest")
-                coinSheet = img
-                local sw, sh = coinSheet:getDimensions()
-                coinQuad = love.graphics.newQuad(80, 508, 64, 64, sw, sh)
-            end
-        end
         local cx = self.x + self.w / 2
         local cy = self.y + self.h / 2 + dy
-        if coinSheet and coinQuad then
-            local scale = 0.22   -- 64 × 0.22 ≈ 14 px
-            love.graphics.setColor(1, 1, 1)
-            love.graphics.draw(coinSheet, coinQuad, cx, cy, 0, scale, scale, 32, 32)
-        else
+        local t = love.timer.getTime() + (self.coinPhase or 0)
+        if not GoldCoin.drawAnimatedCentered(cx, cy, 14, t, { fps = 9 }) then
             love.graphics.setColor(1.0, 0.85, 0.2)
             love.graphics.circle("fill", cx, cy, 5)
         end

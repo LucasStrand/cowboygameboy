@@ -6,6 +6,33 @@ local Keybinds = require("src.systems.keybinds")
 local Sfx = require("src.systems.sfx")
 local ImpactFX = require("src.systems.impact_fx")
 local GearIcons = require("src.ui.gear_icons")
+local Font = require("src.ui.font")
+local Buffs = require("src.systems.buffs")
+
+-- Monster Energy (saloon): each drink heals to full; walk-speed bonus stacks with diminishing returns.
+local MONSTER_MOVE_FIRST = 44
+local MONSTER_MOVE_DECAY = 0.71
+-- Jitter never rolls on the 1st drink; from the 2nd on, chance and shake ramp up.
+local MONSTER_JITTER_BASE_CHANCE = 0.06
+local MONSTER_JITTER_PER_DRINK = 0.11
+local MONSTER_JITTER_CAP = 0.78
+local MONSTER_SPEECH_CHANCE = 0.42
+local MONSTER_SPEECH_DURATION = 3.0
+
+local MONSTER_SPEECH_LINES = {
+    "Woo.",
+    "That ain't bourbon.",
+    "I can see next week.",
+    "My spurs won't stop.",
+    "Tastes like a stampede.",
+    "Ride the lightning.",
+    "The saloon's spinni'.",
+    "Heart's drummin' double-time.",
+    "Yee— never mind.",
+    "One more ridge to climb.",
+    "Liquid outlaw.",
+    "My hat shrunk.",
+}
 
 local Player = {}
 Player.__index = Player
@@ -76,6 +103,7 @@ function Player.new(x, y)
     self.dashTimer = 0
     self.dashCooldown = 0
     self.dashDir = 1
+    self.combatDisabled = false
 
     self.stats = {
         maxHP = 100,
@@ -179,6 +207,18 @@ function Player.new(x, y)
     self.autoBlock = false
 
     self.perks = {}
+
+    -- Buff/debuff tracker
+    self.buffs = Buffs.newTracker()
+
+    -- Monster Energy (saloon): cumulative drinks this run — move bonus + rare speech / visual jitter
+    self.monsterDrinks = 0
+    self.monsterMoveBonus = 0
+    self.monsterJitteryTimer = 0
+    self.monsterJitterShakeMul = 0
+    self.monsterSpeechText = nil
+    self.monsterSpeechLife = 0
+    self._monsterSpeechFont = nil
 
     -- Sprite animation
     self.anim = Animator.new()
@@ -287,6 +327,20 @@ function Player:getEffectiveStatsForGun(gun)
         s.inaccuracy    = 0
     end
 
+    if (self.monsterMoveBonus or 0) > 0 then
+        s.moveSpeed = s.moveSpeed + self.monsterMoveBonus
+    end
+
+    -- Apply buff/debuff stat modifiers
+    if self.buffs then
+        local mods = Buffs.getStatMods(self.buffs)
+        for stat, val in pairs(mods) do
+            if s[stat] ~= nil then
+                s[stat] = s[stat] + val
+            end
+        end
+    end
+
     return s
 end
 
@@ -320,6 +374,24 @@ function Player:update(dt, world, enemies)
     -- Dead eye timer
     if self.deadEyeTimer > 0 then
         self.deadEyeTimer = self.deadEyeTimer - dt
+    end
+
+    if (self.monsterJitteryTimer or 0) > 0 then
+        self.monsterJitteryTimer = math.max(0, self.monsterJitteryTimer - dt)
+        if self.monsterJitteryTimer <= 0 then
+            self.monsterJitterShakeMul = 0
+        end
+    end
+
+    -- Update buff/debuff system
+    Buffs.update(self.buffs, dt, self)
+
+    if self.monsterSpeechText then
+        self.monsterSpeechLife = (self.monsterSpeechLife or 0) + dt
+        if self.monsterSpeechLife >= MONSTER_SPEECH_DURATION then
+            self.monsterSpeechText = nil
+            self.monsterSpeechLife = 0
+        end
     end
 
     -- Shoot cooldown + reload: akimbo = each slot independent (like melee + gun); else mirror active slot on self
@@ -601,6 +673,7 @@ function Player:tryDropThrough()
 end
 
 function Player:tryDash()
+    if self.combatDisabled then return end
     local s = self:getEffectiveStats()
     if self.blocking and s.blockMobility <= 0 then
         return
@@ -707,6 +780,7 @@ function Player:shootFromSlot(slotIndex, mx, my)
 end
 
 function Player:shoot(mx, my)
+    if self.combatDisabled then return nil end
     if self:isAkimbo() then
         local allBullets = {}
         local any = false
@@ -799,6 +873,7 @@ function Player:spinHolster()
 end
 
 function Player:meleeAttack(aimX, aimY)
+    if self.combatDisabled then return false end
     local s = self:getEffectiveStats()
     if self.meleeCooldown > 0 or s.meleeDamage <= 0 then return false end
     local cx = self.x + self.w * 0.5
@@ -926,6 +1001,53 @@ end
 function Player:heal(amount)
     local maxHP = self:getEffectiveStats().maxHP
     self.hp = math.min(maxHP, self.hp + amount)
+end
+
+--- Saloon Monster Energy: full heal, stacking move speed (diminishing per drink), roll for jitter (visual only) + maybe a voice line.
+function Player:consumeMonsterEnergy()
+    self.monsterDrinks = (self.monsterDrinks or 0) + 1
+    local n = self.monsterDrinks
+    local increment = MONSTER_MOVE_FIRST * (MONSTER_MOVE_DECAY ^ (n - 1))
+    self.monsterMoveBonus = (self.monsterMoveBonus or 0) + increment
+
+    local jitterChance = 0
+    if n >= 2 then
+        jitterChance = math.min(
+            MONSTER_JITTER_CAP,
+            MONSTER_JITTER_BASE_CHANCE + (n - 2) * MONSTER_JITTER_PER_DRINK
+        )
+    end
+    if math.random() < jitterChance then
+        -- Longer / shakier as drinks mount (still mild on 2nd drink)
+        local intensity = math.min(1.15, 0.35 + (n - 2) * 0.18)
+        self.monsterJitteryTimer = (6.0 + intensity * 5.0) + math.random() * (3.0 + intensity * 2.0)
+        self.monsterJitterShakeMul = intensity
+        Buffs.apply(self.buffs, "jitter")
+    end
+
+    -- Apply speed buff through buff system
+    Buffs.apply(self.buffs, "speed_boost")
+
+    self.monsterSpeechText = nil
+    if math.random() < MONSTER_SPEECH_CHANCE then
+        self.monsterSpeechText = MONSTER_SPEECH_LINES[math.random(#MONSTER_SPEECH_LINES)]
+        self.monsterSpeechLife = 0
+    end
+
+    local maxHP = self:getEffectiveStats().maxHP
+    self:heal(maxHP)
+end
+
+function Player:applyBuff(id, stacks)
+    return Buffs.apply(self.buffs, id, stacks)
+end
+
+function Player:removeBuff(id)
+    Buffs.remove(self.buffs, id, self)
+end
+
+function Player:hasBuff(id)
+    return Buffs.has(self.buffs, id)
 end
 
 function Player:addXP(amount)
@@ -1092,22 +1214,6 @@ function Player:draw()
     end
 
     local t = love.timer.getTime()
-    -- Smash-style energy bubble while blocking (drawn behind the fighter)
-    if not self.dying and self.blocking and self.gear.shield then
-        local cx = self.x + self.w / 2
-        local cy = self.y + self.h / 2
-        local pulse = 0.65 + 0.35 * math.sin(t * 10)
-        local rx, ry = 24, 30
-        love.graphics.setColor(0.45, 0.7, 1.0, 0.22 * pulse)
-        love.graphics.ellipse("fill", cx, cy, rx, ry)
-        love.graphics.setColor(0.65, 0.88, 1.0, 0.55 * pulse)
-        love.graphics.setLineWidth(2)
-        love.graphics.ellipse("line", cx, cy, rx, ry)
-        love.graphics.setLineWidth(1)
-        -- Hex-ish highlight (second thin ring)
-        love.graphics.setColor(0.85, 0.95, 1.0, 0.25 * pulse)
-        love.graphics.ellipse("line", cx, cy, rx * 0.88, ry * 0.88)
-    end
 
     -- Flash when invulnerable
     if not self.dying and self.iframes > 0 and math.floor(self.iframes * 10) % 2 == 0 then
@@ -1130,66 +1236,125 @@ function Player:draw()
         self.anim:drawCentered(cx, footY, self.facingRight, 0, alpha)
         love.graphics.pop()
     else
-        self.anim:drawCentered(cx, footY, self.facingRight)
-    end
-
-    -- Weapon sprite overlay (gun — hidden during melee swing so equipped dagger reads clearly)
-    if not self.dying and self.meleeSwingTimer <= 0 then
-        local aimAngle = self:getAimAngle()
-        local handX = cx + (self.facingRight and 2 or -2)
-        local baseHandY = self.y + self.h * 0.42
-
-        local function drawGunSprite(gun, yOff)
-            if gun.id == "revolver" then return end  -- cowboy animation already has a revolver
-            local sprite = Guns.getSprite(gun)
-            if not sprite then return end
-            local scale = gun.spriteScale or 0.7
-            local origin = gun.spriteOrigin or { x = 0.25, y = 0.5 }
-            local sw, sh = sprite:getDimensions()
-            local ox = sw * origin.x
-            local oy = sh * origin.y
-            local sy = scale
-            if not self.facingRight then sy = -scale end
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(sprite, handX, baseHandY + yOff, aimAngle, scale, sy, ox, oy)
+        local jx, jy = 0, 0
+        if (self.monsterJitteryTimer or 0) > 0 then
+            local mul = self.monsterJitterShakeMul or 0.35
+            jx = (math.sin(t * 22.7) + math.sin(t * 16.2)) * 1.25 * mul
+            jy = (math.cos(t * 19.1) + math.sin(t * 14.4)) * 0.95 * mul
         end
-
-        if self:isAkimbo() then
-            local gun1 = self.weapons[1] and self.weapons[1].gun
-            local gun2 = self.weapons[2] and self.weapons[2].gun
-            if gun1 then drawGunSprite(gun1, -4) end
-            if gun2 then drawGunSprite(gun2, 4) end
-        else
-            local gun = self:getActiveGun()
-            if gun then drawGunSprite(gun, 0) end
-        end
-    end
-
-    -- Equipped melee weapon (same icon as HUD / gear.icon) during swing or dash strike
-    if not self.dying and self.meleeSwingTimer > 0 then
-        local s = self:getEffectiveStats()
-        if s.meleeDamage > 0 then
-            local gear = self.gear.melee or Weapons.defaults.melee
-            if gear and gear.icon then
-                local ang = self.meleeAimAngle
-                local pcx = self.x + self.w * 0.5
-                local pcy = self.y + self.h * 0.5
-                local grip = 10
-                local hx = pcx + math.cos(ang) * grip
-                local hy = pcy + math.sin(ang) * grip
-                if self.facingRight then
-                    hy = hy - 10  -- nudge up vs left-facing (screen Y+ is down)
-                end
-                -- Facing-right body is not mirrored like the left-facing sprite; flip the tile on X so the grip/blade match the good left-facing read.
-                GearIcons.drawHeld(gear.icon, hx, hy, ang, {
-                    scale       = 1.45,  -- 16px tile → ~23px; reads as a knife vs 16×28 body
-                    originX     = 0.42,
-                    originY     = 0.58,
-                    angleOffset = math.pi * 0.5,
-                    flipX       = self.facingRight,
-                })
+        -- Buff system jitter (stacks with monster jitter)
+        if self.buffs then
+            local vis = Buffs.getVisuals(self.buffs)
+            if vis.jitterAmp > 0 then
+                local f = vis.jitterFreq
+                jx = jx + math.sin(t * f * 1.13) * vis.jitterAmp
+                jy = jy + math.cos(t * f * 0.97) * vis.jitterAmp * 0.75
             end
         end
+        love.graphics.push()
+        love.graphics.translate(jx, jy)
+
+        -- Smash-style energy bubble while blocking (drawn behind the fighter)
+        if self.blocking and self.gear.shield then
+            local scx = self.x + self.w / 2
+            local scy = self.y + self.h / 2
+            local pulse = 0.65 + 0.35 * math.sin(t * 10)
+            local rx, ry = 24, 30
+            love.graphics.setColor(0.45, 0.7, 1.0, 0.22 * pulse)
+            love.graphics.ellipse("fill", scx, scy, rx, ry)
+            love.graphics.setColor(0.65, 0.88, 1.0, 0.55 * pulse)
+            love.graphics.setLineWidth(2)
+            love.graphics.ellipse("line", scx, scy, rx, ry)
+            love.graphics.setLineWidth(1)
+            love.graphics.setColor(0.85, 0.95, 1.0, 0.25 * pulse)
+            love.graphics.ellipse("line", scx, scy, rx * 0.88, ry * 0.88)
+        end
+
+        self.anim:drawCentered(cx, footY, self.facingRight)
+
+        -- Weapon sprite overlay (gun — hidden during melee swing so equipped dagger reads clearly)
+        if self.meleeSwingTimer <= 0 then
+            local aimAngle = self:getAimAngle()
+            local handX = cx + (self.facingRight and 2 or -2)
+            local baseHandY = self.y + self.h * 0.42
+
+            local function drawGunSprite(gun, yOff)
+                if gun.id == "revolver" then return end  -- cowboy animation already has a revolver
+                local sprite = Guns.getSprite(gun)
+                if not sprite then return end
+                local scale = gun.spriteScale or 0.7
+                local origin = gun.spriteOrigin or { x = 0.25, y = 0.5 }
+                local sw, sh = sprite:getDimensions()
+                local ox = sw * origin.x
+                local oy = sh * origin.y
+                local sy = scale
+                if not self.facingRight then sy = -scale end
+                love.graphics.setColor(1, 1, 1, 1)
+                love.graphics.draw(sprite, handX, baseHandY + yOff, aimAngle, scale, sy, ox, oy)
+            end
+
+            if self:isAkimbo() then
+                local gun1 = self.weapons[1] and self.weapons[1].gun
+                local gun2 = self.weapons[2] and self.weapons[2].gun
+                if gun1 then drawGunSprite(gun1, -4) end
+                if gun2 then drawGunSprite(gun2, 4) end
+            else
+                local gun = self:getActiveGun()
+                if gun then drawGunSprite(gun, 0) end
+            end
+        end
+
+        -- Equipped melee weapon (same icon as HUD / gear.icon) during swing or dash strike
+        if self.meleeSwingTimer > 0 then
+            local s = self:getEffectiveStats()
+            if s.meleeDamage > 0 then
+                local gear = self.gear.melee or Weapons.defaults.melee
+                if gear and gear.icon then
+                    local ang = self.meleeAimAngle
+                    local pcx = self.x + self.w * 0.5
+                    local pcy = self.y + self.h * 0.5
+                    local grip = 10
+                    local hx = pcx + math.cos(ang) * grip
+                    local hy = pcy + math.sin(ang) * grip
+                    if self.facingRight then
+                        hy = hy - 10  -- nudge up vs left-facing (screen Y+ is down)
+                    end
+                    -- Facing-right body is not mirrored like the left-facing sprite; flip the tile on X so the grip/blade match the good left-facing read.
+                    GearIcons.drawHeld(gear.icon, hx, hy, ang, {
+                        scale       = 1.45,  -- 16px tile → ~23px; reads as a knife vs 16×28 body
+                        originX     = 0.42,
+                        originY     = 0.58,
+                        angleOffset = math.pi * 0.5,
+                        flipX       = self.facingRight,
+                    })
+                end
+            end
+        end
+
+        if self.monsterSpeechText then
+            if not self._monsterSpeechFont then
+                self._monsterSpeechFont = Font.new(14)
+            end
+            local font = self._monsterSpeechFont
+            local prevFont = love.graphics.getFont()
+            love.graphics.setFont(font)
+            local alpha = 1
+            local life = self.monsterSpeechLife or 0
+            if life < 0.4 then
+                alpha = life / 0.4
+            elseif life > MONSTER_SPEECH_DURATION - 0.8 then
+                alpha = (MONSTER_SPEECH_DURATION - life) / 0.8
+            end
+            local py = self.y - 38 - life * 2
+            local tw = font:getWidth(self.monsterSpeechText)
+            love.graphics.setColor(0, 0, 0, 0.45 * alpha)
+            love.graphics.print(self.monsterSpeechText, math.floor(cx - tw / 2) + 1, math.floor(py) + 1)
+            love.graphics.setColor(0.72, 0.68, 0.58, 0.85 * alpha)
+            love.graphics.print(self.monsterSpeechText, math.floor(cx - tw / 2), math.floor(py))
+            love.graphics.setFont(prevFont)
+        end
+
+        love.graphics.pop()
     end
 
     love.graphics.setColor(1, 1, 1)
