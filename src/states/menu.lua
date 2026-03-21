@@ -33,6 +33,8 @@ local hoverIndex = nil
 local settingsTab = "video"
 local settingsHover = nil
 local settingsBindCapture = nil
+--- While LMB is held on a volume slider (enables drag)
+local settingsSliderDragKey = nil
 
 --- 1 = full black overlay; lerps to 0 after boot handoff
 local introFadeAlpha = 0
@@ -200,6 +202,17 @@ function menu:mousemoved(x, y, dx, dy)
             end
         end
     elseif view == "settings" then
+        if settingsSliderDragKey and fonts.button then
+            local v = SettingsPanel.sliderValueFromPointerX(
+                GAME_WIDTH, GAME_HEIGHT, settingsTab, fonts.button, settingsSliderDragKey, gx
+            )
+            if v then
+                Settings.setVolumeKey(settingsSliderDragKey, v)
+                Settings.save()
+                Settings.apply()
+            end
+            return
+        end
         local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, settingsTab, gx, gy, fonts.button)
         if h then
             if h.kind == "tab" then
@@ -236,14 +249,24 @@ function menu:mousepressed(x, y, button)
     elseif view == "settings" then
         local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, settingsTab, gx, gy, fonts.button)
         local r = SettingsPanel.applyHit(h, player)
+        if h and h.kind == "slider" then
+            settingsSliderDragKey = h.key
+        end
         if r then
             if r.setTab then settingsTab = r.setTab end
             if r.goBack then
                 view = "main"
                 settingsBindCapture = nil
+                settingsSliderDragKey = nil
             end
             if r.startBind then settingsBindCapture = r.startBind end
         end
+    end
+end
+
+function menu:mousereleased(x, y, button)
+    if button == 1 then
+        settingsSliderDragKey = nil
     end
 end
 
@@ -263,6 +286,7 @@ function menu:keypressed(key)
         if key == "escape" or key == "backspace" then
             view = "main"
             settingsBindCapture = nil
+            settingsSliderDragKey = nil
         elseif key == "[" then
             settingsTab = SettingsPanel.cycleTab(settingsTab, -1)
         elseif key == "]" then

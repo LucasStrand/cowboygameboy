@@ -105,6 +105,7 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
             { key = "masterVolume", label = "Master volume" },
             { key = "musicVolume", label = "Music" },
             { key = "sfxVolume", label = "Sound effects" },
+            { key = "vfxVolume", label = "Visual effects" },
         }) do
             local r = rowRect(screenW, y, rowH)
             local labelReserve = math.min(210, math.floor(r.w * 0.48))
@@ -190,6 +191,18 @@ function SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
         tabY = tabY,
         contentTop = contentTop,
     }
+end
+
+--- While dragging a slider: map pointer X to 0..1 along that slider's track (by key).
+function SettingsPanel.sliderValueFromPointerX(screenW, screenH, activeTabId, tabFont, key, gx)
+    local L = SettingsPanel.build(screenW, screenH, activeTabId, tabFont)
+    for _, row in ipairs(L.rows) do
+        if row.kind == "slider" and row.key == key and row.track then
+            local tr = row.track
+            local u = (gx - tr.x) / tr.w
+            return math.max(0, math.min(1, u))
+        end
+    end
 end
 
 function SettingsPanel.hitTest(screenW, screenH, activeTabId, gx, gy, tabFont)
@@ -340,7 +353,13 @@ function SettingsPanel.draw(screenW, screenH, activeTabId, fonts, hover, bindCap
     if bindCaptureAction then
         love.graphics.printf("Press a key to bind  ·  ESC to cancel", 0, screenH * 0.88, screenW, "center")
     else
-        love.graphics.printf("Click rows to change  ·  [ / ] switch tabs  ·  ESC or Back", 0, screenH * 0.88, screenW, "center")
+        love.graphics.printf(
+            "Click or drag sliders  ·  [ / ] switch tabs  ·  ESC or Back",
+            0,
+            screenH * 0.88,
+            screenW,
+            "center"
+        )
     end
 end
 

@@ -21,6 +21,7 @@ local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
 local TileRenderer = require("src.systems.tile_renderer")
 local ImpactFX = require("src.systems.impact_fx")
+local Sfx = require("src.systems.sfx")
 
 local game = {}
 
@@ -47,6 +48,7 @@ local pauseHoverIndex = nil
 local pauseSettingsTab = "video"
 local pauseSettingsHover = nil
 local pauseSettingsBindCapture = nil -- action name while waiting for a key (Controls tab)
+local pauseSettingsSliderDragKey = nil
 local characterSheetOpen = false
 --- Set in update when death completes; next draw captures world → game over (see pendingGameOver block after camera:detach).
 local pendingGameOver = nil
@@ -370,6 +372,7 @@ local function pauseRestartRun()
     paused = false
     pauseMenuView = "main"
     pauseSettingsBindCapture = nil
+    pauseSettingsSliderDragKey = nil
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
@@ -382,6 +385,7 @@ local function pauseGoToMainMenu()
     paused = false
     pauseMenuView = "main"
     pauseSettingsBindCapture = nil
+    pauseSettingsSliderDragKey = nil
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
@@ -618,6 +622,7 @@ function game:enter(_, opts)
     pauseSettingsTab = "video"
     pauseSettingsHover = nil
     pauseSettingsBindCapture = nil
+    pauseSettingsSliderDragKey = nil
     characterSheetOpen = false
     pendingGameOver = nil
     devPanelOpen = false
@@ -830,6 +835,7 @@ function game:update(dt)
             local bulletData = e:update(dt, world, player.x + player.w/2, player.y + player.h/2)
             if bulletData then
                 local b = Combat.spawnBullet(world, bulletData)
+                Sfx.play("shoot", { volume = 0.35 })
                 table.insert(bullets, b)
             end
             if isOutOfBounds(e, currentRoom) then
@@ -891,6 +897,7 @@ function game:update(dt)
 
     -- Check if all enemies dead (and no staggered spawns left) -> open door
     if #enemies == 0 and not doorOpen and currentRoom and not pendingEnemiesIncoming() then
+        Sfx.play("door_open")
         doorOpen = true
         doorAnimFrame = 1
         doorAnimTimer = 0
@@ -1009,9 +1016,11 @@ function game:keypressed(key)
             if pauseMenuView == "settings" then
                 pauseMenuView = "main"
                 pauseSettingsBindCapture = nil
+                pauseSettingsSliderDragKey = nil
             else
                 paused = false
                 pauseMenuView = "main"
+                pauseSettingsSliderDragKey = nil
             end
         else
             paused = true
@@ -1027,6 +1036,7 @@ function game:keypressed(key)
             if key == "backspace" then
                 pauseMenuView = "main"
                 pauseSettingsBindCapture = nil
+                pauseSettingsSliderDragKey = nil
             elseif key == "[" then
                 pauseSettingsTab = SettingsPanel.cycleTab(pauseSettingsTab, -1)
             elseif key == "]" then
@@ -1104,6 +1114,18 @@ function game:mousemoved(x, y, dx, dy)
     if introCountdownActive then return end
     if player and player.dying then return end
     if paused then
+        if pauseMenuView == "settings" and pauseSettingsSliderDragKey and game.pauseMenuButtonFont then
+            local v = SettingsPanel.sliderValueFromPointerX(
+                GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, game.pauseMenuButtonFont,
+                pauseSettingsSliderDragKey, gx
+            )
+            if v then
+                Settings.setVolumeKey(pauseSettingsSliderDragKey, v)
+                Settings.save()
+                Settings.apply()
+            end
+            return
+        end
         pauseHoverIndex = nil
         if pauseMenuView == "main" then
             for i, r in ipairs(pauseMenuButtonLayout()) do
@@ -1181,9 +1203,15 @@ function game:mousepressed(x, y, button)
             end
             local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, game.pauseMenuButtonFont)
             local r = SettingsPanel.applyHit(h, player)
+            if h and h.kind == "slider" then
+                pauseSettingsSliderDragKey = h.key
+            end
             if r then
                 if r.setTab then pauseSettingsTab = r.setTab end
-                if r.goBack then pauseMenuView = "main" end
+                if r.goBack then
+                    pauseMenuView = "main"
+                    pauseSettingsSliderDragKey = nil
+                end
             end
         end
         return
@@ -1215,6 +1243,12 @@ function game:mousepressed(x, y, button)
         else
             player:reload()
         end
+    end
+end
+
+function game:mousereleased(x, y, button)
+    if button == 1 then
+        pauseSettingsSliderDragKey = nil
     end
 end
 
