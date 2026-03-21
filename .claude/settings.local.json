@@ -16,7 +16,12 @@
       "Bash(file:*)",
       "Bash(py --version)",
       "Bash(where python:*)",
-      "Bash(where py:*)"
+      "Bash(where py:*)",
+      "Bash(lua -p src/states/game.lua)",
+      "Bash(luac -p src/states/game.lua)",
+      "Bash(xargs grep:*)",
+      "Bash(luac -p src/data/guns.lua src/data/weapons.lua src/entities/player.lua src/entities/pickup.lua src/systems/combat.lua src/ui/hud.lua src/states/game.lua src/ui/damage_numbers.lua)",
+      "Bash(identify \"C:/github/cowboygameboy/assets/weapons/Weapons/AK47.png\" \"C:/github/cowboygameboy/assets/weapons/Weapons/Blunderbuss.png\" \"C:/github/cowboygameboy/assets/weapons/Weapons/ColtSingleActionArmy.png\")"
     ]
   }
 }

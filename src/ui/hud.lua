@@ -1,4 +1,5 @@
 local Font = require("src.ui.font")
+local Guns = require("src.data.guns")
 
 
 
@@ -290,6 +291,161 @@ end
 
 
 
+--- Double-barrel view: two large circles (barrels from the front), gold = loaded.
+local function drawDoubleBarrel(cx, cy, capacity, loadedCount, reloading)
+    capacity = math.max(1, math.floor(capacity))
+    loadedCount = math.max(0, math.min(capacity, math.floor(loadedCount)))
+
+    local barrelR = 14
+    local gap = 6
+    local totalH = capacity * (barrelR * 2 + gap) - gap
+    local startY = cy - totalH / 2 + barrelR
+
+    -- Outer housing
+    love.graphics.setColor(0.11, 0.1, 0.09)
+    love.graphics.rectangle("fill", cx - barrelR - 6, cy - totalH / 2 - 6,
+                            (barrelR + 6) * 2, totalH + 12, 4, 4)
+    love.graphics.setColor(0.22, 0.2, 0.18)
+    love.graphics.rectangle("fill", cx - barrelR - 4, cy - totalH / 2 - 4,
+                            (barrelR + 4) * 2, totalH + 8, 3, 3)
+    love.graphics.setColor(0.38, 0.34, 0.3)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", cx - barrelR - 4, cy - totalH / 2 - 4,
+                            (barrelR + 4) * 2, totalH + 8, 3, 3)
+    love.graphics.setLineWidth(1)
+
+    if reloading then
+        love.graphics.setColor(0.75, 0.55, 0.2, 0.22)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", cx - barrelR - 5, cy - totalH / 2 - 5,
+                                (barrelR + 5) * 2, totalH + 10, 4, 4)
+        love.graphics.setLineWidth(1)
+    end
+
+    for i = 1, capacity do
+        local by = startY + (i - 1) * (barrelR * 2 + gap)
+        local loaded = i <= loadedCount
+
+        if loaded then
+            love.graphics.setColor(0.1, 0.08, 0.06)
+            love.graphics.circle("fill", cx, by, barrelR + 1.5)
+            love.graphics.setColor(0.92, 0.68, 0.16)
+            love.graphics.circle("fill", cx, by, barrelR)
+            love.graphics.setColor(1, 0.88, 0.42)
+            love.graphics.circle("fill", cx, by - barrelR * 0.3, barrelR * 0.4)
+            love.graphics.setColor(0.45, 0.32, 0.06)
+            love.graphics.circle("fill", cx, by + barrelR * 0.3, barrelR * 0.35)
+        else
+            love.graphics.setColor(0.07, 0.07, 0.08)
+            love.graphics.circle("fill", cx, by, barrelR + 0.5)
+            love.graphics.setColor(0.16, 0.15, 0.14)
+            love.graphics.circle("fill", cx, by, barrelR)
+            love.graphics.setColor(0.32, 0.3, 0.28, 0.85)
+            love.graphics.circle("line", cx, by, barrelR)
+        end
+    end
+end
+
+--- Magazine counter: rectangular mag shape with ammo count number.
+local function drawMagazineCounter(cx, cy, capacity, loadedCount, reloading)
+    capacity = math.max(1, math.floor(capacity))
+    loadedCount = math.max(0, math.min(capacity, math.floor(loadedCount)))
+
+    local magW, magH = 28, 56
+    local mx = cx - magW / 2
+    local my = cy - magH / 2
+
+    -- Magazine body (olive/military green)
+    love.graphics.setColor(0.11, 0.1, 0.09)
+    love.graphics.rectangle("fill", mx - 1, my - 1, magW + 2, magH + 2, 3, 3)
+    love.graphics.setColor(0.28, 0.32, 0.22)
+    love.graphics.rectangle("fill", mx, my, magW, magH, 2, 2)
+
+    -- Fill bar (bottom-up, representing remaining ammo)
+    local fillRatio = loadedCount / capacity
+    local fillH = math.floor((magH - 4) * fillRatio)
+    if fillH > 0 then
+        love.graphics.setColor(0.45, 0.52, 0.3)
+        love.graphics.rectangle("fill", mx + 2, my + magH - 2 - fillH, magW - 4, fillH)
+        love.graphics.setColor(0.58, 0.65, 0.4, 0.5)
+        love.graphics.rectangle("fill", mx + 2, my + magH - 2 - fillH, magW - 4, math.min(2, fillH))
+    end
+
+    -- Border
+    love.graphics.setColor(0.45, 0.42, 0.35)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", mx, my, magW, magH, 2, 2)
+    love.graphics.setLineWidth(1)
+
+    if reloading then
+        love.graphics.setColor(0.75, 0.55, 0.2, 0.22)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", mx - 1, my - 1, magW + 2, magH + 2, 3, 3)
+        love.graphics.setLineWidth(1)
+    end
+
+    -- Ammo count number (centered)
+    if not HUD._fontMag then
+        HUD._fontMag = Font.new(18)
+    end
+    local prev = love.graphics.getFont()
+    love.graphics.setFont(HUD._fontMag)
+    local numStr = tostring(loadedCount)
+    local tw = HUD._fontMag:getWidth(numStr)
+    local th = HUD._fontMag:getHeight()
+    -- Shadow
+    love.graphics.setColor(0, 0, 0, 0.8)
+    love.graphics.print(numStr, cx - tw / 2 + 1, cy - th / 2 + 1)
+    -- Text
+    if loadedCount <= math.ceil(capacity * 0.2) then
+        love.graphics.setColor(1, 0.3, 0.2)  -- low ammo = red
+    else
+        love.graphics.setColor(1, 0.95, 0.85)
+    end
+    love.graphics.print(numStr, cx - tw / 2, cy - th / 2)
+    love.graphics.setFont(prev)
+end
+
+--- Compute capacity for a specific gun using perk delta (independent of active weapon).
+local BASE_CYLINDER_SIZE = 6  -- must match PLAYER_BASE_GUN_STATS.cylinderSize in player.lua
+local function gunCapacity(gun, player)
+    local perkDelta = player.stats.cylinderSize - BASE_CYLINDER_SIZE
+    return gun.baseStats.cylinderSize + perkDelta
+end
+
+--- Dispatch to the correct ammo display based on active weapon type.
+local function drawAmmoDisplay(cx, cy, player, effectiveStats)
+    local gun = player:getActiveGun()
+    if not gun then return 0 end  -- melee active, no ammo display
+
+    local cap = gunCapacity(gun, player)
+    local ammoType = gun.ammoType
+    if ammoType == "cylinder" then
+        drawRevolverCylinder(cx, cy, cap, player.ammo, player.reloading)
+        return drumOuterRadius(cap)
+    elseif ammoType == "double_barrel" then
+        drawDoubleBarrel(cx, cy, cap, player.ammo, player.reloading)
+        return 24  -- approximate visual radius
+    elseif ammoType == "magazine" then
+        drawMagazineCounter(cx, cy, cap, player.ammo, player.reloading)
+        return 30  -- approximate visual radius
+    end
+    return 0
+end
+
+--- Draw ammo for a specific gun (used by akimbo to draw each slot independently).
+local function drawAmmoForGun(cx, cy, gun, capacity, loadedCount, reloading)
+    if not gun then return end
+    local ammoType = gun.ammoType
+    if ammoType == "cylinder" then
+        drawRevolverCylinder(cx, cy, capacity, loadedCount, reloading)
+    elseif ammoType == "double_barrel" then
+        drawDoubleBarrel(cx, cy, capacity, loadedCount, reloading)
+    elseif ammoType == "magazine" then
+        drawMagazineCounter(cx, cy, capacity, loadedCount, reloading)
+    end
+end
+
 function HUD.draw(player)
 
     ensureFonts()
@@ -418,21 +574,13 @@ function HUD.draw(player)
 
 
 
-    -- —— Loadout row + revolver drum (bottom-left) ——
+    -- —— Loadout row + ammo display (bottom-left) ——
 
     do
 
         local baseY = loadoutBaseY(screenH)
 
-        local cyl = effectiveStats.cylinderSize
-
-        local drumR = drumOuterRadius(cyl)
-
         local ammoColX = LOADOUT_BASE_X
-
-        local bannerW = math.max(148, math.floor(drumR * 2.35))
-
-
 
         local hintY = baseY - 16
 
@@ -456,11 +604,61 @@ function HUD.draw(player)
 
 
 
-        local drumCy = yCursor - drumR
+        -- Use weapon-specific ammo display
+        local isAkimbo = player.isAkimbo and player:isAkimbo()
 
-        local drumCx = ammoColX + drumR
+        if isAkimbo then
+            -- Akimbo: draw both weapons' ammo side by side
+            local slot1 = player.weapons[1]
+            local slot2 = player.weapons[2]
+            local gun1 = slot1 and slot1.gun
+            local gun2 = slot2 and slot2.gun
 
-        drawRevolverCylinder(drumCx, drumCy, cyl, player.ammo, player.reloading)
+            local function ammoR(gun)
+                if not gun then return 20 end
+                if gun.ammoType == "cylinder" then
+                    return drumOuterRadius(gunCapacity(gun, player))
+                elseif gun.ammoType == "double_barrel" then return 24
+                elseif gun.ammoType == "magazine" then return 30
+                end
+                return 20
+            end
+
+            local r1 = ammoR(gun1)
+            local r2 = ammoR(gun2)
+            local gap = 8
+
+            -- Slot 1 (left)
+            local cx1 = ammoColX + r1
+            local cy1 = yCursor - math.max(r1, r2)
+            if gun1 then
+                local ammo1 = player.activeWeaponSlot == 1 and player.ammo or slot1.ammo
+                local reloading1 = player.activeWeaponSlot == 1 and player.reloading or slot1.reloading
+                drawAmmoForGun(cx1, cy1, gun1, gunCapacity(gun1, player), ammo1, reloading1)
+            end
+
+            -- Slot 2 (right of slot 1)
+            local cx2 = cx1 + r1 + gap + r2
+            if gun2 then
+                local ammo2 = player.activeWeaponSlot == 2 and player.ammo or slot2.ammo
+                local reloading2 = player.activeWeaponSlot == 2 and player.reloading or slot2.reloading
+                drawAmmoForGun(cx2, cy1, gun2, gunCapacity(gun2, player), ammo2, reloading2)
+            end
+        else
+            local displayR = 36
+            local gun = player:getActiveGun()
+            if gun and gun.ammoType == "cylinder" then
+                displayR = drumOuterRadius(gunCapacity(gun, player))
+            elseif gun and gun.ammoType == "double_barrel" then
+                displayR = 24
+            elseif gun and gun.ammoType == "magazine" then
+                displayR = 30
+            end
+
+            local displayCy = yCursor - displayR
+            local displayCx = ammoColX + displayR
+            drawAmmoDisplay(displayCx, displayCy, player, effectiveStats)
+        end
 
     end
 
@@ -472,11 +670,39 @@ function HUD.draw(player)
 
         local shieldAutoCapable = player:shieldAllowsAutoBlock()
 
+        -- Slot 1: primary weapon, Slot 2: secondary weapon or melee, Slot 3: shield
+        local gun1 = player.weapons[1] and player.weapons[1].gun
+        local gun2 = player.weapons[2] and player.weapons[2].gun
+
+        local function gunSlotSub(slotNum)
+            if player.activeWeaponSlot == slotNum then
+                return player.autoGun and "Auto+aim" or "Manual"
+            end
+            return "TAB"
+        end
+
+        local slot2Label, slot2Sub, slot2Auto
+        if gun2 then
+            slot2Label = gun2.name
+            slot2Sub   = gunSlotSub(2)
+            slot2Auto  = player.activeWeaponSlot == 2 and player.autoGun
+        else
+            slot2Label = "Melee"
+            slot2Sub   = (player.gear.melee and player.gear.melee.name) or "—"
+            slot2Auto  = player.autoMelee
+        end
+
         local slots = {
 
-            { id = "gun",    label = "Gun",    sub = "Auto + mouse", auto = player.autoGun },
+            { id = "gun",    label = gun1 and gun1.name or "Gun",  gun = gun1,
+              sub = gunSlotSub(1),
+              auto = player.activeWeaponSlot == 1 and player.autoGun,
+              isActive = player.activeWeaponSlot == 1 },
 
-            { id = "melee",  label = "Melee",  sub = (player.gear.melee and player.gear.melee.name) or "—", auto = player.autoMelee },
+            { id = "melee",  label = slot2Label,  gun = gun2,
+              sub = slot2Sub,
+              auto = slot2Auto,
+              isActive = player.activeWeaponSlot == 2 and gun2 ~= nil },
 
             {
 
@@ -498,7 +724,7 @@ function HUD.draw(player)
 
         love.graphics.setFont(HUD._fontHudSm)
 
-        shadowPrint("RMB slot: toggle auto (gun·melee·shield) · R reload", LOADOUT_BASE_X, baseY - 16, 0.68, 0.66, 0.62, 0.88)
+        shadowPrint("TAB switch · RMB auto · R reload", LOADOUT_BASE_X, baseY - 16, 0.68, 0.66, 0.62, 0.88)
 
 
 
@@ -509,6 +735,14 @@ function HUD.draw(player)
             local borderOn = slot.auto
 
 
+
+            -- Active weapon slot highlight (bright gold border)
+            if slot.isActive then
+                love.graphics.setColor(0.92, 0.75, 0.25, 0.75)
+                love.graphics.setLineWidth(2)
+                love.graphics.rectangle("line", x - 2, baseY - 2, LOADOUT_SLOT_W + 4, LOADOUT_SLOT_H + 4)
+                love.graphics.setLineWidth(1)
+            end
 
             if borderOn then
 
@@ -540,9 +774,21 @@ function HUD.draw(player)
 
 
 
-            love.graphics.setFont(HUD._fontLoadout)
-
-            shadowPrintf(slot.label, x + 4, baseY + 4, LOADOUT_SLOT_W - 8, "center", 0.95, 0.9, 0.82, borderOn and 1 or 0.78)
+            -- Draw weapon sprite or text label inside slot
+            local sprite = slot.gun and Guns.getSprite(slot.gun)
+            if sprite then
+                local sw, sh = sprite:getDimensions()
+                local maxW = LOADOUT_SLOT_W - 8
+                local maxH = LOADOUT_SLOT_H - 22  -- leave room for sub text
+                local sc = math.min(maxW / sw, maxH / sh)
+                local dx = x + (LOADOUT_SLOT_W - sw * sc) / 2
+                local dy = baseY + (maxH - sh * sc) / 2 + 2
+                love.graphics.setColor(1, 1, 1, borderOn and 1 or 0.78)
+                love.graphics.draw(sprite, dx, dy, 0, sc, sc)
+            else
+                love.graphics.setFont(HUD._fontLoadout)
+                shadowPrintf(slot.label, x + 4, baseY + 4, LOADOUT_SLOT_W - 8, "center", 0.95, 0.9, 0.82, borderOn and 1 or 0.78)
+            end
 
 
 

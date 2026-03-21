@@ -1,5 +1,6 @@
 local Bullet = require("src.entities.bullet")
 local Pickup = require("src.entities.pickup")
+local Guns   = require("src.data.guns")
 local DamageNumbers = require("src.ui.damage_numbers")
 local ImpactFX = require("src.systems.impact_fx")
 
@@ -114,6 +115,21 @@ function Combat.onEnemyKilled(enemy, player)
             type = "health",
             value = 15,
         })
+    end
+
+    -- Weapon drop (rare)
+    local luck = player:getEffectiveStats().luck or 0
+    local weaponDropChance = 0.04 + luck * 0.02
+    if math.random() < weaponDropChance then
+        local gunDef = Guns.rollDrop(luck)
+        if gunDef then
+            table.insert(drops, {
+                x = baseX,
+                y = baseY - 8,
+                type = "weapon",
+                value = gunDef,
+            })
+        end
     end
 
     return drops
@@ -261,7 +277,7 @@ function Combat.checkPlayerMelee(player, enemies)
     end
 end
 
-function Combat.checkPickups(pickups, player)
+function Combat.checkPickups(pickups, player, world)
     local leveledUp = false
     local attractR = pickupAttractRadius(player)
     local i = 1
@@ -273,11 +289,23 @@ function Combat.checkPickups(pickups, player)
         local dy = (p.y + p.h / 2) - py
         local dist = math.sqrt(dx * dx + dy * dy)
 
-        if dist < attractR then
+        -- Weapon pickups are NOT attracted — must walk over deliberately
+        if dist < attractR and p.pickupType ~= "weapon" then
             p.attracted = true
         end
 
-        if p.attracted and dist < PICKUP_COLLECT_RADIUS then
+        local collected = false
+        if p.pickupType == "weapon" and p.gunDef then
+            -- Weapon: close contact only (no attraction)
+            if dist < PICKUP_COLLECT_RADIUS then
+                local slot = player.weapons[2] and player.weapons[2].gun and player.activeWeaponSlot or 2
+                player:equipWeapon(p.gunDef, slot)
+                local cx = p.x + p.w / 2
+                local cy = p.y + p.h / 2
+                DamageNumbers.spawnPickup(cx, cy, p.gunDef.name, "weapon")
+                collected = true
+            end
+        elseif p.attracted and dist < PICKUP_COLLECT_RADIUS then
             local cx = p.x + p.w / 2
             local cy = p.y + p.h / 2
             if p.pickupType == "xp" then
@@ -290,10 +318,17 @@ function Combat.checkPickups(pickups, player)
                 player:heal(p.value)
                 DamageNumbers.spawnPickup(cx, cy, p.value, "health")
             end
+            collected = true
+        end
+
+        if collected then
             p.alive = false
         end
 
         if not p.alive then
+            if world and world:hasItem(p) then
+                world:remove(p)
+            end
             table.remove(pickups, i)
         else
             i = i + 1

@@ -1,5 +1,6 @@
 --- Layout + hit-testing for the in-game dev panel (see `game.lua` when DEBUG).
 local Perks = require("src.data.perks")
+local Guns  = require("src.data.guns")
 
 local DevPanel = {}
 
@@ -45,6 +46,12 @@ function DevPanel.buildRows(showHitboxes)
     rows[#rows + 1] = rowAction("spawn_bandit", "Spawn bandit (near)")
     rows[#rows + 1] = rowAction("spawn_gunslinger", "Spawn gunslinger (near)")
     rows[#rows + 1] = rowAction("spawn_buzzard", "Spawn buzzard (near)")
+
+    rows[#rows + 1] = rowHeader("Weapons (click to equip)")
+    for _, gun in ipairs(Guns.pool) do
+        local rarity = gun.rarity and (" [" .. gun.rarity .. "]") or ""
+        rows[#rows + 1] = rowAction("gun:" .. gun.id, gun.name .. rarity)
+    end
 
     rows[#rows + 1] = rowHeader("Perks (click to add)")
     for _, perk in ipairs(Perks.pool) do

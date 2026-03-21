@@ -174,7 +174,58 @@ end
 local DOOR_INTERACT_PAD = 10
 
 -- Must be declared before any helper that reads it (Lua local scope starts at declaration)
-local CAM_ZOOM = 2
+local CAM_ZOOM = 3
+
+-- Dead Cells-style camera settings
+local CAM_LERP_SPEED   = 5      -- how fast camera catches up (higher = snappier)
+local CAM_LOOK_AHEAD_X = 60     -- pixels ahead in movement direction
+local CAM_LOOK_AHEAD_Y = 30     -- pixels down when falling
+local CAM_GROUNDED_Y   = -15    -- slight upward bias when grounded (see more floor ahead)
+local camTargetX, camTargetY = 400, 200
+local camCurrentX, camCurrentY = 400, 200
+
+local function updateCamera(dt, snap)
+    if not currentRoom or not camera or not player then return end
+    local viewW = GAME_WIDTH / CAM_ZOOM
+    local viewH = GAME_HEIGHT / CAM_ZOOM
+    local px = player.x + player.w / 2
+    local py = player.y + player.h / 2
+
+    -- Look-ahead: lead camera in the direction the player is moving/facing
+    local lookX = 0
+    if player.vx > 10 then
+        lookX = CAM_LOOK_AHEAD_X
+    elseif player.vx < -10 then
+        lookX = -CAM_LOOK_AHEAD_X
+    elseif player.facingRight then
+        lookX = CAM_LOOK_AHEAD_X * 0.5
+    else
+        lookX = -CAM_LOOK_AHEAD_X * 0.5
+    end
+
+    -- Vertical bias: look down when falling, slight up when grounded
+    local lookY = 0
+    if player.grounded then
+        lookY = CAM_GROUNDED_Y
+    elseif player.vy > 50 then
+        lookY = CAM_LOOK_AHEAD_Y
+    end
+
+    -- Target with look-ahead, clamped to room edges
+    camTargetX = math.max(viewW / 2, math.min(currentRoom.width - viewW / 2, px + lookX))
+    camTargetY = math.max(viewH / 2, math.min(currentRoom.height - viewH / 2, py + lookY))
+
+    if snap then
+        camCurrentX, camCurrentY = camTargetX, camTargetY
+    else
+        -- Smooth lerp (frame-rate independent)
+        local t = 1 - math.exp(-CAM_LERP_SPEED * dt)
+        camCurrentX = camCurrentX + (camTargetX - camCurrentX) * t
+        camCurrentY = camCurrentY + (camTargetY - camCurrentY) * t
+    end
+
+    camera:lookAt(camCurrentX, camCurrentY)
+end
 
 local function playerOverlapsDoorAABB()
     if not currentRoom or not currentRoom.door or not player then
@@ -473,7 +524,8 @@ local function drawCharacterSheet()
 end
 
 local function devPerkById(pid)
-    for _, p in ipairs(PerksData.pool) do
+    local Perks = require("src.data.perks")
+    for _, p in ipairs(Perks.pool) do
         if p.id == pid then return p end
     end
 end
@@ -592,6 +644,15 @@ local function devApplyAction(id)
             table.insert(enemies, e)
             DevLog.push("sys", "[dev] spawn " .. t)
         end
+    elseif id:sub(1, 4) == "gun:" then
+        local gunId = id:sub(5)
+        local Guns = require("src.data.guns")
+        local gunDef = Guns.getById(gunId)
+        if gunDef then
+            local slot = player.weapons[2] and player.weapons[2].gun and player.activeWeaponSlot or 2
+            player:equipWeapon(gunDef, slot)
+            DevLog.push("sys", "[dev] equipped " .. gunDef.name .. " to slot " .. slot)
+        end
     elseif id:sub(1, 5) == "perk:" then
         local pid = id:sub(6)
         if devPlayerHasPerk(pid) then
@@ -615,6 +676,8 @@ function game:enter(_, opts)
     world = bump.newWorld(32)
     camera = Camera(400, 200)
     camera.scale = CAM_ZOOM
+    camCurrentX, camCurrentY = 400, 200
+    camTargetX, camTargetY = 400, 200
     player = Player.new(50, 300)
     player.autoGun = Settings.getDefaultAutoGun()
     world:add(player, player.x, player.y, player.w, player.h)
@@ -700,6 +763,8 @@ function loadNextRoom()
 
     currentRoom = roomManager:loadRoom(roomData, world, player)
     enemies = currentRoom.enemies
+    -- Snap camera to player on room load (no lerp lag)
+    updateCamera(0, true)
     DevLog.push("sys", string.format("Room %d/%d loaded  (diff %.1f)",
         roomManager.currentRoomIndex, #roomManager.roomSequence,
         roomManager.difficulty or 1))
@@ -736,15 +801,7 @@ function game:update(dt)
                 introCountdownActive = false
             end
         end
-        if currentRoom and camera and player then
-            local viewW = GAME_WIDTH / CAM_ZOOM
-            local viewH = GAME_HEIGHT / CAM_ZOOM
-            local px = player.x + player.w / 2
-            local py = player.y + player.h / 2
-            local cx = math.max(viewW / 2, math.min(currentRoom.width - viewW / 2, px))
-            local cy = math.max(viewH / 2, math.min(currentRoom.height - viewH / 2, py))
-            camera:lookAt(cx, cy)
-        end
+        updateCamera(dt, false)
         return
     end
 
@@ -813,7 +870,7 @@ function game:update(dt)
     if not player.dying then
     local i, leveledUp -- hoisted for goto (cannot jump over `local` in same block)
     -- Auto-fire only when findAutoTarget finds someone (on-screen + LOS). Mouse overrides *direction* to cursor, but never fires into empty space.
-    if player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
+    if player:getActiveGun() and player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
         local tx, ty
         if not autoTx then
             tx, ty = nil, nil
@@ -829,8 +886,12 @@ function game:update(dt)
                     local b = Combat.spawnBullet(world, data)
                     table.insert(bullets, b)
                 end
+                -- Scale shake by fire rate (rapid weapons get less shake per shot)
+                local gun = player:getActiveGun()
+                local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+                local shakeMult = math.min(1, cooldown / 0.38)
                 shakeTimer = 0.08
-                shakeIntensity = 2
+                shakeIntensity = 2 * shakeMult
             end
         end
     end
@@ -899,7 +960,7 @@ function game:update(dt)
     end
 
     -- Check pickup collection
-    leveledUp = Combat.checkPickups(pickups, player)
+    leveledUp = Combat.checkPickups(pickups, player, world)
 
     -- Level up
     if leveledUp then
@@ -967,16 +1028,8 @@ function game:update(dt)
         return
     end
 
-    -- Camera always follows player, clamped to room edges
-    if currentRoom then
-        local viewW = GAME_WIDTH / CAM_ZOOM
-        local viewH = GAME_HEIGHT / CAM_ZOOM
-        local px = player.x + player.w / 2
-        local py = player.y + player.h / 2
-        local cx = math.max(viewW / 2, math.min(currentRoom.width - viewW / 2, px))
-        local cy = math.max(viewH / 2, math.min(currentRoom.height - viewH / 2, py))
-        camera:lookAt(cx, cy)
-    end
+    -- Dead Cells-style smooth camera with look-ahead
+    updateCamera(dt, false)
 end
 
 function game:keypressed(key)
@@ -1103,6 +1156,9 @@ function game:keypressed(key)
     if key == "h" then
         player:spinHolster()
     end
+    if key == "tab" then
+        player:switchWeapon()
+    end
     if key == "e" then
         tryExitThroughDoor()
     end
@@ -1211,7 +1267,7 @@ function game:mousepressed(x, y, button)
     if player then
         player.mouseAimOverrideUntil = love.timer.getTime() + Settings.getMouseAimIdleSec()
     end
-    if button == 1 and player and not player.blocking then
+    if button == 1 and player and not player.blocking and player:getActiveGun() then
         -- Manual shot at cursor; player:shoot cooldown blocks double-tap with auto-fire in update
         local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
         local bulletData = player:shoot(mx, my)
@@ -1220,8 +1276,11 @@ function game:mousepressed(x, y, button)
                 local b = Combat.spawnBullet(world, data)
                 table.insert(bullets, b)
             end
+            local gun = player:getActiveGun()
+            local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+            local shakeMult = math.min(1, cooldown / 0.38)
             shakeTimer = 0.08
-            shakeIntensity = 2
+            shakeIntensity = 2 * shakeMult
         end
     end
     if button == 2 then
