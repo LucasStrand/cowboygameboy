@@ -11,13 +11,15 @@ local STRIP_DIR = "assets/sprites/cowboy/"
 -- "file" is the strip PNG basename (without directory).
 -- For jump/fall/dash/melee we re-use existing strips with startFrame / frames subset.
 local ANIMS = {
-    idle  = { file = "idle.png",  frames = 7, fps = 6,  loop = true  },
-    run   = { file = "run.png",   frames = 8, fps = 10, loop = true  },
-    jump  = { file = "draw.png",  frames = 1, fps = 1,  loop = true, startFrame = 1 },
-    fall  = { file = "draw.png",  frames = 1, fps = 1,  loop = true, startFrame = 2 },
-    shoot = { file = "shoot.png", frames = 5, fps = 14, loop = false },
-    dash  = { file = "draw.png",  frames = 3, fps = 16, loop = true, startFrame = 1 },
-    melee = { file = "draw.png",  frames = 4, fps = 12, loop = false, startFrame = 3 },
+    idle    = { file = "idle.png",      frames = 7,  fps = 6,  loop = true  },
+    smoking = { file = "smoking.png",   frames = 9,  fps = 5,  loop = true  },
+    run     = { file = "run.png",       frames = 8,  fps = 10, loop = true  },
+    jump    = { file = "draw.png",      frames = 1,  fps = 1,  loop = true, startFrame = 1 },
+    fall    = { file = "draw.png",      frames = 1,  fps = 1,  loop = true, startFrame = 2 },
+    shoot   = { file = "shoot.png",     frames = 5,  fps = 14, loop = false },
+    holster = { file = "holster.png",   frames = 8,  fps = 12, loop = false },
+    dash    = { file = "draw.png",      frames = 3,  fps = 16, loop = true, startFrame = 1 },
+    melee   = { file = "quickdraw.png", frames = 6,  fps = 14, loop = false, startFrame = 1 },
 }
 
 local Animator = {}

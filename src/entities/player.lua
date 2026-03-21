@@ -115,6 +115,7 @@ function Player.new(x, y)
 
     -- Sprite animation
     self.anim = Animator.new()
+    self.idleTimer = 0          -- seconds standing still, triggers smoking idle
 
     return self
 end
@@ -314,16 +315,30 @@ function Player:update(dt, world, enemies)
     -- Animation state machine (priority: one-shots > air > ground movement)
     local anim = self.anim
     anim:update(dt)
-    local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee") and not anim.done
+    -- Chain: shoot → holster before returning to idle
+    if anim.current == "shoot" and anim.done then
+        anim:play("holster", true)
+    end
+    local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee"
+                            or anim.current == "holster") and not anim.done
     if not oneShotPlaying then
         if self.dashTimer > 0 then
             anim:play("dash")
+            self.idleTimer = 0
         elseif not self.grounded then
             if self.vy < 0 then anim:play("jump") else anim:play("fall") end
+            self.idleTimer = 0
         elseif math.abs(self.vx) > 10 then
             anim:play("run")
+            self.idleTimer = 0
         else
-            anim:play("idle")
+            -- Idle: after 3 seconds of standing still, transition to smoking
+            self.idleTimer = self.idleTimer + dt
+            if self.idleTimer >= 3 then
+                anim:play("smoking")
+            else
+                anim:play("idle")
+            end
         end
     end
 end
