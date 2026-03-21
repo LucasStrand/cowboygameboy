@@ -1,5 +1,6 @@
 local EnemyData = require("src.data.enemies")
 local PlatformCollision = require("src.systems.platform_collision")
+local DropShadow = require("src.ui.drop_shadow")
 
 local Enemy = {}
 Enemy.__index = Enemy
@@ -560,6 +561,15 @@ function Enemy.filter(item, other)
     return "slide"
 end
 
+local function drawEnemyGroundShadow(self, rxMul, ry, alpha)
+    rxMul = rxMul or 0.42
+    ry = ry or 5
+    alpha = alpha or 0.3
+    local cx = self.x + self.w / 2
+    local footY = self.y + self.h
+    DropShadow.drawEllipse(cx, footY, self.w * rxMul, ry, alpha)
+end
+
 function Enemy:draw()
     if not self.alive then return end
     local c = self.color
@@ -573,6 +583,7 @@ function Enemy:draw()
     if self.typeId == "buzzard" and _buzzardSheet then
         local quad = _buzzardQuads[self.spriteFrame]
         if quad then
+            drawEnemyGroundShadow(self, 0.42, 3.5, 0.24)
             if self.hurtTimer > 0 then
                 love.graphics.setColor(1, 0.4, 0.4)
             else
@@ -623,6 +634,7 @@ function Enemy:draw()
     elseif self.typeId == "bandit" and _banditSheet then
         local quad = _banditQuads[self.spriteFrame]
         if quad then
+            drawEnemyGroundShadow(self)
             if self.hurtTimer > 0 then
                 love.graphics.setColor(1, 0.4, 0.4)
             else
@@ -680,6 +692,7 @@ function Enemy:draw()
         local frame = math.min(self.spriteFrame, maxFrames)
         local quad = quads[frame]
         if quad then
+            drawEnemyGroundShadow(self)
             if self.hurtTimer > 0 then
                 love.graphics.setColor(1, 0.4, 0.4)
             else
@@ -697,6 +710,7 @@ function Enemy:draw()
         end
 
     else
+        drawEnemyGroundShadow(self)
         if self.hurtTimer > 0 then
             love.graphics.setColor(1, 1, 1)
         else

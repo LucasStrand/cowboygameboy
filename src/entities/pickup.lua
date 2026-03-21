@@ -1,6 +1,7 @@
 local PlatformCollision = require("src.systems.platform_collision")
 local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
+local DropShadow = require("src.ui.drop_shadow")
 
 local Pickup = {}
 Pickup.__index = Pickup
@@ -103,6 +104,10 @@ end
 
 function Pickup:draw()
     local dy = self.bobOffset or 0
+    local cx = self.x + self.w / 2
+    local floorY = self.y + self.h
+    DropShadow.drawEllipse(cx, floorY, 7, 2.5, 0.22)
+
     if self.pickupType == "xp" then
         love.graphics.setColor(0.3, 0.7, 1.0)
         love.graphics.circle("fill", self.x + self.w/2, self.y + self.h/2 + dy, 5)

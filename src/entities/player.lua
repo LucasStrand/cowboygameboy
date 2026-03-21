@@ -4,6 +4,7 @@ local PlatformCollision = require("src.systems.platform_collision")
 local Animator = require("src.systems.animation")
 local Keybinds = require("src.systems.keybinds")
 local Sfx = require("src.systems.sfx")
+local DropShadow = require("src.ui.drop_shadow")
 
 local Player = {}
 Player.__index = Player
@@ -1033,6 +1034,21 @@ function Player:draw()
     -- Flash when invulnerable
     if not self.dying and self.iframes > 0 and math.floor(self.iframes * 10) % 2 == 0 then
         return
+    end
+
+    -- Ground shadow (same visibility as sprite)
+    do
+        local scx = self.x + self.w / 2
+        local footY = self.y + self.h
+        local sRx, sRy, sA = self.w * 0.42, 5, 0.3
+        if self.dying then
+            local u = math.min(1, self.deathTimer / Player.DEATH_DURATION)
+            local ease = 1 - math.cos(u * math.pi * 0.5)
+            sA = sA * (1 - u * 0.5)
+            sRx = sRx * (1 - ease * 0.25)
+            sRy = sRy * (1 - ease * 0.2)
+        end
+        DropShadow.drawEllipse(scx, footY, sRx, sRy, sA)
     end
 
     -- Sprite (replaces body, hat, eyes, gun placeholders)
