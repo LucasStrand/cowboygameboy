@@ -4,6 +4,7 @@ local Blackjack = require("src.systems.blackjack")
 local Shop = require("src.systems.shop")
 local Perks = require("src.data.perks")
 local PerkCard = require("src.ui.perk_card")
+local Cursor = require("src.ui.cursor")
 
 local saloon = {}
 
@@ -37,6 +38,7 @@ function saloon:enter(_, _player, _roomManager)
     fonts.card = Font.new(20)
     fonts.shopTitle = Font.new(24)
     fonts.default = Font.new(12)
+    Cursor.setDefault()
 end
 
 function saloon:update(dt)

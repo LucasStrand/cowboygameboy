@@ -144,7 +144,7 @@ local function addJumpChainsIfNeeded(room, world, platforms)
     end
 end
 
-function RoomManager:loadRoom(room, world, player)
+function RoomManager:loadRoom(room, world, player, opts)
     -- Add platform colliders (thin ledges are one-way; thick floors are solid)
     local platforms = {}
     for _, plat in ipairs(room.platforms) do
@@ -209,22 +209,24 @@ function RoomManager:loadRoom(room, world, player)
     -- Spawn enemies (extra spawns + staggered arrivals handled in game state)
     local enemies = {}
     local pendingEnemySpawns = {}
-    local plan = RoomData.buildSpawnPlan(room, self.difficulty, player.level or 1)
-    for _, spawn in ipairs(plan.immediate) do
-        local enemy = Enemy.new(spawn.type, spawn.x, spawn.y, self.difficulty, { elite = spawn.elite })
-        if enemy then
-            world:add(enemy, enemy.x, enemy.y, enemy.w, enemy.h)
-            table.insert(enemies, enemy)
+    if not (opts and opts.skipEnemies) then
+        local plan = RoomData.buildSpawnPlan(room, self.difficulty, player.level or 1)
+        for _, spawn in ipairs(plan.immediate) do
+            local enemy = Enemy.new(spawn.type, spawn.x, spawn.y, self.difficulty, { elite = spawn.elite })
+            if enemy then
+                world:add(enemy, enemy.x, enemy.y, enemy.w, enemy.h)
+                table.insert(enemies, enemy)
+            end
         end
-    end
-    for _, spawn in ipairs(plan.delayed) do
-        table.insert(pendingEnemySpawns, {
-            type = spawn.type,
-            x = spawn.x,
-            y = spawn.y,
-            elite = spawn.elite,
-            time = spawn.delay or 0.5,
-        })
+        for _, spawn in ipairs(plan.delayed) do
+            table.insert(pendingEnemySpawns, {
+                type = spawn.type,
+                x = spawn.x,
+                y = spawn.y,
+                elite = spawn.elite,
+                time = spawn.delay or 0.5,
+            })
+        end
     end
 
     -- Exit door

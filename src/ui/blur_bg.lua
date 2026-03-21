@@ -26,21 +26,33 @@ local shaderCode = [[
     }
 ]]
 
+function BlurBG.invalidate()
+    if snapCanvas then snapCanvas:release(); snapCanvas = nil end
+    if passCanvas then passCanvas:release(); passCanvas = nil end
+    if fallbackSmall then fallbackSmall:release(); fallbackSmall = nil end
+    smallW, smallH = nil, nil
+end
+
 local function ensure()
-    if snapCanvas then
+    if snapCanvas
+        and snapCanvas:getWidth() == GAME_WIDTH
+        and snapCanvas:getHeight() == GAME_HEIGHT then
         return
     end
+    BlurBG.invalidate()
+
     snapCanvas = love.graphics.newCanvas(GAME_WIDTH, GAME_HEIGHT)
     snapCanvas:setFilter("linear", "linear")
     passCanvas = love.graphics.newCanvas(GAME_WIDTH, GAME_HEIGHT)
     passCanvas:setFilter("linear", "linear")
 
-    local ok, sh = pcall(love.graphics.newShader, shaderCode)
-    if ok then
-        blurShader = sh
+    if not blurShader then
+        local ok, sh = pcall(love.graphics.newShader, shaderCode)
+        if ok then
+            blurShader = sh
+        end
     end
 
-    -- Softer fallback than old /4 if shaders fail (rare)
     if not blurShader then
         smallW = math.max(64, math.floor(GAME_WIDTH / 2))
         smallH = math.max(36, math.floor(GAME_HEIGHT / 2))

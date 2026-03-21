@@ -1,5 +1,6 @@
 local Gamestate = require("lib.hump.gamestate")
 local Font = require("src.ui.font")
+local Cursor = require("src.ui.cursor")
 
 local gameover = {}
 
@@ -14,6 +15,7 @@ function gameover:enter(_, playerStats)
     fonts.stat = Font.new(20)
     fonts.prompt = Font.new(18)
     fonts.default = Font.new(12)
+    Cursor.setDefault()
 end
 
 function gameover:update(dt)

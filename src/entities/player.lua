@@ -5,6 +5,9 @@ local Animator = require("src.systems.animation")
 local Player = {}
 Player.__index = Player
 
+-- Seconds of collapse animation before game over
+Player.DEATH_DURATION = 0.95
+
 local GRAVITY = 900
 
 -- Melee swipe: same aim idea as bullets — segment from body toward cursor (AABB bounds the rotated stroke).
@@ -128,6 +131,8 @@ function Player.new(x, y)
     self.effectiveAimY = nil
     -- While > love.timer.getTime(), shooting uses mouse aim instead of findAutoTarget.
     self.mouseAimOverrideUntil = 0
+    -- Set each frame in game: true = ignore cursor for aim/facing (WASD + auto after mouse idle)
+    self.keyboardAimMode = true
 
     -- Loadout automation (toggled via HUD right-click). Auto gun + mouse overrides aim while active.
     -- Shield auto-block only applies when equipped shield has stats.allowAutoBlock.
@@ -141,7 +146,22 @@ function Player.new(x, y)
     self.anim = Animator.new()
     self.idleTimer = 0          -- seconds standing still, triggers smoking idle
 
+    self.dying = false
+    self.deathTimer = 0
+
     return self
+end
+
+function Player:beginDeath()
+    if self.dying then return end
+    self.hp = 0
+    self.dying = true
+    self.deathTimer = 0
+    self.vx = 0
+    self.vy = 0
+    self.blocking = false
+    self.meleeSwingTimer = 0
+    self.anim:play("fall", true)
 end
 
 --- True only when the equipped shield explicitly enables auto-block (never on default gear).
@@ -172,6 +192,12 @@ end
 local AUTO_BLOCK_RANGE_SQ = 70 * 70
 
 function Player:update(dt, world, enemies)
+    if self.dying then
+        self.deathTimer = self.deathTimer + dt
+        self.anim:update(dt)
+        return
+    end
+
     local effectiveStats = self:getEffectiveStats()
 
     -- I-frames
@@ -276,21 +302,33 @@ function Player:update(dt, world, enemies)
         end
     end
 
-    -- Facing follows effective aim (game: auto-target or cursor), not walk direction alone
+    -- Facing: mouse-aim mode uses horizontal aim; keyboard mode uses WASD / move / dash only
     do
-        local cx = self.x + self.w * 0.5
-        local ax = self.effectiveAimX or self.aimWorldX or cx
-        local aimDx = ax - cx
-        if math.abs(aimDx) > AIM_FACE_DEADZONE then
-            self.facingRight = aimDx > 0
-        elseif self.dashTimer > 0 and not blockRooted then
-            self.facingRight = self.dashDir > 0
-        elseif self.vx ~= 0 then
-            self.facingRight = self.vx > 0
-        elseif moveRight and not moveLeft then
-            self.facingRight = true
-        elseif moveLeft and not moveRight then
-            self.facingRight = false
+        if self.keyboardAimMode then
+            if moveRight and not moveLeft then
+                self.facingRight = true
+            elseif moveLeft and not moveRight then
+                self.facingRight = false
+            elseif self.dashTimer > 0 and not blockRooted then
+                self.facingRight = self.dashDir > 0
+            elseif self.vx ~= 0 then
+                self.facingRight = self.vx > 0
+            end
+        else
+            local cx = self.x + self.w * 0.5
+            local ax = self.effectiveAimX or self.aimWorldX or cx
+            local aimDx = ax - cx
+            if math.abs(aimDx) > AIM_FACE_DEADZONE then
+                self.facingRight = aimDx > 0
+            elseif self.dashTimer > 0 and not blockRooted then
+                self.facingRight = self.dashDir > 0
+            elseif self.vx ~= 0 then
+                self.facingRight = self.vx > 0
+            elseif moveRight and not moveLeft then
+                self.facingRight = true
+            elseif moveLeft and not moveRight then
+                self.facingRight = false
+            end
         end
     end
 
@@ -589,6 +627,7 @@ function Player:reload()
 end
 
 function Player:takeDamage(amount)
+    if self.dying then return false end
     if self.iframes > 0 then return false end
 
     local es = self:getEffectiveStats()
@@ -605,6 +644,10 @@ function Player:takeDamage(amount)
     if debugLog then
         local suffix = self.blocking and " [blocked]" or ""
         debugLog(string.format("Took %d dmg  HP %d→%d%s", finalDamage, self.hp + finalDamage, self.hp, suffix))
+    end
+
+    if self.hp <= 0 then
+        self:beginDeath()
     end
 
     return true, finalDamage
@@ -668,7 +711,7 @@ end
 
 function Player:draw()
     -- Reload progress: thin bar above the cowboy (world space)
-    if self.reloading then
+    if not self.dying and self.reloading then
         local es = self:getEffectiveStats()
         local total = es.reloadSpeed
         local pct = (total > 0) and (1 - self.reloadTimer / total) or 1
@@ -689,7 +732,7 @@ function Player:draw()
 
     local t = love.timer.getTime()
     -- Smash-style energy bubble while blocking (drawn behind the fighter)
-    if self.blocking and self.gear.shield then
+    if not self.dying and self.blocking and self.gear.shield then
         local cx = self.x + self.w / 2
         local cy = self.y + self.h / 2
         local pulse = 0.65 + 0.35 * math.sin(t * 10)
@@ -706,20 +749,32 @@ function Player:draw()
     end
 
     -- Flash when invulnerable
-    if self.iframes > 0 and math.floor(self.iframes * 10) % 2 == 0 then
+    if not self.dying and self.iframes > 0 and math.floor(self.iframes * 10) % 2 == 0 then
         return
     end
 
     -- Sprite (replaces body, hat, eyes, gun placeholders)
-    self.anim:drawCentered(
-        self.x + self.w / 2,  -- horizontal center of AABB
-        self.y + self.h,      -- feet at bottom of AABB
-        self.facingRight
-    )
+    local cx = self.x + self.w / 2
+    local footY = self.y + self.h
+    if self.dying then
+        local u = math.min(1, self.deathTimer / Player.DEATH_DURATION)
+        local ease = 1 - math.cos(u * math.pi * 0.5)
+        local ang = (self.facingRight and -1 or 1) * math.rad(82) * ease
+        local sink = 3 * ease
+        local alpha = 1 - u * 0.35
+        love.graphics.push()
+        love.graphics.translate(cx, footY + sink)
+        love.graphics.rotate(ang)
+        love.graphics.translate(-cx, -(footY + sink))
+        self.anim:drawCentered(cx, footY, self.facingRight, 0, alpha)
+        love.graphics.pop()
+    else
+        self.anim:drawCentered(cx, footY, self.facingRight)
+    end
 
 
     -- Melee swipe (oriented like gun fire direction)
-    if self.meleeSwingTimer > 0 then
+    if not self.dying and self.meleeSwingTimer > 0 then
         local midx, midy, angle, range, thick = self:getMeleeSwingDrawParams()
         local alpha = self.meleeSwingTimer / 0.15
         love.graphics.push()

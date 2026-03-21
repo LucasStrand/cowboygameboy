@@ -65,4 +65,4 @@ All game content is defined as plain Lua tables — easy to tune without touchin
 
 ### Rendering
 
-`main.lua` renders to a fixed 1280×720 canvas, then fits the window inside a **1920×1080 (16:9)** frame (ultrawide pillarboxes). Linear filtering on the canvas and `src/ui/font.lua` for UI text keeps scaling smooth. The parallax background scrolls at 30% camera speed. All graphics are procedural shapes (no sprite sheets); audio is placeholder.
+`main.lua` renders to a canvas matching the **window size** (resizable); the camera sees **more world** when the window is larger. HUD stays fixed-size in canvas pixels. Linear filtering on the canvas and `src/ui/font.lua` for UI text. The parallax background scrolls at 30% camera speed. All graphics are procedural shapes (no sprite sheets); audio is placeholder.

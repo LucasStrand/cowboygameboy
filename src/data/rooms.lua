@@ -199,6 +199,13 @@ local function tooClose(x, y, placed, minD)
     return false
 end
 
+-- Minimum center-to-center distance from player spawn (enemies use ~22px wide; player 16px).
+local MIN_SPAWN_DIST_FROM_PLAYER = 100
+
+local function farEnoughFromPlayer(cx, cy, playerCx, playerCy)
+    return dist2(cx, cy, playerCx, playerCy) >= MIN_SPAWN_DIST_FROM_PLAYER * MIN_SPAWN_DIST_FROM_PLAYER
+end
+
 local function horizGap(a, b)
     if a.x + a.w <= b.x then return b.x - (a.x + a.w) end
     if b.x + b.w <= a.x then return a.x - (b.x + b.w) end
@@ -353,10 +360,20 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel)
     local eChance = eliteChance(difficulty, playerLevel)
     local px0 = room.playerSpawn and room.playerSpawn.x or 80
     local avoidX2 = px0 + 260
+    local ps = room.playerSpawn
+    local playerCx = (ps and ps.x or 0) + 8
+    local playerCy = (ps and ps.y or 0) + 14
 
     local function tryGround(typeId)
         local h = TYPE_H[typeId]
-        for _ = 1, 70 do
+        local function groundCandidateOk(x, y, cx, cy)
+            if x < 24 or x > room.width - 48 then return false end
+            if tooClose(cx, cy, placed, 46) then return false end
+            if not farEnoughFromPlayer(cx, cy, playerCx, playerCy) then return false end
+            if x < avoidX2 and math.random() < 0.42 then return false end
+            return true
+        end
+        for _ = 1, 120 do
             local plat = walkPlats[math.random(#walkPlats)]
             local margin = 18
             local maxX = plat.x + plat.w - margin - 22
@@ -364,13 +381,51 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel)
                 local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
                 local y = plat.y - h
                 local cx, cy = x + 11, y + h * 0.5
-                if x >= 24 and x <= room.width - 48
-                    and not tooClose(cx, cy, placed, 46)
-                    and not (x < avoidX2 and math.random() < 0.42) then
+                if groundCandidateOk(x, y, cx, cy) then
                     table.insert(placed, { x = cx, y = cy })
                     return x, y
                 end
             end
+        end
+        -- Relax player distance (still avoid stacking on other enemies)
+        for _ = 1, 100 do
+            local plat = walkPlats[math.random(#walkPlats)]
+            local margin = 18
+            local maxX = plat.x + plat.w - margin - 22
+            if maxX > plat.x + margin then
+                local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
+                local y = plat.y - h
+                local cx, cy = x + 11, y + h * 0.5
+                if x >= 24 and x <= room.width - 48 and not tooClose(cx, cy, placed, 46) then
+                    table.insert(placed, { x = cx, y = cy })
+                    return x, y
+                end
+            end
+        end
+        -- Pick farthest point from player that still respects enemy spacing
+        local bestX, bestY, bestD2 = nil, nil, -1
+        for _, plat in ipairs(walkPlats) do
+            local margin = 18
+            local maxX = plat.x + plat.w - margin - 22
+            if maxX > plat.x + margin then
+                for _ = 1, 32 do
+                    local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
+                    local y = plat.y - h
+                    local cx, cy = x + 11, y + h * 0.5
+                    if x >= 24 and x <= room.width - 48 and not tooClose(cx, cy, placed, 46) then
+                        local d2 = dist2(cx, cy, playerCx, playerCy)
+                        if d2 > bestD2 then
+                            bestD2 = d2
+                            bestX, bestY = x, y
+                        end
+                    end
+                end
+            end
+        end
+        if bestX then
+            local cx, cy = bestX + 11, bestY + h * 0.5
+            table.insert(placed, { x = cx, y = cy })
+            return bestX, bestY
         end
         local plat = walkPlats[math.random(#walkPlats)]
         local x = math.max(24, math.min(room.width - 48, plat.x + plat.w * 0.5 - 10))
@@ -381,7 +436,26 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel)
     end
 
     local function tryAir()
-        for _ = 1, 50 do
+        local function airOk(cx, cy)
+            if tooClose(cx, cy, placed, 44) then return false end
+            if not farEnoughFromPlayer(cx, cy, playerCx, playerCy) then return false end
+            return true
+        end
+        for _ = 1, 80 do
+            local plat = walkPlats[math.random(#walkPlats)]
+            local margin = 20
+            local maxX = plat.x + plat.w - margin - 22
+            if maxX > plat.x + margin then
+                local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
+                local y = plat.y - math.random(48, 150)
+                if y < 40 then y = 40 end
+                if airOk(x + 11, y + 8) then
+                    table.insert(placed, { x = x + 11, y = y + 8 })
+                    return x, y
+                end
+            end
+        end
+        for _ = 1, 70 do
             local plat = walkPlats[math.random(#walkPlats)]
             local margin = 20
             local maxX = plat.x + plat.w - margin - 22
@@ -394,6 +468,30 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel)
                     return x, y
                 end
             end
+        end
+        local bestX, bestY, bestD2 = nil, nil, -1
+        for _, plat in ipairs(walkPlats) do
+            local margin = 20
+            local maxX = plat.x + plat.w - margin - 22
+            if maxX > plat.x + margin then
+                for _ = 1, 24 do
+                    local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
+                    local y = plat.y - math.random(48, 150)
+                    if y < 40 then y = 40 end
+                    local cx, cy = x + 11, y + 8
+                    if not tooClose(cx, cy, placed, 44) then
+                        local d2 = dist2(cx, cy, playerCx, playerCy)
+                        if d2 > bestD2 then
+                            bestD2 = d2
+                            bestX, bestY = x, y
+                        end
+                    end
+                end
+            end
+        end
+        if bestX then
+            table.insert(placed, { x = bestX + 11, y = bestY + 8 })
+            return bestX, bestY
         end
         local plat = walkPlats[math.random(#walkPlats)]
         local x = plat.x + plat.w * 0.5 - 11

@@ -2,6 +2,7 @@ local Gamestate = require("lib.hump.gamestate")
 local Progression = require("src.systems.progression")
 local PerkCard = require("src.ui.perk_card")
 local BlurBG = require("src.ui.blur_bg")
+local Cursor = require("src.ui.cursor")
 local game = require("src.states.game")
 
 local levelup = {}
@@ -16,6 +17,7 @@ function levelup:enter(_, _player, _callback)
     callback = _callback
     perks = Progression.rollLevelUpPerks(player)
     hoveredIndex = nil
+    Cursor.setDefault()
 end
 
 function levelup:update(dt)
