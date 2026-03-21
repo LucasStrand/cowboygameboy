@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \":*)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Bash(xxd -l 30 \"$f\")",
+      "Bash(done)",
+      "Bash(timeout 5 love .)"
+    ]
+  }
+}

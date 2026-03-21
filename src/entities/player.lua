@@ -1,5 +1,6 @@
 local Weapons = require("src.data.weapons")
 local PlatformCollision = require("src.systems.platform_collision")
+local Animator = require("src.systems.animation")
 
 local Player = {}
 Player.__index = Player
@@ -111,6 +112,10 @@ function Player.new(x, y)
     self.autoBlock = false
 
     self.perks = {}
+
+    -- Sprite animation
+    self.anim = Animator.new()
+    self.idleTimer = 0          -- seconds standing still, triggers smoking idle
 
     return self
 end
@@ -306,6 +311,36 @@ function Player:update(dt, world, enemies)
             self.vy = 0
         end
     end
+
+    -- Animation state machine (priority: one-shots > air > ground movement)
+    local anim = self.anim
+    anim:update(dt)
+    -- Chain: shoot → holster before returning to idle
+    if anim.current == "shoot" and anim.done then
+        anim:play("holster", true)
+    end
+    local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee"
+                            or anim.current == "holster") and not anim.done
+    if not oneShotPlaying then
+        if self.dashTimer > 0 then
+            anim:play("dash")
+            self.idleTimer = 0
+        elseif not self.grounded then
+            if self.vy < 0 then anim:play("jump") else anim:play("fall") end
+            self.idleTimer = 0
+        elseif math.abs(self.vx) > 10 then
+            anim:play("run")
+            self.idleTimer = 0
+        else
+            -- Idle: after 3 seconds of standing still, transition to smoking
+            self.idleTimer = self.idleTimer + dt
+            if self.idleTimer >= 3 then
+                anim:play("smoking")
+            else
+                anim:play("idle")
+            end
+        end
+    end
 end
 
 function Player:jump()
@@ -361,6 +396,7 @@ function Player:shoot(mx, my)
 
     self.ammo = self.ammo - 1
     self.shootCooldown = 0.38
+    self.anim:play("shoot", true)
 
     local cx = self.x + self.w / 2
     local cy = self.y + self.h / 2
@@ -450,6 +486,7 @@ function Player:meleeAttack(aimX, aimY)
     self.meleeCooldown   = s.meleeCooldown
     self.meleeSwingTimer = 0.15
     self.meleeHitEnemies = {}
+    self.anim:play("melee", true)
     return true
 end
 
@@ -582,54 +619,13 @@ function Player:draw()
         return
     end
 
-    -- Body
-    love.graphics.setColor(0.85, 0.65, 0.4)
-    love.graphics.rectangle("fill", self.x, self.y, self.w, self.h)
+    -- Sprite (replaces body, hat, eyes, gun placeholders)
+    self.anim:drawCentered(
+        self.x + self.w / 2,  -- horizontal center of AABB
+        self.y + self.h,      -- feet at bottom of AABB
+        self.facingRight
+    )
 
-    -- Hat
-    love.graphics.setColor(0.5, 0.3, 0.1)
-    love.graphics.rectangle("fill", self.x - 3, self.y - 6, self.w + 6, 6)
-    love.graphics.rectangle("fill", self.x + 2, self.y - 12, self.w - 4, 8)
-
-    -- Eyes
-    love.graphics.setColor(0, 0, 0)
-    if self.facingRight then
-        love.graphics.rectangle("fill", self.x + 10, self.y + 6, 3, 3)
-    else
-        love.graphics.rectangle("fill", self.x + 3, self.y + 6, 3, 3)
-    end
-
-    -- Gun (right hand side)
-    love.graphics.setColor(0.3, 0.3, 0.3)
-    if self.facingRight then
-        love.graphics.rectangle("fill", self.x + self.w, self.y + 10, 8, 3)
-    else
-        love.graphics.rectangle("fill", self.x - 8, self.y + 10, 8, 3)
-    end
-
-    -- Shield (off-hand, opposite to gun) — drawn as a small coloured square
-    if self.gear.shield then
-        if self.blocking then
-            love.graphics.setColor(0.4, 0.6, 1.0)  -- bright blue when active
-        else
-            love.graphics.setColor(0.5, 0.4, 0.2)  -- wood brown at rest
-        end
-        if self.facingRight then
-            love.graphics.rectangle("fill", self.x - 6, self.y + 8, 6, 14)
-        else
-            love.graphics.rectangle("fill", self.x + self.w, self.y + 8, 6, 14)
-        end
-    end
-
-    -- Dagger (idle; during swing the swipe rect reads as the blade)
-    if self.gear.melee and self.meleeSwingTimer <= 0 then
-        love.graphics.setColor(0.7, 0.7, 0.8)
-        if self.facingRight then
-            love.graphics.rectangle("fill", self.x + self.w, self.y + 16, 10, 2)
-        else
-            love.graphics.rectangle("fill", self.x - 10, self.y + 16, 10, 2)
-        end
-    end
 
     -- Melee swipe (oriented like gun fire direction)
     if self.meleeSwingTimer > 0 then
