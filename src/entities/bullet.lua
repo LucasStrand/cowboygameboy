@@ -79,6 +79,10 @@ function Bullet.filter(item, other)
     if item.fromEnemy and other.isEnemy then return nil end
     if not item.fromEnemy and other.isPlayer then return nil end
     if other.isDoor then return nil end
+    -- Solid geometry blocks shots and line-of-sight probes (isPlatform / isWall)
+    if other.isPlatform or other.isWall then
+        return "slide"
+    end
     return "cross"
 end
 

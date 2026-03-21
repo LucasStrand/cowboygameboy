@@ -1,4 +1,5 @@
 local EnemyData = require("src.data.enemies")
+local PlatformCollision = require("src.systems.platform_collision")
 
 local Enemy = {}
 Enemy.__index = Enemy
@@ -241,6 +242,15 @@ function Enemy.filter(item, other)
     end
     if other.isPlayer then
         return "cross"
+    end
+    if other.isWall then
+        return "slide"
+    end
+    if other.isPlatform then
+        if PlatformCollision.shouldPassThroughOneWay(item, other) then
+            return nil
+        end
+        return "slide"
     end
     return "slide"
 end

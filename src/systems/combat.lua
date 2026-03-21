@@ -170,6 +170,67 @@ function Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, view
     return nil, nil
 end
 
+local function enemyListOverlapsMeleeAABB(enemies, hx, hy, hw, hh)
+    for _, e in ipairs(enemies) do
+        if e.alive then
+            if hx < e.x + e.w and hx + hw > e.x and
+               hy < e.y + e.h and hy + hh > e.y then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB)
+    if not player.autoMelee or player.blocking then return end
+    local s = player:getEffectiveStats()
+    if s.meleeDamage <= 0 then return end
+    if player.meleeCooldown > 0 or player.meleeSwingTimer > 0 then return end
+    local tx, ty = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
+    if not tx then
+        return
+    end
+    local cx = player.x + player.w * 0.5
+    local cy = player.y + player.h * 0.5
+    local ang = math.atan2(ty - cy, tx - cx)
+    local hx, hy, hw, hh = player:getMeleeHitboxAABB(ang)
+    if not enemyListOverlapsMeleeAABB(enemies, hx, hy, hw, hh) then
+        return
+    end
+    player:meleeAttack(tx, ty)
+end
+
+-- Called every frame while a melee swing is active.  Hits each enemy at most
+-- once per swing (player.meleeHitEnemies guards duplicate hits).
+-- Uses hitbox overlap only — platforms do not block melee (unlike bullets / LOS).
+function Combat.checkPlayerMelee(player, enemies)
+    if player.meleeSwingTimer <= 0 then return end
+
+    local s   = player:getEffectiveStats()
+    local dmg = math.floor(s.meleeDamage * s.damageMultiplier)
+    local hx, hy, hw, hh = player:getMeleeHitbox()
+
+    for _, e in ipairs(enemies) do
+        if e.alive and not player.meleeHitEnemies[e] then
+            -- AABB overlap
+            if hx < e.x + e.w and hx + hw > e.x and
+               hy < e.y + e.h and hy + hh > e.y then
+                e:takeDamage(dmg, nil)
+                player.meleeHitEnemies[e] = true
+                player.meleeHitFlashTimer = 0.2
+                -- Knockback along melee aim (same axis as the swing / shot)
+                local a = player.meleeAimAngle
+                e.vx = (e.vx or 0) + math.cos(a) * s.meleeKnockback
+                e.vy = (e.vy or 0) + math.sin(a) * s.meleeKnockback
+                if debugLog then
+                    debugLog("Melee hit " .. (e.name or "enemy") .. " for " .. dmg)
+                end
+            end
+        end
+    end
+end
+
 function Combat.checkPickups(pickups, player)
     local leveledUp = false
     local i = 1
@@ -181,7 +242,11 @@ function Combat.checkPickups(pickups, player)
         local dy = (p.y + p.h / 2) - py
         local dist = math.sqrt(dx * dx + dy * dy)
 
-        if dist < 30 then
+        if dist < 180 then
+            p.attracted = true
+        end
+
+        if p.attracted and dist < 24 then
             if p.pickupType == "xp" then
                 leveledUp = player:addXP(p.value) or leveledUp
             elseif p.pickupType == "gold" then
