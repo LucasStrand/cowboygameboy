@@ -678,6 +678,10 @@ function HUD.draw(player)
             if player.activeWeaponSlot == slotNum then
                 return player.autoGun and "Auto+aim" or "Manual"
             end
+            -- Primary can auto-fire while melee tab is selected (same as green border)
+            if player.autoGun and player:getWeaponSlotForAutoFire() == slotNum then
+                return "Auto+aim"
+            end
             return "TAB"
         end
 
@@ -685,7 +689,7 @@ function HUD.draw(player)
         if gun2 then
             slot2Label = gun2.name
             slot2Sub   = gunSlotSub(2)
-            slot2Auto  = player.activeWeaponSlot == 2 and player.autoGun
+            slot2Auto  = player.autoGun and player:getWeaponSlotForAutoFire() == 2
         else
             slot2Label = "Melee"
             slot2Sub   = (player.gear.melee and player.gear.melee.name) or "—"
@@ -696,13 +700,13 @@ function HUD.draw(player)
 
             { id = "gun",    label = gun1 and gun1.name or "Gun",  gun = gun1,
               sub = gunSlotSub(1),
-              auto = player.activeWeaponSlot == 1 and player.autoGun,
+              auto = player.autoGun and player:getWeaponSlotForAutoFire() == 1,
               isActive = player.activeWeaponSlot == 1 },
 
             { id = "melee",  label = slot2Label,  gun = gun2,
               sub = slot2Sub,
               auto = slot2Auto,
-              isActive = player.activeWeaponSlot == 2 and gun2 ~= nil },
+              isActive = player.activeWeaponSlot == 2 },
 
             {
 

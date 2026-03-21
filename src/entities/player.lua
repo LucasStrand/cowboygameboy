@@ -208,6 +208,16 @@ function Player:getOffhandGun()
     return slot and slot.gun or nil
 end
 
+--- Slot index for automatic gunfire: active slot when a gun is in hand; in melee stance, primary (1) then secondary.
+function Player:getWeaponSlotForAutoFire()
+    if self:getActiveGun() then
+        return self.activeWeaponSlot
+    end
+    if self.weapons[1] and self.weapons[1].gun then return 1 end
+    if self.weapons[2] and self.weapons[2].gun then return 2 end
+    return nil
+end
+
 --- True when akimbo perk is active AND both slots have ranged weapons.
 function Player:isAkimbo()
     return self.stats.akimbo and self.weapons[1] and self.weapons[1].gun
@@ -313,11 +323,35 @@ function Player:update(dt, world, enemies)
             self.shootCooldown = a.shootCooldown or 0
         end
     else
-        if self.shootCooldown > 0 then
-            self.shootCooldown = self.shootCooldown - dt
+        -- Non-akimbo: each slot ticks independently (primary keeps cooling/reloading while melee stance)
+        for i = 1, 2 do
+            local w = self.weapons[i]
+            if w and w.gun then
+                if (w.shootCooldown or 0) > 0 then
+                    w.shootCooldown = w.shootCooldown - dt
+                end
+                if w.reloading then
+                    w.reloadTimer = w.reloadTimer - dt
+                    if w.reloadTimer <= 0 then
+                        w.reloading = false
+                        local gunBase = w.gun.baseStats.cylinderSize
+                        local perkDelta = self.stats.cylinderSize - PLAYER_BASE_GUN_STATS.cylinderSize
+                        w.ammo = gunBase + perkDelta
+                        w.reloadTimer = 0
+                        if i == self.activeWeaponSlot and self.stats.deadEye then
+                            self.deadEyeTimer = 3.0
+                        end
+                    end
+                end
+            end
         end
         local slot = self.weapons[self.activeWeaponSlot]
-        if slot then slot.shootCooldown = self.shootCooldown end
+        if slot and slot.gun then
+            self.ammo = slot.ammo
+            self.reloading = slot.reloading
+            self.reloadTimer = slot.reloadTimer
+            self.shootCooldown = slot.shootCooldown or 0
+        end
     end
 
     -- Melee cooldown + swing window
@@ -372,24 +406,6 @@ function Player:update(dt, world, enemies)
         end
     elseif self.dashCooldown > 0 then
         self.dashCooldown = math.max(0, self.dashCooldown - dt)
-    end
-
-    -- Reload (active slot only; akimbo slots tick above)
-    if not self:isAkimbo() and self.reloading then
-        self.reloadTimer = self.reloadTimer - dt
-        if self.reloadTimer <= 0 then
-            self.reloading = false
-            self.ammo = effectiveStats.cylinderSize
-            if self.stats.deadEye then
-                self.deadEyeTimer = 3.0
-            end
-            local slot = self.weapons[self.activeWeaponSlot]
-            if slot then
-                slot.ammo = self.ammo
-                slot.reloading = false
-                slot.reloadTimer = 0
-            end
-        end
     end
 
     if blockRooted then
@@ -872,6 +888,8 @@ function Player:applyPerk(perk)
 end
 
 --- Save active slot state from live fields, then restore the target slot.
+--- Always toggles 1 <-> 2 so Tab can highlight which slot a ground weapon will replace
+--- (including when slot 2 is empty / melee).
 function Player:switchWeapon()
     -- Save current slot state
     local cur = self.weapons[self.activeWeaponSlot]
@@ -882,25 +900,24 @@ function Player:switchWeapon()
         cur.shootCooldown = self.shootCooldown
     end
 
-    -- Toggle between slot 1 and 2
     local newSlot = self.activeWeaponSlot == 1 and 2 or 1
     local target = self.weapons[newSlot]
-    if not target then return end  -- slot 2 has no ranged weapon
-
-    -- Cancel any active reload on old weapon
-    if self.reloading then
-        -- Keep reload progress saved in the slot (resume later)
-    end
 
     self.activeWeaponSlot = newSlot
 
-    -- Restore new slot state
-    self.ammo          = target.ammo
-    self.reloading     = target.reloading
-    self.reloadTimer   = target.reloadTimer
-    self.shootCooldown = target.shootCooldown
+    if target and target.gun then
+        self.ammo          = target.ammo
+        self.reloading     = target.reloading
+        self.reloadTimer   = target.reloadTimer
+        self.shootCooldown = target.shootCooldown or 0
+    else
+        -- Empty secondary: melee / no gun — nothing to mirror on self.*
+        self.ammo          = 0
+        self.reloading     = false
+        self.reloadTimer   = 0
+        self.shootCooldown = 0
+    end
 
-    -- Visual feedback
     self.anim:play("holster", true)
 end
 
