@@ -11,7 +11,7 @@ local saloon = require("src.states.saloon")
 -- HUD uses fixed pixel sizes in this space (does not scale up with resolution).
 GAME_WIDTH = 1280
 GAME_HEIGHT = 720
-DEBUG = false
+DEBUG = true
 
 local gameCanvas
 local canvasScale = 1
