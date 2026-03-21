@@ -3,6 +3,8 @@
 --         DevLog.push("combat",   "Took 12 dmg")
 --         DevLog.push("progress", "Level up → 4")
 
+local Font = require("src.ui.font")
+
 local DevLog = {}
 
 local MAX_ENTRIES = 40
@@ -80,7 +82,7 @@ function DevLog.drawOverlay(screenW, screenH)
     if #entries == 0 then return end
 
     if not DevLog._overlayFont then
-        DevLog._overlayFont = love.graphics.newFont(10)
+        DevLog._overlayFont = Font.new(10)
     end
 
     local lineH  = 13

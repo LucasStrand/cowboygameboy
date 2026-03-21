@@ -1,5 +1,7 @@
 -- Floating damage / heal-style popups in world space (drawn with camera attached).
 
+local Font = require("src.ui.font")
+
 local DamageNumbers = {}
 
 local items = {}
@@ -7,7 +9,7 @@ local font
 
 local function getFont()
     if not font then
-        font = love.graphics.newFont(15)
+        font = Font.new(15)
     end
     return font
 end

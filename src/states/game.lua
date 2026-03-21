@@ -11,6 +11,7 @@ local RoomManager = require("src.systems.room_manager")
 local HUD    = require("src.ui.hud")
 local DevLog = require("src.ui.devlog")
 local DamageNumbers = require("src.ui.damage_numbers")
+local Font = require("src.ui.font")
 
 local game = {}
 
@@ -673,7 +674,7 @@ function game:draw()
     if DEBUG then
         local es = player:getEffectiveStats()
         if not game.debugFont then
-            game.debugFont = love.graphics.newFont(11)
+            game.debugFont = Font.new(11)
         end
         love.graphics.setFont(game.debugFont)
 

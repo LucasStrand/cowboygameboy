@@ -1,6 +1,8 @@
 local Gamestate = require("lib.hump.gamestate")
 local Progression = require("src.systems.progression")
 local PerkCard = require("src.ui.perk_card")
+local BlurBG = require("src.ui.blur_bg")
+local game = require("src.states.game")
 
 local levelup = {}
 
@@ -46,9 +48,11 @@ function selectPerk(index)
 end
 
 function levelup:draw()
-    -- Draw underlying game state (dimmed)
-    local prev = Gamestate.current()
-
+    BlurBG.drawBlurredGame(game)
+    -- Lighten readabilty over the blurred gameplay
+    love.graphics.setColor(0, 0, 0, 0.28)
+    love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
+    love.graphics.setColor(1, 1, 1, 1)
     PerkCard.draw(perks, nil, hoveredIndex)
 end
 

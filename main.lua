@@ -11,6 +11,9 @@ GAME_HEIGHT = 720
 DEBUG = false
 
 -- Virtual resolution canvas and scaling
+-- Reference frame: 1920x1080 (16:9). Window is fitted inside that aspect (ultrawide = pillarbox).
+local REF_W, REF_H = 1920, 1080
+
 local gameCanvas
 local canvasScale = 1
 local canvasOffsetX = 0
@@ -18,18 +21,21 @@ local canvasOffsetY = 0
 
 local function updateCanvasScale()
     local winW, winH = love.graphics.getDimensions()
-    -- Scale to cover (fill window, may crop edges on extreme aspect ratios)
-    canvasScale = math.max(winW / GAME_WIDTH, winH / GAME_HEIGHT)
-    -- Center the scaled canvas
-    canvasOffsetX = (winW - GAME_WIDTH * canvasScale) / 2
-    canvasOffsetY = (winH - GAME_HEIGHT * canvasScale) / 2
+    local s = math.min(winW / REF_W, winH / REF_H)
+    local contentW = REF_W * s
+    local contentH = REF_H * s
+    canvasScale = contentW / GAME_WIDTH
+    canvasOffsetX = (winW - contentW) / 2
+    canvasOffsetY = (winH - contentH) / 2
 end
 
 function love.load()
-    love.graphics.setDefaultFilter("nearest", "nearest")
+    -- Linear sampling: smoother text/UI when the canvas is scaled to the window
+    love.graphics.setDefaultFilter("linear", "linear")
     math.randomseed(os.time())
-    
+
     gameCanvas = love.graphics.newCanvas(GAME_WIDTH, GAME_HEIGHT)
+    gameCanvas:setFilter("linear", "linear")
     updateCanvasScale()
     
     -- Register all events except draw (we render to canvas and blit manually)
@@ -56,8 +62,8 @@ function love.draw()
     end
     
     love.graphics.setCanvas()
-    
-    -- Draw canvas scaled to fill window
+
+    love.graphics.clear(0, 0, 0, 1)
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(gameCanvas, canvasOffsetX, canvasOffsetY, 0, canvasScale, canvasScale)
 end

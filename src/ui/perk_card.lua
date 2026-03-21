@@ -1,4 +1,5 @@
 local Perks = require("src.data.perks")
+local Font = require("src.ui.font")
 
 local PerkCard = {}
 
@@ -7,15 +8,17 @@ local CARD_H = 250
 local CARD_SPACING = 40
 
 function PerkCard.draw(perks, selectedIndex, hoveredIndex)
+    if not PerkCard._font then
+        PerkCard._font = Font.new(15)
+    end
+    local prevFont = love.graphics.getFont()
+    love.graphics.setFont(PerkCard._font)
+
     local screenW = GAME_WIDTH
     local screenH = GAME_HEIGHT
     local totalW = #perks * CARD_W + (#perks - 1) * CARD_SPACING
     local startX = (screenW - totalW) / 2
     local startY = (screenH - CARD_H) / 2
-
-    -- Dim background
-    love.graphics.setColor(0, 0, 0, 0.7)
-    love.graphics.rectangle("fill", 0, 0, screenW, screenH)
 
     -- Title
     love.graphics.setColor(1, 0.85, 0.2)
@@ -63,6 +66,7 @@ function PerkCard.draw(perks, selectedIndex, hoveredIndex)
 
     love.graphics.setLineWidth(1)
     love.graphics.setColor(1, 1, 1)
+    love.graphics.setFont(prevFont)
 end
 
 function PerkCard.getHovered(perks, mx, my)

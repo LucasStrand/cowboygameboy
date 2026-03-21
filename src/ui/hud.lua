@@ -1,3 +1,5 @@
+local Font = require("src.ui.font")
+
 local HUD = {}
 
 local LOADOUT_SLOT_W, LOADOUT_SLOT_H, LOADOUT_GAP = 58, 50, 6
@@ -110,7 +112,7 @@ function HUD.draw(player)
             },
         }
         if not HUD._loadoutTinyFont then
-            HUD._loadoutTinyFont = love.graphics.newFont(10)
+            HUD._loadoutTinyFont = Font.new(10)
         end
         local prevFont = love.graphics.getFont()
         love.graphics.setFont(HUD._loadoutTinyFont)
