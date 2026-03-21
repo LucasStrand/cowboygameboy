@@ -150,6 +150,9 @@ function Player.new(x, y)
     self.dying = false
     self.deathTimer = 0
 
+    -- Dev panel (game.lua): when true, :takeDamage ignores hits
+    self.devGodMode = false
+
     return self
 end
 
@@ -626,6 +629,7 @@ end
 
 function Player:takeDamage(amount)
     if self.dying then return false end
+    if self.devGodMode then return false end
     if self.iframes > 0 then return false end
 
     local es = self:getEffectiveStats()

@@ -12,7 +12,7 @@ love .
 
 On Windows you can also drag the project folder onto `love.exe`. No compilation step — it's pure Lua.
 
-**Debug mode:** Press `F1` during gameplay to toggle the debug overlay (hitboxes, effective stats, active perks, event log).
+**Debug mode:** Press `F1` during gameplay to toggle the debug overlay (effective stats, active perks, event log). Set `DEBUG = true` in `main.lua` for this and the **dev panel** (`F2` in the `game` state): kill/heal player, god mode, gold/XP, open door, clear enemies, spawn enemies, grant any perk — for testing scenarios.
 
 ## Architecture
 
