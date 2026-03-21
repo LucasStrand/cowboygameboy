@@ -96,6 +96,17 @@ local function loadSprites()
     end
 end
 
+--- Spell icon for Dead Man's Hand (assets/ui copy of VerArc lightning_spell; independent of HUD sheet load).
+local function ensureUltIcon()
+    if HUD._ultIconLoaded then return end
+    HUD._ultIconLoaded = true
+    local ok, img = pcall(love.graphics.newImage, "assets/ui/ult_dead_mans_hand.png")
+    if ok and img then
+        img:setFilter("nearest", "nearest")
+        HUD._ultIcon = img
+    end
+end
+
 local function drawSprite(name, x, y, scale, r, g, b, a)
     if not HUD._sheet then return end
     love.graphics.setColor(r or 1, g or 1, b or 1, a or 1)
@@ -400,6 +411,7 @@ end
 function HUD.draw(player)
     ensureFonts()
     loadSprites()
+    ensureUltIcon()
 
     love.graphics.push()
     love.graphics.origin()
@@ -682,6 +694,27 @@ function HUD.draw(player)
                 love.graphics.rectangle("fill", fillX, fillY, fillW, fillH)
             end
 
+            -- Spell icon (Dead Man's Hand) — above Q label; charge fill behind
+            if HUD._ultIcon then
+                local labelH = HUD._fontLoadout:getHeight()
+                local iconPad = 10
+                local labelGap = 5
+                local iw, ih = HUD._ultIcon:getDimensions()
+                local maxW = SLOT_W - iconPad * 2
+                local maxH = SLOT_H - iconPad * 2 - labelH - labelGap
+                local sc = math.min(maxW / iw, maxH / ih)
+                local dw, dh = iw * sc, ih * sc
+                local dx = ultX + (SLOT_W - dw) / 2
+                local dy = ultY + iconPad
+                local ia = 0.7
+                if isReady then ia = 1
+                elseif isActive then
+                    ia = 0.88 + 0.12 * math.sin(love.timer.getTime() * 14)
+                end
+                love.graphics.setColor(1, 1, 1, ia)
+                love.graphics.draw(HUD._ultIcon, math.floor(dx), math.floor(dy), 0, sc, sc)
+            end
+
             -- Ready border (pulsing gold)
             if isReady and not isActive then
                 local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 5)
@@ -699,15 +732,23 @@ function HUD.draw(player)
                 love.graphics.setLineWidth(1)
             end
 
-            -- "Q" label + charge percentage
+            -- "Q" label + charge percentage (bottom strip)
             love.graphics.setFont(HUD._fontLoadout)
             local qLabel = isReady and "Q READY" or string.format("Q %d%%", math.floor(charge * 100))
             local qAlpha = isReady and 1 or 0.6
             local qR, qG, qB = 0.9, 0.85, 0.78
             if isReady then qR, qG, qB = 0.95, 0.82, 0.3 end
-            shadowPrintf(qLabel, ultX, ultY + (SLOT_H - HUD._fontLoadout:getHeight()) / 2,
+            local labelH2 = HUD._fontLoadout:getHeight()
+            shadowPrintf(qLabel, ultX, ultY + SLOT_H - labelH2 - 4,
                 SLOT_W, "center", qR, qG, qB, qAlpha)
         end
+    end
+
+    -- ── Active buff/debuff icons (below HP bar, left side) ──
+    if player.buffs then
+        local Buffs = require("src.systems.buffs")
+        local buffY = 36
+        Buffs.drawIcons(player.buffs, 8, buffY, 2)
     end
 
     love.graphics.setFont(prevFont)

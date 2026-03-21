@@ -84,7 +84,13 @@
       "Bash(love . --test)",
       "Bash(timeout 5 cat C:\\\\Users\\\\lucstr01\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--github-cowboygameboy\\\\44b01009-9bb7-4297-bb13-8404b5c279fb\\\\tasks\\\\biij8rqjw.output)",
       "Bash(timeout 4 love .)",
-      "Bash(echo \"Exit: $?\")"
+      "Bash(echo \"Exit: $?\")",
+      "Bash(grep -r \"Buffs\\\\|Debuffs\" C:githubcowboygameboysrc --include=*.lua)",
+      "Bash(grep -r \"VerArc\\\\|Buffs\\\\|Debuffs\\\\|status\" C:githubcowboygameboysrc --include=*.lua)",
+      "Bash(grep -v \"-- \")",
+      "Bash(grep -r \"VerArc\\\\|status\" C:githubcowboygameboysrc --include=*.lua)",
+      "Bash(xargs grep:*)",
+      "Bash(wc -l C:githubcowboygameboyassets[VerArc Stash] Basic_Skills_and_BuffsBuffs/*.png)"
     ]
   }
 }

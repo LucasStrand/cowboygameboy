@@ -7,6 +7,7 @@ local Sfx = require("src.systems.sfx")
 local ImpactFX = require("src.systems.impact_fx")
 local GearIcons = require("src.ui.gear_icons")
 local Font = require("src.ui.font")
+local Buffs = require("src.systems.buffs")
 
 -- Monster Energy (saloon): each drink heals to full; walk-speed bonus stacks with diminishing returns.
 local MONSTER_MOVE_FIRST = 44
@@ -206,6 +207,9 @@ function Player.new(x, y)
 
     self.perks = {}
 
+    -- Buff/debuff tracker
+    self.buffs = Buffs.newTracker()
+
     -- Monster Energy (saloon): cumulative drinks this run — move bonus + rare speech / visual jitter
     self.monsterDrinks = 0
     self.monsterMoveBonus = 0
@@ -325,6 +329,16 @@ function Player:getEffectiveStatsForGun(gun)
         s.moveSpeed = s.moveSpeed + self.monsterMoveBonus
     end
 
+    -- Apply buff/debuff stat modifiers
+    if self.buffs then
+        local mods = Buffs.getStatMods(self.buffs)
+        for stat, val in pairs(mods) do
+            if s[stat] ~= nil then
+                s[stat] = s[stat] + val
+            end
+        end
+    end
+
     return s
 end
 
@@ -363,6 +377,9 @@ function Player:update(dt, world, enemies)
     if (self.monsterJitteryTimer or 0) > 0 then
         self.monsterJitteryTimer = math.max(0, self.monsterJitteryTimer - dt)
     end
+
+    -- Update buff/debuff system
+    Buffs.update(self.buffs, dt, self)
 
     if self.monsterSpeechText then
         self.monsterSpeechLife = (self.monsterSpeechLife or 0) + dt
@@ -994,7 +1011,12 @@ function Player:consumeMonsterEnergy()
     )
     if math.random() < jitterChance then
         self.monsterJitteryTimer = 8.0 + math.random() * 5.0
+        -- Also apply jitter debuff through buff system
+        Buffs.apply(self.buffs, "jitter")
     end
+
+    -- Apply speed buff through buff system
+    Buffs.apply(self.buffs, "speed_boost")
 
     self.monsterSpeechText = nil
     if math.random() < MONSTER_SPEECH_CHANCE then
@@ -1004,6 +1026,18 @@ function Player:consumeMonsterEnergy()
 
     local maxHP = self:getEffectiveStats().maxHP
     self:heal(maxHP)
+end
+
+function Player:applyBuff(id, stacks)
+    return Buffs.apply(self.buffs, id, stacks)
+end
+
+function Player:removeBuff(id)
+    Buffs.remove(self.buffs, id, self)
+end
+
+function Player:hasBuff(id)
+    return Buffs.has(self.buffs, id)
 end
 
 function Player:addXP(amount)
@@ -1196,6 +1230,15 @@ function Player:draw()
         if (self.monsterJitteryTimer or 0) > 0 then
             jx = (math.sin(t * 22.7) + math.sin(t * 16.2)) * 1.25
             jy = (math.cos(t * 19.1) + math.sin(t * 14.4)) * 0.95
+        end
+        -- Buff system jitter (stacks with monster jitter)
+        if self.buffs then
+            local vis = Buffs.getVisuals(self.buffs)
+            if vis.jitterAmp > 0 then
+                local f = vis.jitterFreq
+                jx = jx + math.sin(t * f * 1.13) * vis.jitterAmp
+                jy = jy + math.cos(t * f * 0.97) * vis.jitterAmp * 0.75
+            end
         end
         love.graphics.push()
         love.graphics.translate(jx, jy)
