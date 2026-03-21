@@ -11,6 +11,7 @@ local Progression = require("src.systems.progression")
 local RoomManager = require("src.systems.room_manager")
 local HUD    = require("src.ui.hud")
 local DevLog = require("src.ui.devlog")
+local DevPanel = require("src.ui.dev_panel")
 local DamageNumbers = require("src.ui.damage_numbers")
 local Font = require("src.ui.font")
 local Cursor = require("src.ui.cursor")
@@ -47,10 +48,14 @@ local pauseSettingsTab = "video"
 local pauseSettingsHover = nil
 local pauseSettingsBindCapture = nil -- action name while waiting for a key (Controls tab)
 local characterSheetOpen = false
+--- Set in update when death completes; next draw captures world → game over (see pendingGameOver block after camera:detach).
+local pendingGameOver = nil
 local devPanelOpen = false
 local devPanelScroll = 0
 local devPanelHover = nil
 local devPanelRows = nil
+--- Green bump AABB overlay (only when DEBUG); toggled from dev panel
+local devShowHitboxes = true
 -- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
 local offScreenEnemyHintActive = false
 
@@ -350,6 +355,7 @@ local function pauseMenuEntries()
         { id = "resume", label = "Resume" },
         { id = "settings", label = "Settings" },
         { id = "restart", label = "Restart" },
+        { id = "main_menu", label = "Main menu" },
     }
 end
 
@@ -386,7 +392,21 @@ local function pauseRestartRun()
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
+    devShowHitboxes = true
+    pendingGameOver = nil
     Gamestate.switch(game, { introCountdown = true })
+end
+
+local function pauseGoToMainMenu()
+    paused = false
+    pauseMenuView = "main"
+    pauseSettingsBindCapture = nil
+    devPanelOpen = false
+    devPanelScroll = 0
+    devPanelHover = nil
+    pendingGameOver = nil
+    local menu = require("src.states.menu")
+    Gamestate.switch(menu)
 end
 
 local function drawCharacterSheet()
@@ -476,6 +496,18 @@ local function devClampScroll()
     devPanelScroll = math.max(0, math.min(maxS, devPanelScroll))
 end
 
+local function openDevPanel()
+    if not DEBUG then return end
+    devPanelOpen = true
+    characterSheetOpen = false
+    devPanelScroll = 0
+    devPanelRows = DevPanel.buildRows(devShowHitboxes)
+    if not game.devPanelTitleFont then
+        game.devPanelTitleFont = Font.new(16)
+    end
+    devClampScroll()
+end
+
 local function devApplyAction(id)
     if not DEBUG or not player or not id then return end
     if id == "kill_player" then
@@ -491,6 +523,11 @@ local function devApplyAction(id)
             player.hp = math.max(1, player.hp - 1)
         end
         DevLog.push("sys", "[dev] hurt 1")
+    elseif id == "toggle_hitboxes" then
+        devShowHitboxes = not devShowHitboxes
+        devPanelRows = DevPanel.buildRows(devShowHitboxes)
+        devClampScroll()
+        DevLog.push("sys", "[dev] hitboxes " .. (devShowHitboxes and "on" or "off"))
     elseif id == "toggle_god" then
         player.devGodMode = not player.devGodMode
         DevLog.push("sys", "[dev] god mode " .. tostring(player.devGodMode))
@@ -601,10 +638,12 @@ function game:enter(_, opts)
     pauseSettingsHover = nil
     pauseSettingsBindCapture = nil
     characterSheetOpen = false
+    pendingGameOver = nil
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
-    devPanelRows = DevPanel.buildRows()
+    devShowHitboxes = true
+    devPanelRows = DevPanel.buildRows(devShowHitboxes)
 
     roomManager = RoomManager.new()
     roomManager:generateSequence()
@@ -913,17 +952,18 @@ function game:update(dt)
         end
     end
 
-    -- Player death (after collapse animation)
+    -- Player death (after collapse animation); snapshot taken in draw after world is rendered
     if player.dying and player.deathTimer >= Player.DEATH_DURATION then
-        DevLog.push("sys", string.format("Player died  lv%d  %d rooms  $%d",
-            player.level, roomManager.totalRoomsCleared, player.gold))
-        local gameover = require("src.states.gameover")
-        Gamestate.switch(gameover, {
-            level = player.level,
-            roomsCleared = roomManager.totalRoomsCleared,
-            gold = player.gold,
-            perksCount = #player.perks,
-        })
+        if not pendingGameOver then
+            DevLog.push("sys", string.format("Player died  lv%d  %d rooms  $%d",
+                player.level, roomManager.totalRoomsCleared, player.gold))
+            pendingGameOver = {
+                level = player.level,
+                roomsCleared = roomManager.totalRoomsCleared,
+                gold = player.gold,
+                perksCount = #player.perks,
+            }
+        end
         return
     end
 
@@ -941,6 +981,10 @@ end
 
 function game:keypressed(key)
     if introCountdownActive then
+        if key == "f2" and DEBUG then
+            openDevPanel()
+            return
+        end
         if key == "escape" then
             local menu = require("src.states.menu")
             Gamestate.switch(menu)
@@ -956,15 +1000,8 @@ function game:keypressed(key)
         return
     end
 
-    if key == "f2" and DEBUG and not paused then
-        devPanelOpen = true
-        characterSheetOpen = false
-        devPanelScroll = 0
-        devPanelRows = DevPanel.buildRows()
-        if not game.devPanelTitleFont then
-            game.devPanelTitleFont = Font.new(16)
-        end
-        devClampScroll()
+    if key == "f2" and DEBUG then
+        openDevPanel()
         return
     end
 
@@ -1032,6 +1069,8 @@ function game:keypressed(key)
                 pauseMenuView = "settings"
             elseif id == "restart" then
                 pauseRestartRun()
+            elseif id == "main_menu" then
+                pauseGoToMainMenu()
             end
         end
         return
@@ -1070,7 +1109,6 @@ function game:keypressed(key)
 end
 
 function game:mousemoved(x, y, dx, dy)
-    if introCountdownActive then return end
     local gx, gy = windowToGame(x, y)
     if DEBUG and devPanelOpen and devPanelRows then
         if not game.devPanelTitleFont then
@@ -1082,6 +1120,7 @@ function game:mousemoved(x, y, dx, dy)
         devPanelHover = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, game.devPanelTitleFont)
         return
     end
+    if introCountdownActive then return end
     if player and player.dying then return end
     if paused then
         pauseHoverIndex = nil
@@ -1121,7 +1160,6 @@ function game:mousemoved(x, y, dx, dy)
 end
 
 function game:mousepressed(x, y, button)
-    if introCountdownActive then return end
     local gx, gy = windowToGame(x, y)
     if DEBUG and devPanelOpen and devPanelRows and button == 1 then
         if not game.devPanelTitleFont then
@@ -1136,6 +1174,7 @@ function game:mousepressed(x, y, button)
         end
         return
     end
+    if introCountdownActive then return end
     if player and player.dying then return end
     if paused then
         if button ~= 1 then return end
@@ -1149,6 +1188,8 @@ function game:mousepressed(x, y, button)
                         pauseMenuView = "settings"
                     elseif r.id == "restart" then
                         pauseRestartRun()
+                    elseif r.id == "main_menu" then
+                        pauseGoToMainMenu()
                     end
                     return
                 end
@@ -1198,7 +1239,6 @@ function game:mousepressed(x, y, button)
 end
 
 function game:wheelmoved(x, y)
-    if introCountdownActive or paused then return end
     if not DEBUG or not devPanelOpen then return end
     devPanelScroll = devPanelScroll - y * 36
     devClampScroll()
@@ -1318,8 +1358,8 @@ function game:draw()
     ImpactFX.draw()
     DamageNumbers.draw()
 
-    -- Debug
-    if DEBUG then
+    -- Debug: bump collision AABBs (toggle in dev panel when DEBUG); omit from death snapshot
+    if DEBUG and devShowHitboxes and not pendingGameOver then
         love.graphics.setColor(0, 1, 0, 0.3)
         local items, len = world:getItems()
         for i = 1, len do
@@ -1329,6 +1369,35 @@ function game:draw()
     end
 
     camera:detach()
+
+    if pendingGameOver then
+        local c = love.graphics.getCanvas()
+        local snapshot = nil
+        if c then
+            local ok, id = pcall(function() return c:newImageData() end)
+            if ok and id then
+                local okImg, img = pcall(love.graphics.newImage, id)
+                if okImg and img then
+                    snapshot = img
+                end
+            end
+        end
+        local args = {
+            level = pendingGameOver.level,
+            roomsCleared = pendingGameOver.roomsCleared,
+            gold = pendingGameOver.gold,
+            perksCount = pendingGameOver.perksCount,
+            backgroundImage = snapshot,
+        }
+        pendingGameOver = nil
+        local gameover = require("src.states.gameover")
+        Gamestate.switch(gameover, args)
+        local cur = Gamestate.current()
+        if cur and cur.draw then
+            cur:draw(cur)
+        end
+        return
+    end
 
     if not introCountdownActive then
         -- Near locked exit + surviving enemies off-screen: blink arrows on viewport edge (screen space)
@@ -1405,7 +1474,7 @@ function game:draw()
 
                 love.graphics.setFont(game.pauseHintFont)
                 love.graphics.setColor(0.45, 0.45, 0.48)
-                love.graphics.printf("Arrows / mouse  ·  Enter  ·  ESC to unpause", 0, GAME_HEIGHT * 0.88, GAME_WIDTH, "center")
+                love.graphics.printf("Arrows / mouse  ·  Enter  ·  ESC to resume", 0, GAME_HEIGHT * 0.88, GAME_WIDTH, "center")
             else
                 SettingsPanel.draw(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, {
                     title = game.pauseTitleFont,

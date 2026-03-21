@@ -16,8 +16,15 @@ local function rowAction(id, label)
     return { kind = "action", id = id, label = label }
 end
 
-function DevPanel.buildRows()
+--- @param showHitboxes boolean|nil current state for the hitbox overlay row label
+function DevPanel.buildRows(showHitboxes)
     local rows = {}
+    rows[#rows + 1] = rowHeader("Debug")
+    rows[#rows + 1] = rowAction(
+        "toggle_hitboxes",
+        (showHitboxes ~= false) and "Hitboxes: ON" or "Hitboxes: OFF"
+    )
+
     rows[#rows + 1] = rowHeader("Player")
     rows[#rows + 1] = rowAction("kill_player", "Kill player")
     rows[#rows + 1] = rowAction("full_heal", "Full heal")

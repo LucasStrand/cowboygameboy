@@ -20,13 +20,13 @@ local function buildTabList()
     return tabs
 end
 
-local function tabBarLayout(screenW, y0, tabFont, tabs)
+local function tabBarLayout(screenW, y0, tabFont, tabDefs)
     local gap = 10
-    local n = #tabs
+    local n = #tabDefs
     local pad = 24 -- horizontal padding inside each tab (keeps label on one line)
     local widths = {}
     local total = 0
-    for _, t in ipairs(tabs) do
+    for _, t in ipairs(tabDefs) do
         local w = tabFont:getWidth(t.label) + pad
         widths[#widths + 1] = w
         total = total + w
@@ -38,13 +38,13 @@ local function tabBarLayout(screenW, y0, tabFont, tabs)
     if total > maxRow then
         local avail = maxRow - gap * (n - 1)
         local sumText = 0
-        for _, t in ipairs(tabs) do
+        for _, t in ipairs(tabDefs) do
             sumText = sumText + tabFont:getWidth(t.label)
         end
         local padEach = (avail - sumText) / (2 * n)
         padEach = math.max(4, padEach)
         total = 0
-        for i, t in ipairs(tabs) do
+        for i, t in ipairs(tabDefs) do
             widths[i] = tabFont:getWidth(t.label) + 2 * padEach
             total = total + widths[i]
         end
@@ -53,9 +53,9 @@ local function tabBarLayout(screenW, y0, tabFont, tabs)
 
     local x0 = (screenW - total) * 0.5
     local x = x0
-    local tabs = {}
-    for i, t in ipairs(tabs) do
-        tabs[i] = {
+    local layout = {}
+    for i, t in ipairs(tabDefs) do
+        layout[i] = {
             id = t.id,
             label = t.label,
             x = x,
@@ -65,7 +65,7 @@ local function tabBarLayout(screenW, y0, tabFont, tabs)
         }
         x = x + widths[i] + gap
     end
-    return tabs
+    return layout
 end
 
 -- Centered column so rows aren’t stretched edge-to-edge on ultrawide / large windows.
@@ -291,6 +291,12 @@ function SettingsPanel.draw(screenW, screenH, activeTabId, fonts, hover, bindCap
             elseif row.key == "mouseAimIdle" then vt = Settings.labelMouseAimIdle()
             else vt = "?" end
             drawRowLabelValue(fonts.row, row, vt .. "  >")
+        elseif row.kind == "bind" then
+            local vt = Keybinds.formatActionKey(row.action)
+            if bindCaptureAction == row.action then
+                vt = "…"
+            end
+            drawRowLabelValue(fonts.row, row, vt)
         elseif row.kind == "action" then
             drawRowLabelValue(fonts.row, row, row.value or "Run >")
         elseif row.kind == "slider" then
@@ -359,6 +365,22 @@ function SettingsPanel.applyHit(hit, player)
     end
     if hit.kind == "row" then
         local row = hit.row
+        if row.kind == "bind" then
+            return { startBind = row.action }
+        end
+        if row.kind == "reset" then
+            if row.resetType == "keybinds" then
+                Settings.resetKeybindsOnly()
+            elseif row.resetType == "all" then
+                Settings.resetAllToDefaults()
+            end
+            Settings.save()
+            Settings.apply()
+            if player and row.resetType == "all" then
+                player.autoGun = Settings.getDefaultAutoGun()
+            end
+            return {}
+        end
         if row.kind == "action" then
             return { action = row.key }
         elseif row.kind == "toggle" then

@@ -10,7 +10,6 @@ local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
-local Settings = require("src.systems.settings")
 
 local menu = {}
 
@@ -243,8 +242,6 @@ function menu:keypressed(key)
         elseif id == "quit" then
             love.event.quit()
         end
-    elseif key == "escape" then
-        love.event.quit()
     end
 end
 
@@ -301,7 +298,7 @@ function menu:draw()
 
         love.graphics.setColor(0.45, 0.45, 0.48)
         love.graphics.setFont(fonts.hint)
-        love.graphics.printf("Arrows / mouse  ·  Enter to select  ·  ESC to quit", 0, screenH * 0.88, screenW, "center")
+        love.graphics.printf("Arrows / mouse  ·  Enter to select  ·  Quit to exit", 0, screenH * 0.88, screenW, "center")
     elseif view == "settings" then
         SettingsPanel.draw(screenW, screenH, settingsTab, {
             title = fonts.title,

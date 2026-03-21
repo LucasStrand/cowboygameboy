@@ -5,14 +5,35 @@ local Settings = require("src.systems.settings")
 
 local gameover = {}
 
---- Replace with your final cue when ready (streamed loop).
-local PLACEHOLDER_FIN_MUSIC = "assets/music/boss/Rust Spurs in the Machine.wav"
+--- Outro BGM (replace path if you change the cue).
+local FIN_MUSIC = "assets/music/saloon/Tipsy Tumbleweed Rag - Honky Tonk.wav"
+
+local grayscaleCode = [[
+    vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc)
+    {
+        vec4 c = Texel(tex, tc) * color;
+        float g = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+        return vec4(g, g, g, c.a);
+    }
+]]
 
 local stats = {}
 local timer = 0
 local fonts = {}
 local musicSource = nil
 local scratchXs = {}
+local bgSnapshot = nil
+local grayscaleShader = nil
+
+local function getGrayscaleShader()
+    if not grayscaleShader then
+        local ok, sh = pcall(love.graphics.newShader, grayscaleCode)
+        if ok then
+            grayscaleShader = sh
+        end
+    end
+    return grayscaleShader
+end
 
 local function computeScore(s)
     local gold = s.gold or 0
@@ -35,8 +56,25 @@ local function stopFinMusic()
     end
 end
 
+local function releaseSnapshot()
+    if bgSnapshot then
+        bgSnapshot:release()
+        bgSnapshot = nil
+    end
+end
+
 function gameover:enter(_, playerStats)
-    stats = playerStats or {}
+    playerStats = playerStats or {}
+    releaseSnapshot()
+    bgSnapshot = playerStats.backgroundImage
+
+    stats = {
+        level = playerStats.level,
+        roomsCleared = playerStats.roomsCleared,
+        gold = playerStats.gold,
+        perksCount = playerStats.perksCount,
+    }
+
     timer = 0
     fonts.title = Font.new(72)
     fonts.score = Font.new(28)
@@ -50,7 +88,7 @@ function gameover:enter(_, playerStats)
     end
 
     stopFinMusic()
-    local ok, src = pcall(love.audio.newSource, PLACEHOLDER_FIN_MUSIC, "stream")
+    local ok, src = pcall(love.audio.newSource, FIN_MUSIC, "stream")
     if ok and src then
         src:setLooping(true)
         src:setVolume(Settings.getMusicVolumeMul())
@@ -61,6 +99,7 @@ end
 
 function gameover:leave()
     stopFinMusic()
+    releaseSnapshot()
 end
 
 function gameover:update(dt)
@@ -68,7 +107,6 @@ function gameover:update(dt)
     if musicSource then
         musicSource:setVolume(Settings.getMusicVolumeMul())
     end
-    -- Drift film scratches slowly
     for i = 1, #scratchXs do
         scratchXs[i] = scratchXs[i] + (i % 2 == 0 and 18 or -12) * dt
         if scratchXs[i] < -4 then scratchXs[i] = GAME_WIDTH + 4 end
@@ -93,7 +131,6 @@ function gameover:draw()
     local screenW = GAME_WIDTH
     local screenH = GAME_HEIGHT
 
-    -- Projector / celluloid flicker (brightness multiplier)
     local flick = 0.78 + 0.1 * math.sin(timer * 11.3) + 0.06 * math.sin(timer * 23.7 + 1.7)
     if love.math.random() < 0.04 then
         flick = flick * love.math.random(0.45, 0.92)
@@ -102,15 +139,29 @@ function gameover:draw()
         flick = flick * 0.35
     end
 
-    local bg = 0.02 * flick
-    love.graphics.setColor(bg, bg * 0.98, bg * 0.96, 1)
+    local sh = getGrayscaleShader()
+    if bgSnapshot and sh then
+        love.graphics.setShader(sh)
+        love.graphics.setColor(flick, flick, flick, 1)
+        love.graphics.draw(bgSnapshot, 0, 0, 0, screenW / bgSnapshot:getWidth(), screenH / bgSnapshot:getHeight())
+        love.graphics.setShader()
+    elseif bgSnapshot then
+        love.graphics.setColor(flick * 0.85, flick * 0.83, flick * 0.8, 1)
+        love.graphics.draw(bgSnapshot, 0, 0, 0, screenW / bgSnapshot:getWidth(), screenH / bgSnapshot:getHeight())
+    else
+        local bg = 0.02 * flick
+        love.graphics.setColor(bg, bg * 0.98, bg * 0.96, 1)
+        love.graphics.rectangle("fill", 0, 0, screenW, screenH)
+    end
+
+    -- Light global dim so text reads; still see the level
+    love.graphics.setColor(0, 0, 0, 0.12 * (0.5 + 0.5 * flick))
     love.graphics.rectangle("fill", 0, 0, screenW, screenH)
 
-    -- Occasional frame-edge darkening (gate weave feel)
     local weave = 0.5 + 0.5 * math.sin(timer * 6.1)
-    love.graphics.setColor(0, 0, 0, 0.12 * weave)
-    love.graphics.rectangle("fill", 0, 0, screenW, 10)
-    love.graphics.rectangle("fill", 0, screenH - 14, screenW, 14)
+    love.graphics.setColor(0, 0, 0, 0.14 * weave)
+    love.graphics.rectangle("fill", 0, 0, screenW, 12)
+    love.graphics.rectangle("fill", 0, screenH - 16, screenW, 16)
 
     local score = computeScore(stats)
 
@@ -129,14 +180,11 @@ function gameover:draw()
     love.graphics.setColor(dr, dg, db)
     love.graphics.setFont(fonts.detail)
     local y = screenH * 0.52
-    local line = 26
     love.graphics.printf(
         string.format("Lv %d  ·  Rooms %d  ·  $%d  ·  Perks %d",
             stats.level or 1, stats.roomsCleared or 0, stats.gold or 0, stats.perksCount or 0),
         0, y, screenW, "center")
-    y = y + line
 
-    -- Film scratches (vertical hairlines)
     love.graphics.setLineWidth(1)
     for i = 1, #scratchXs do
         local x = scratchXs[i]
@@ -145,7 +193,6 @@ function gameover:draw()
         love.graphics.line(x, 0, x + (i % 2 == 0 and 1.5 or -1), screenH)
     end
 
-    -- Light grain (new dots each frame — noisy celluloid)
     for _ = 1, 55 do
         local gx = love.math.random(0, screenW)
         local gy = love.math.random(0, screenH)
