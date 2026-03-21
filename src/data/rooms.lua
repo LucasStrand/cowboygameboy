@@ -1,4 +1,5 @@
 local RoomLoader = require("src.systems.room_loader")
+local Worlds = require("src.data.worlds")
 
 local RoomData = {}
 
@@ -7,20 +8,21 @@ RoomData.ROOMS_PER_CHECKPOINT = 5
 --- Pool entries may set `night = true` for player lamp, fog-of-war, and WorldLighting shader.
 --- Omit or `false` for full daylight (default). `RoomManager.nightVisualsOverride` can force all rooms.
 --- Room layouts live under `src/data/rooms/<worldId>/` and are loaded via RoomLoader.
+local DEFAULT_WORLD_ID = Worlds.default or "forest"
 
 --- Get the room pool for a given world (loads from per-room files).
---- Falls back to "forest" if no worldId given.
+--- Falls back to the default world if no worldId given.
 function RoomData.getPool(worldId)
-    return RoomLoader.getPool(worldId or "forest")
+    return RoomLoader.getPool(worldId or DEFAULT_WORLD_ID)
 end
 
--- Legacy compatibility: RoomData.pool loads forest rooms on first access.
+-- Legacy compatibility: RoomData.pool loads the default world on first access.
 -- New code should use RoomData.getPool(worldId) instead.
 RoomData.pool = nil
 setmetatable(RoomData, {
     __index = function(t, k)
         if k == "pool" then
-            local p = RoomLoader.getPool("forest")
+            local p = RoomLoader.getPool(DEFAULT_WORLD_ID)
             rawset(t, "pool", p)
             return p
         end

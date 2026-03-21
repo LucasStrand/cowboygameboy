@@ -20,7 +20,7 @@ function RoomManager.new(worldId)
     self.nightVisualsOverride = nil
     --- When true, `generateSequence` uses only `RoomData.devArena` (sandbox).
     self.devArenaMode = false
-    self.worldId = worldId or "forest"
+    self.worldId = worldId or Worlds.default or "forest"
     self.worldDef = Worlds.get(self.worldId)
     return self
 end

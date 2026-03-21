@@ -11,6 +11,7 @@ local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
 local Settings = require("src.systems.settings")
+local Worlds = require("src.data.worlds")
 local BootIntroData = require("src.data.boot_intro")
 local MenuBgm = require("src.systems.menu_bgm")
 
@@ -137,7 +138,8 @@ function menu:enter(_, opts)
         player.isPlayer = true
         player.keyboardAimMode = true
 
-        roomManager = RoomManager.new()
+        local previewWorldId = Worlds.default or "forest"
+        roomManager = RoomManager.new(previewWorldId)
         roomManager:generateSequence()
         local roomData = roomManager:nextRoom()
         if roomData then
@@ -145,7 +147,9 @@ function menu:enter(_, opts)
         end
 
         if not bgImage then
-            bgImage = love.graphics.newImage("assets/backgrounds/forest.png")
+            local worldDef = Worlds.get(previewWorldId)
+            local bgPath = worldDef and worldDef.background or "assets/backgrounds/forest.png"
+            bgImage = love.graphics.newImage(bgPath)
             bgImage:setWrap("repeat", "clampzero")
         end
     end

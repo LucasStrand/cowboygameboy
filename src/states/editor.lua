@@ -20,6 +20,7 @@ local HANDLE_SIZE = 6
 local TOOLBAR_W = 140
 local PANEL_W = 180
 local TOPBAR_H = 32
+local DEFAULT_WORLD_ID = Worlds.default or "forest"
 
 -- Tools
 local TOOLS = {
@@ -90,7 +91,7 @@ end
 local function newRoom()
     return {
         id = "new_room",
-        world = "forest",
+        world = DEFAULT_WORLD_ID,
         width = 2400,
         height = 800,
         platforms = {},
@@ -124,7 +125,7 @@ end
 
 local function getTheme()
     if not room then return nil end
-    local worldDef = Worlds.get(room.world or "forest")
+    local worldDef = Worlds.get(room.world or DEFAULT_WORLD_ID)
     if not worldDef then return nil end
     local theme = {}
     for k, v in pairs(worldDef.theme) do
@@ -326,7 +327,7 @@ function editor:keypressed(key)
         if room and room.playerSpawn and room.exitDoor and #room.platforms > 0 then
             editor._testRoom = room
             local game = require("src.states.game")
-            Gamestate.switch(game, { editorRoom = room, worldId = room.world or "forest" })
+            Gamestate.switch(game, { editorRoom = room, worldId = room.world or DEFAULT_WORLD_ID })
         else
             setStatus("Room needs platforms, player spawn, and door to test")
         end
@@ -399,7 +400,7 @@ function editor:mousepressed(x, y, button)
             if room and room.playerSpawn and room.exitDoor and #room.platforms > 0 then
                 editor._testRoom = room
                 local game = require("src.states.game")
-                Gamestate.switch(game, { editorRoom = room, worldId = room.world or "forest" })
+                Gamestate.switch(game, { editorRoom = room, worldId = room.world or DEFAULT_WORLD_ID })
             else
                 setStatus("Need platforms + spawn + door to test")
             end
@@ -850,7 +851,7 @@ function editor:draw()
     py = py + 16
 
     -- World button
-    local worldDef = Worlds.get(room.world or "forest")
+    local worldDef = Worlds.get(room.world or DEFAULT_WORLD_ID)
     love.graphics.setColor(0.2, 0.15, 0.1)
     love.graphics.rectangle("fill", panelX + 8, py, PANEL_W - 16, 20, 3, 3)
     love.graphics.setColor(0.85, 0.65, 0.35)

@@ -1261,12 +1261,26 @@ function game:enter(_, opts)
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
-    devPanelSections = defaultDevPanelSections()
-    devNpcSpawn = defaultDevNpcSpawn()
+    -- Inline defaults (not defaultDevPanelSections()) — keeps `game:enter` under Lua's 60-upvalue limit.
+    devPanelSections = {
+        debug = true,
+        player = true,
+        world = true,
+        npc = true,
+        weapons = false,
+        perks = false,
+    }
+    devNpcSpawn = {
+        peaceful = false,
+        unarmed = false,
+        countIndex = 1,
+        placement = nil,
+        preview = nil,
+    }
     devShowHitboxes = true
 
     devArenaMode = opts and opts.devArena == true
-    local worldId = (opts and opts.worldId) or "forest"
+    local worldId = (opts and opts.worldId) or Worlds.default or "forest"
     roomManager = RoomManager.new(worldId)
     roomManager.devArenaMode = devArenaMode
     currentTheme = roomManager:getTheme()

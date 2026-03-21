@@ -5,6 +5,7 @@ local Worlds = {}
 
 -- Ordered list of world IDs for progression
 Worlds.order = { "desert", "forest", "train" }
+Worlds.default = Worlds.order[1]
 
 Worlds.definitions = {
     forest = {
@@ -41,27 +42,26 @@ Worlds.definitions = {
         id = "desert",
         name = "Western Desert",
         background = "assets/backgrounds/deserttrainworldbackground.jpg",
-        tileAtlas = "assets/Tiles/Western/sprite_2.png",
+        tileAtlas = "assets/terrain/desert/generated_ground/desert_ground_manual_atlas.png",
         theme = {
-            -- These will be mapped once we analyze sprite_2.png
-            -- Placeholder: use same structure, coordinates TBD
+            -- Hand-built side-view desert atlas (16x16 tiles, 1-indexed coordinates).
             grass_l   = {1, 1},
             grass_m   = {2, 1},
             grass_r   = {3, 1},
-            grass_bl  = {1, 2},
-            grass_bm  = {2, 2},
-            grass_br  = {3, 2},
-            dirt      = {2, 3},
-            dirt2     = {1, 3},
-            dirt3     = {3, 3},
-            dirt_l    = {1, 3},
-            dirt_r    = {3, 3},
-            dirt_bl   = {1, 4},
-            dirt_bm   = {2, 4},
-            dirt_br   = {3, 4},
-            plank_l   = {1, 1},
-            plank_m   = {2, 1},
-            plank_r   = {3, 1},
+            grass_bl  = {4, 1},
+            grass_bm  = {5, 1},
+            grass_br  = {6, 1},
+            dirt_l    = {1, 2},
+            dirt      = {2, 2},
+            dirt2     = {3, 2},
+            dirt3     = {4, 2},
+            dirt_r    = {5, 2},
+            dirt_bl   = {1, 3},
+            dirt_bm   = {6, 2},
+            dirt_br   = {2, 3},
+            plank_l   = {3, 3},
+            plank_m   = {4, 3},
+            plank_r   = {5, 3},
         },
         skyColor = {0.85, 0.65, 0.35},
         parallaxSpeed = 0.3,
