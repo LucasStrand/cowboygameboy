@@ -12,6 +12,10 @@ local HUD    = require("src.ui.hud")
 local DevLog = require("src.ui.devlog")
 local DamageNumbers = require("src.ui.damage_numbers")
 local Font = require("src.ui.font")
+local Cursor = require("src.ui.cursor")
+local TextLayout = require("src.ui.text_layout")
+local Settings = require("src.systems.settings")
+local SettingsPanel = require("src.ui.settings_panel")
 
 local game = {}
 
@@ -30,8 +34,21 @@ local gameTimer
 local doorOpen
 local transitionTimer
 local paused
+local pauseMenuView = "main" -- "main" | "settings"
+local pauseSelectedIndex = 1
+local pauseHoverIndex = nil
+local pauseSettingsTab = "video"
+local pauseSettingsHover = nil
 -- After touching the exit while it's locked, keep off-screen enemy arrows until the room is clear
 local offScreenEnemyHintActive = false
+
+-- Intro countdown (3→2→1) after menu: room + enemies loaded; gameplay frozen until done.
+local introCountdownActive = false
+local introCountdownN = 0
+local introCountdownSegT = 0
+local introCountdownOverlayFade = 0
+local INTRO_COUNTDOWN_SEGMENT = 0.88
+local INTRO_COUNTDOWN_OVERLAY_FADE_SEC = 0.42
 
 local function pendingEnemiesIncoming()
     return currentRoom and currentRoom.pendingEnemySpawns and #currentRoom.pendingEnemySpawns > 0
@@ -61,17 +78,34 @@ local function processPendingEnemySpawns(dt)
     end
 end
 
--- While LMB held, keep mouse aim overriding auto-target for shooting + visuals.
-local MOUSE_AIM_OVERRIDE_HOLD = 0.45
-
-local function refreshMouseAimOverride(pl)
-    if love.mouse.isDown(1) then
-        pl.mouseAimOverrideUntil = love.timer.getTime() + MOUSE_AIM_OVERRIDE_HOLD
+local function refreshMouseAimOverride(pl, idleSec)
+    local t = love.timer.getTime()
+    if love.mouse.isDown(1) or love.mouse.isDown(2) then
+        pl.mouseAimOverrideUntil = t + idleSec
     end
+end
+
+--- Aim point when not using mouse: horizontal line from player in move / last-facing direction.
+local function keyboardFallbackAimPoint(pl)
+    local cx = pl.x + pl.w * 0.5
+    local cy = pl.y + pl.h * 0.5
+    local ml = love.keyboard.isDown("a") or love.keyboard.isDown("left")
+    local mr = love.keyboard.isDown("d") or love.keyboard.isDown("right")
+    local dir
+    if mr and not ml then
+        dir = 1
+    elseif ml and not mr then
+        dir = -1
+    else
+        dir = pl.facingRight and 1 or -1
+    end
+    return cx + dir * 240, cy
 end
 
 local function drawAimCrosshair()
     if not player then return end
+    -- Hide only in pure auto+keyboard mode; show again while mouse is active (even with auto on)
+    if player.autoGun and player.keyboardAimMode then return end
     local px = player.x + player.w * 0.5
     local py = player.y + player.h * 0.5
     local ax = player.effectiveAimX or player.aimWorldX
@@ -84,15 +118,6 @@ local function drawAimCrosshair()
     love.graphics.line(px, py, px + cosA * len, py + sinA * len)
     love.graphics.setLineWidth(1)
     love.graphics.setColor(1, 1, 1, 1)
-end
-
-local function hasLivingEnemy()
-    for _, e in ipairs(enemies) do
-        if e.alive then
-            return true
-        end
-    end
-    return false
 end
 
 -- Route the global debugLog used by combat.lua → DevLog combat category
@@ -256,11 +281,73 @@ function game:init()
     bgImage:setWrap("repeat", "clampzero")
 end
 
-function game:enter()
+local function introCountdownDigitStyle(segT)
+    local u = segT / INTRO_COUNTDOWN_SEGMENT
+    local pin = math.min(1, segT / 0.24)
+    local ease = 1 - (1 - pin) ^ 3
+    local scale = 0.46 + 0.54 * ease
+    local alpha
+    if u < 0.12 then
+        alpha = u / 0.12
+    elseif u > 0.78 then
+        alpha = math.max(0, (1 - u) / (1 - 0.78))
+    else
+        alpha = 1
+    end
+    return scale, alpha * math.min(1, ease * 1.15)
+end
+
+local function pauseMenuEntries()
+    return {
+        { id = "resume", label = "Resume" },
+        { id = "settings", label = "Settings" },
+        { id = "restart", label = "Restart" },
+    }
+end
+
+local function pauseMenuButtonLayout()
+    local screenW, screenH = GAME_WIDTH, GAME_HEIGHT
+    local bw, bh = 340, 48
+    local gap = 10
+    local list = pauseMenuEntries()
+    local totalH = #list * bh + (#list - 1) * gap
+    local startY = screenH * 0.38 - totalH * 0.5
+    local rects = {}
+    for i, b in ipairs(list) do
+        local y = startY + (i - 1) * (bh + gap)
+        rects[i] = {
+            id = b.id,
+            label = b.label,
+            x = (screenW - bw) * 0.5,
+            y = y,
+            w = bw,
+            h = bh,
+        }
+    end
+    return rects
+end
+
+local function pauseHitRect(mx, my, r)
+    return mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h
+end
+
+local function pauseRestartRun()
+    paused = false
+    pauseMenuView = "main"
+    Gamestate.switch(game, { introCountdown = true })
+end
+
+function game:enter(_, opts)
+    introCountdownActive = false
+    introCountdownN = 0
+    introCountdownSegT = 0
+    introCountdownOverlayFade = 0
+
     world = bump.newWorld(32)
     camera = Camera(400, 200)
     camera.scale = CAM_ZOOM
     player = Player.new(50, 300)
+    player.autoGun = Settings.getDefaultAutoGun()
     world:add(player, player.x, player.y, player.w, player.h)
     player.isPlayer = true
 
@@ -273,12 +360,36 @@ function game:enter()
     doorOpen = false
     transitionTimer = 0
     paused = false
+    pauseMenuView = "main"
+    pauseSelectedIndex = 1
+    pauseHoverIndex = nil
+    pauseSettingsTab = "video"
+    pauseSettingsHover = nil
 
     roomManager = RoomManager.new()
     roomManager:generateSequence()
     DevLog.init()
     DevLog.push("sys", "Run started")
     loadNextRoom()
+
+    if opts and opts.introCountdown and Gamestate.current() == game then
+        introCountdownActive = true
+        introCountdownN = 3
+        introCountdownSegT = 0
+        introCountdownOverlayFade = 0
+        if not game.introCountdownFont then
+            game.introCountdownFont = Font.new(120)
+        end
+    end
+
+    -- loadNextRoom may push saloon; only apply gameplay cursor if we're still the top state
+    if Gamestate.current() == game then
+        Cursor.setGameplay()
+    end
+end
+
+function game:leave()
+    Cursor.setDefault()
 end
 
 function loadNextRoom()
@@ -313,6 +424,7 @@ function loadNextRoom()
 end
 
 function game:resume()
+    Cursor.setGameplay()
     -- Returning from saloon -> load new cycle of rooms
     if roomManager.needsNewRooms then
         roomManager.needsNewRooms = false
@@ -322,6 +434,29 @@ end
 
 function game:update(dt)
     if paused then return end
+
+    if introCountdownActive then
+        processPendingEnemySpawns(dt)
+        introCountdownOverlayFade = math.min(1, introCountdownOverlayFade + dt / INTRO_COUNTDOWN_OVERLAY_FADE_SEC)
+        introCountdownSegT = introCountdownSegT + dt
+        if introCountdownSegT >= INTRO_COUNTDOWN_SEGMENT then
+            introCountdownSegT = 0
+            introCountdownN = introCountdownN - 1
+            if introCountdownN <= 0 then
+                introCountdownActive = false
+            end
+        end
+        if currentRoom and camera and player then
+            local viewW = GAME_WIDTH / CAM_ZOOM
+            local viewH = GAME_HEIGHT / CAM_ZOOM
+            local px = player.x + player.w / 2
+            local py = player.y + player.h / 2
+            local cx = math.max(viewW / 2, math.min(currentRoom.width - viewW / 2, px))
+            local cy = math.max(viewH / 2, math.min(currentRoom.height - viewH / 2, py))
+            camera:lookAt(cx, cy)
+        end
+        return
+    end
 
     gameTimer = gameTimer + dt
 
@@ -347,43 +482,52 @@ function game:update(dt)
         return
     end
 
-    processPendingEnemySpawns(dt)
-
-    -- Aim point in world (same coords as shooting) for omnidirectional melee
-    do
-        local mx, my = love.mouse.getPosition()
-        local gx, gy = windowToGame(mx, my)
-        local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
-        player.aimWorldX = wx
-        player.aimWorldY = wy
-    end
-
     local camX, camY = camera:position()
     local halfW = GAME_WIDTH / (2 * CAM_ZOOM)
     local halfH = GAME_HEIGHT / (2 * CAM_ZOOM)
     local viewL, viewT = camX - halfW, camY - halfH
     local viewR, viewB = camX + halfW, camY + halfH
 
-    refreshMouseAimOverride(player)
-    local tNow = love.timer.getTime()
-    local mouseAimOn = tNow < (player.mouseAimOverrideUntil or 0)
-    local autoTx, autoTy = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
-    if mouseAimOn then
-        player.effectiveAimX, player.effectiveAimY = player.aimWorldX, player.aimWorldY
-    elseif autoTx then
-        player.effectiveAimX, player.effectiveAimY = autoTx, autoTy
-    else
-        player.effectiveAimX, player.effectiveAimY = player.aimWorldX, player.aimWorldY
+    local autoTx, autoTy
+    local mouseAimOn
+    if not player.dying then
+        processPendingEnemySpawns(dt)
+
+        -- Aim point in world (same coords as shooting) for omnidirectional melee
+        do
+            local mx, my = love.mouse.getPosition()
+            local gx, gy = windowToGame(mx, my)
+            local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            player.aimWorldX = wx
+            player.aimWorldY = wy
+        end
+
+        local aimIdle = Settings.getMouseAimIdleSec()
+        refreshMouseAimOverride(player, aimIdle)
+        local tNow = love.timer.getTime()
+        mouseAimOn = tNow < (player.mouseAimOverrideUntil or 0)
+        player.keyboardAimMode = not mouseAimOn
+        autoTx, autoTy = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
+        if mouseAimOn then
+            player.effectiveAimX, player.effectiveAimY = player.aimWorldX, player.aimWorldY
+        elseif autoTx then
+            player.effectiveAimX, player.effectiveAimY = autoTx, autoTy
+        else
+            player.effectiveAimX, player.effectiveAimY = keyboardFallbackAimPoint(player)
+        end
     end
 
     -- Player update
     player:update(dt, world, enemies)
 
-    -- Auto-fire only when at least one enemy exists; otherwise don't spray into empty rooms
-    if player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0
-        and hasLivingEnemy() then
+    if not player.dying then
+    local i, leveledUp -- hoisted for goto (cannot jump over `local` in same block)
+    -- Auto-fire only when findAutoTarget finds someone (on-screen + LOS). Mouse overrides *direction* to cursor, but never fires into empty space.
+    if player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
         local tx, ty
-        if mouseAimOn then
+        if not autoTx then
+            tx, ty = nil, nil
+        elseif mouseAimOn then
             tx, ty = player.aimWorldX, player.aimWorldY
         else
             tx, ty = autoTx, autoTy
@@ -402,11 +546,13 @@ function game:update(dt)
     end
 
     Combat.updateBullets(bullets, dt, world, enemies, player)
+    if player.dying then goto skipLivingCombat end
+
     Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB)
     Combat.checkPlayerMelee(player, enemies)
 
     -- Enemies update
-    local i = 1
+    i = 1
     while i <= #enemies do
         local e = enemies[i]
         if e.alive then
@@ -442,8 +588,7 @@ function game:update(dt)
 
     -- Contact damage
     Combat.checkContactDamage(enemies, player)
-
-    DamageNumbers.update(dt)
+    if player.dying then goto skipLivingCombat end
 
     -- Pickups update
     for _, p in ipairs(pickups) do
@@ -464,7 +609,7 @@ function game:update(dt)
     end
 
     -- Check pickup collection
-    local leveledUp = Combat.checkPickups(pickups, player)
+    leveledUp = Combat.checkPickups(pickups, player)
 
     -- Level up
     if leveledUp then
@@ -493,11 +638,16 @@ function game:update(dt)
 
     -- Kill plane (fell out of bounds)
     if isOutOfBounds(player, currentRoom) then
-        player.hp = 0
+        player:beginDeath()
     end
 
-    -- Player death
-    if player.hp <= 0 then
+    ::skipLivingCombat::
+    end -- not player.dying
+
+    DamageNumbers.update(dt)
+
+    -- Player death (after collapse animation)
+    if player.dying and player.deathTimer >= Player.DEATH_DURATION then
         DevLog.push("sys", string.format("Player died  lv%d  %d rooms  $%d",
             player.level, roomManager.totalRoomsCleared, player.gold))
         local gameover = require("src.states.gameover")
@@ -523,6 +673,65 @@ function game:update(dt)
 end
 
 function game:keypressed(key)
+    if introCountdownActive then
+        if key == "escape" then
+            local menu = require("src.states.menu")
+            Gamestate.switch(menu)
+        end
+        return
+    end
+
+    if player and player.dying then return end
+
+    if key == "escape" then
+        if paused then
+            if pauseMenuView == "settings" then
+                pauseMenuView = "main"
+            else
+                paused = false
+                pauseMenuView = "main"
+            end
+        else
+            paused = true
+            pauseMenuView = "main"
+            pauseSelectedIndex = 1
+            pauseHoverIndex = nil
+        end
+        return
+    end
+
+    if paused then
+        if pauseMenuView == "settings" then
+            if key == "backspace" then
+                pauseMenuView = "main"
+            elseif key == "[" then
+                pauseSettingsTab = SettingsPanel.cycleTab(pauseSettingsTab, -1)
+            elseif key == "]" then
+                pauseSettingsTab = SettingsPanel.cycleTab(pauseSettingsTab, 1)
+            end
+            return
+        end
+        local list = pauseMenuEntries()
+        if key == "up" or key == "w" then
+            pauseSelectedIndex = pauseSelectedIndex - 1
+            if pauseSelectedIndex < 1 then pauseSelectedIndex = #list end
+        elseif key == "down" or key == "s" then
+            pauseSelectedIndex = pauseSelectedIndex + 1
+            if pauseSelectedIndex > #list then pauseSelectedIndex = 1 end
+        elseif key == "return" or key == "space" or key == "kpenter" then
+            local id = list[pauseSelectedIndex].id
+            if id == "resume" then
+                paused = false
+                pauseMenuView = "main"
+            elseif id == "settings" then
+                pauseMenuView = "settings"
+            elseif id == "restart" then
+                pauseRestartRun()
+            end
+        end
+        return
+    end
+
     if key == "space" or key == "w" or key == "up" then
         player:jump()
     end
@@ -541,35 +750,96 @@ function game:keypressed(key)
     if key == "e" then
         tryExitThroughDoor()
     end
-    if key == "escape" then
-        local menu = require("src.states.menu")
-        Gamestate.switch(menu)
-    end
 end
 
 function game:mousemoved(x, y, dx, dy)
+    if introCountdownActive then return end
+    if player and player.dying then return end
+    local gx, gy = windowToGame(x, y)
+    if paused then
+        pauseHoverIndex = nil
+        if pauseMenuView == "main" then
+            for i, r in ipairs(pauseMenuButtonLayout()) do
+                if pauseHitRect(gx, gy, r) then
+                    pauseHoverIndex = i
+                    pauseSelectedIndex = i
+                    break
+                end
+            end
+        else
+            if not game.pauseMenuButtonFont then
+                game.pauseMenuButtonFont = Font.new(22)
+            end
+            local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, game.pauseMenuButtonFont)
+            if h then
+                if h.kind == "tab" then
+                    pauseSettingsHover = { kind = "tab", id = h.id }
+                elseif h.kind == "back" then
+                    pauseSettingsHover = { kind = "back" }
+                elseif h.kind == "row" then
+                    pauseSettingsHover = { kind = "row", index = h.index }
+                elseif h.kind == "slider" then
+                    pauseSettingsHover = { kind = "slider", index = h.index, key = h.key }
+                end
+            else
+                pauseSettingsHover = nil
+            end
+        end
+        return
+    end
     if not player then return end
     if math.abs(dx) + math.abs(dy) > 0.25 then
-        player.mouseAimOverrideUntil = love.timer.getTime() + 0.55
+        player.mouseAimOverrideUntil = love.timer.getTime() + Settings.getMouseAimIdleSec()
     end
 end
 
 function game:mousepressed(x, y, button)
+    if introCountdownActive then return end
+    if player and player.dying then return end
     local gx, gy = windowToGame(x, y)
-    if button == 1 and not player.blocking then
-        player.mouseAimOverrideUntil = love.timer.getTime() + 0.55
-        -- Auto gun fires in update(); manual LMB only when auto is off (avoids double shot)
-        if not player.autoGun then
-            local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
-            local bulletData = player:shoot(mx, my)
-            if bulletData then
-                for _, data in ipairs(bulletData) do
-                    local b = Combat.spawnBullet(world, data)
-                    table.insert(bullets, b)
+    if paused then
+        if button ~= 1 then return end
+        if pauseMenuView == "main" then
+            for _, r in ipairs(pauseMenuButtonLayout()) do
+                if pauseHitRect(gx, gy, r) then
+                    if r.id == "resume" then
+                        paused = false
+                        pauseMenuView = "main"
+                    elseif r.id == "settings" then
+                        pauseMenuView = "settings"
+                    elseif r.id == "restart" then
+                        pauseRestartRun()
+                    end
+                    return
                 end
-                shakeTimer = 0.08
-                shakeIntensity = 2
             end
+        else
+            if not game.pauseMenuButtonFont then
+                game.pauseMenuButtonFont = Font.new(22)
+            end
+            local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, game.pauseMenuButtonFont)
+            local r = SettingsPanel.applyHit(h, player)
+            if r then
+                if r.setTab then pauseSettingsTab = r.setTab end
+                if r.goBack then pauseMenuView = "main" end
+            end
+        end
+        return
+    end
+    if player then
+        player.mouseAimOverrideUntil = love.timer.getTime() + Settings.getMouseAimIdleSec()
+    end
+    if button == 1 and player and not player.blocking then
+        -- Manual shot at cursor; player:shoot cooldown blocks double-tap with auto-fire in update
+        local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+        local bulletData = player:shoot(mx, my)
+        if bulletData then
+            for _, data in ipairs(bulletData) do
+                local b = Combat.spawnBullet(world, data)
+                table.insert(bullets, b)
+            end
+            shakeTimer = 0.08
+            shakeIntensity = 2
         end
     end
     if button == 2 then
@@ -590,8 +860,9 @@ function game:draw()
     -- Camera with shake
     local sx, sy = 0, 0
     if shakeTimer > 0 then
-        sx = (math.random() - 0.5) * shakeIntensity * 2
-        sy = (math.random() - 0.5) * shakeIntensity * 2
+        local sk = Settings.getScreenShakeScale()
+        sx = (math.random() - 0.5) * shakeIntensity * 2 * sk
+        sy = (math.random() - 0.5) * shakeIntensity * 2 * sk
     end
 
     camera:attach(0, 0, GAME_WIDTH, GAME_HEIGHT)
@@ -688,7 +959,9 @@ function game:draw()
 
     -- Player
     player:draw()
-    drawAimCrosshair()
+    if not introCountdownActive then
+        drawAimCrosshair()
+    end
 
     -- Bullets
     for _, b in ipairs(bullets) do
@@ -709,25 +982,106 @@ function game:draw()
 
     camera:detach()
 
-    -- Near locked exit + surviving enemies off-screen: blink arrows on viewport edge (screen space)
-    drawExitBlockedOffscreenArrows()
-    drawExitArrow()
+    if not introCountdownActive then
+        -- Near locked exit + surviving enemies off-screen: blink arrows on viewport edge (screen space)
+        drawExitBlockedOffscreenArrows()
+        drawExitArrow()
 
-    -- HUD (screen space)
-    HUD.draw(player)
-    DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
-    if roomManager then
-        HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
-    end
+        -- HUD (screen space)
+        HUD.draw(player)
+        DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
+        if roomManager then
+            HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
+        end
 
-    -- Transition fade
-    if transitionTimer > 0 then
-        local alpha = 1 - (transitionTimer / 0.5)
-        love.graphics.setColor(0, 0, 0, alpha)
+        -- Transition fade
+        if transitionTimer > 0 then
+            local alpha = 1 - (transitionTimer / 0.5)
+            love.graphics.setColor(0, 0, 0, alpha)
+            love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
+        end
+
+        HUD.drawDeadEye(player)
+
+        if paused then
+            love.graphics.setColor(0, 0, 0, 0.48)
+            love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
+
+            if not game.pauseTitleFont then
+                game.pauseTitleFont = Font.new(32)
+            end
+            if not game.pauseMenuButtonFont then
+                game.pauseMenuButtonFont = Font.new(22)
+            end
+            if not game.pauseHintFont then
+                game.pauseHintFont = Font.new(15)
+            end
+            if not game.pauseSettingsBodyFont then
+                game.pauseSettingsBodyFont = Font.new(16)
+            end
+
+            if pauseMenuView == "main" then
+                love.graphics.setFont(game.pauseTitleFont)
+                love.graphics.setColor(1, 0.86, 0.28, 0.95)
+                love.graphics.printf("PAUSED", 0, GAME_HEIGHT * 0.16, GAME_WIDTH, "center")
+
+                local rects = pauseMenuButtonLayout()
+                for i, r in ipairs(rects) do
+                    local hover = (pauseHoverIndex == i) or (pauseHoverIndex == nil and pauseSelectedIndex == i)
+                    if hover then
+                        love.graphics.setColor(0.22, 0.14, 0.08, 0.92)
+                    else
+                        love.graphics.setColor(0.12, 0.08, 0.06, 0.75)
+                    end
+                    love.graphics.rectangle("fill", r.x, r.y, r.w, r.h, 6, 6)
+                    love.graphics.setColor(0.85, 0.65, 0.35, hover and 1 or 0.65)
+                    love.graphics.setLineWidth(2)
+                    love.graphics.rectangle("line", r.x, r.y, r.w, r.h, 6, 6)
+                    love.graphics.setLineWidth(1)
+                    love.graphics.setColor(1, 0.95, 0.82)
+                    love.graphics.setFont(game.pauseMenuButtonFont)
+                    love.graphics.printf(
+                        r.label,
+                        r.x,
+                        TextLayout.printfYCenteredInRect(game.pauseMenuButtonFont, r.y, r.h),
+                        r.w,
+                        "center"
+                    )
+                end
+
+                love.graphics.setFont(game.pauseHintFont)
+                love.graphics.setColor(0.45, 0.45, 0.48)
+                love.graphics.printf("Arrows / mouse  ·  Enter  ·  ESC to unpause", 0, GAME_HEIGHT * 0.88, GAME_WIDTH, "center")
+            else
+                SettingsPanel.draw(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, {
+                    title = game.pauseTitleFont,
+                    tab = game.pauseMenuButtonFont,
+                    row = game.pauseSettingsBodyFont,
+                    hint = game.pauseHintFont,
+                }, pauseSettingsHover)
+            end
+        end
+    else
+        love.graphics.setColor(0.02, 0.02, 0.04, 0.52 + (0.74 - 0.52) * introCountdownOverlayFade)
         love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
-    end
 
-    HUD.drawDeadEye(player)
+        local sc, a = introCountdownDigitStyle(introCountdownSegT)
+        love.graphics.push()
+        love.graphics.translate(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.48)
+        love.graphics.scale(sc)
+        love.graphics.setColor(1, 0.86, 0.28, a)
+        love.graphics.setFont(game.introCountdownFont)
+        local fh = game.introCountdownFont:getHeight()
+        love.graphics.printf(tostring(introCountdownN), -GAME_WIDTH * 0.5, -fh * 0.5, GAME_WIDTH, "center")
+        love.graphics.pop()
+
+        if not game.introHintFont then
+            game.introHintFont = Font.new(14)
+        end
+        love.graphics.setColor(0.5, 0.5, 0.55, 0.85 * introCountdownOverlayFade)
+        love.graphics.setFont(game.introHintFont)
+        love.graphics.printf("ESC to cancel · Enemies ready", 0, GAME_HEIGHT * 0.88, GAME_WIDTH, "center")
+    end
 
     -- Debug overlay (F1)
     if DEBUG then

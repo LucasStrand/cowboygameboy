@@ -1,4 +1,4 @@
--- Game-space UI fonts (canvas is GAME_WIDTH x GAME_HEIGHT, then scaled to the window).
+-- Game-space UI fonts (canvas is GAME_WIDTH × GAME_HEIGHT, usually equal to the window).
 -- Prefer project TTF; fall back to LÖVE default bitmap font if the file is missing.
 
 local Font = {}

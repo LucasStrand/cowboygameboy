@@ -93,7 +93,7 @@ function Animator:update(dt)
     end
 end
 
-function Animator:drawCentered(cx, footY, facingRight, yOffset)
+function Animator:drawCentered(cx, footY, facingRight, yOffset, alpha)
     local quads = self.quads[self.current]
     if not quads then return end
     local quad = quads[self.frame]
@@ -109,7 +109,7 @@ function Animator:drawCentered(cx, footY, facingRight, yOffset)
     local sx        = facingRight and SPRITE_SCALE or -SPRITE_SCALE
     local flipShift = facingRight and 0 or scaledW
 
-    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.setColor(1, 1, 1, alpha or 1)
     love.graphics.draw(sheet, quad, drawX + flipShift, drawY, 0, sx, SPRITE_SCALE)
 end
 

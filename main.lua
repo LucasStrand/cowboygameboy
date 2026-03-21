@@ -6,36 +6,55 @@ local gameover = require("src.states.gameover")
 local levelup = require("src.states.levelup")
 local saloon = require("src.states.saloon")
 
+-- Logical render size = drawable window size (see syncGameDimensions). Larger window ⇒ more world visible;
+-- HUD uses fixed pixel sizes in this space (does not scale up with resolution).
 GAME_WIDTH = 1280
 GAME_HEIGHT = 720
 DEBUG = false
-
--- Virtual resolution canvas and scaling
--- Reference frame: 1920x1080 (16:9). Window is fitted inside that aspect (ultrawide = pillarbox).
-local REF_W, REF_H = 1920, 1080
 
 local gameCanvas
 local canvasScale = 1
 local canvasOffsetX = 0
 local canvasOffsetY = 0
 
-local function updateCanvasScale()
+local function syncGameDimensions()
     local winW, winH = love.graphics.getDimensions()
-    local s = math.min(winW / REF_W, winH / REF_H)
-    local contentW = REF_W * s
-    local contentH = REF_H * s
-    canvasScale = contentW / GAME_WIDTH
-    canvasOffsetX = (winW - contentW) / 2
-    canvasOffsetY = (winH - contentH) / 2
+    local w = math.max(640, math.floor(winW))
+    local h = math.max(360, math.floor(winH))
+    if w == GAME_WIDTH and h == GAME_HEIGHT and gameCanvas then
+        return
+    end
+    GAME_WIDTH = w
+    GAME_HEIGHT = h
+    if gameCanvas then
+        gameCanvas:release()
+        gameCanvas = nil
+    end
+    gameCanvas = love.graphics.newCanvas(GAME_WIDTH, GAME_HEIGHT)
+    gameCanvas:setFilter("linear", "linear")
+
+    local ok, BlurBG = pcall(require, "src.ui.blur_bg")
+    if ok and BlurBG and BlurBG.invalidate then
+        BlurBG.invalidate()
+    end
+end
+
+local function updateCanvasScale()
+    -- 1:1 blit: canvas fills the window; mouse coords match canvas pixels
+    canvasScale = 1
+    canvasOffsetX = 0
+    canvasOffsetY = 0
 end
 
 function love.load()
-    -- Linear sampling: smoother text/UI when the canvas is scaled to the window
     love.graphics.setDefaultFilter("linear", "linear")
     math.randomseed(os.time())
 
-    gameCanvas = love.graphics.newCanvas(GAME_WIDTH, GAME_HEIGHT)
-    gameCanvas:setFilter("linear", "linear")
+    local Settings = require("src.systems.settings")
+    Settings.load()
+    Settings.apply()
+
+    syncGameDimensions()
     updateCanvasScale()
     
     -- Register all events except draw (we render to canvas and blit manually)
@@ -48,11 +67,12 @@ function love.load()
 end
 
 function love.resize(w, h)
+    syncGameDimensions()
     updateCanvasScale()
 end
 
 function love.draw()
-    -- Render game to fixed-size canvas
+    -- Render to a canvas matching the window; larger window ⇒ larger canvas ⇒ more world (see camera view)
     love.graphics.setCanvas(gameCanvas)
     love.graphics.clear(0, 0, 0, 1)
     
@@ -74,9 +94,7 @@ function love.keypressed(key)
     end
 end
 
--- Transform window coordinates to game coordinates (for mouse input)
+-- Transform window coordinates to game / canvas coordinates (for mouse input)
 function windowToGame(x, y)
-    local gx = (x - canvasOffsetX) / canvasScale
-    local gy = (y - canvasOffsetY) / canvasScale
-    return gx, gy
+    return (x - canvasOffsetX) / canvasScale, (y - canvasOffsetY) / canvasScale
 end
