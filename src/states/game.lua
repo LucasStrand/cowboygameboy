@@ -61,6 +61,40 @@ local function processPendingEnemySpawns(dt)
     end
 end
 
+-- While LMB held, keep mouse aim overriding auto-target for shooting + visuals.
+local MOUSE_AIM_OVERRIDE_HOLD = 0.45
+
+local function refreshMouseAimOverride(pl)
+    if love.mouse.isDown(1) then
+        pl.mouseAimOverrideUntil = love.timer.getTime() + MOUSE_AIM_OVERRIDE_HOLD
+    end
+end
+
+local function drawAimCrosshair()
+    if not player then return end
+    local px = player.x + player.w * 0.5
+    local py = player.y + player.h * 0.5
+    local ax = player.effectiveAimX or player.aimWorldX
+    local ay = player.effectiveAimY or player.aimWorldY
+    local ang = math.atan2(ay - py, ax - px)
+    local cosA, sinA = math.cos(ang), math.sin(ang)
+    local len = 78
+    love.graphics.setColor(1, 0.92, 0.7, 0.28)
+    love.graphics.setLineWidth(1)
+    love.graphics.line(px, py, px + cosA * len, py + sinA * len)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+local function hasLivingEnemy()
+    for _, e in ipairs(enemies) do
+        if e.alive then
+            return true
+        end
+    end
+    return false
+end
+
 -- Route the global debugLog used by combat.lua → DevLog combat category
 function debugLog(msg)
     DevLog.push("combat", msg)
@@ -324,17 +358,36 @@ function game:update(dt)
         player.aimWorldY = wy
     end
 
-    -- Player update
-    player:update(dt, world, enemies)
-
-    -- Auto-fire at optimal target (only when enemies are on screen; no gun while shielding)
     local camX, camY = camera:position()
     local halfW = GAME_WIDTH / (2 * CAM_ZOOM)
     local halfH = GAME_HEIGHT / (2 * CAM_ZOOM)
     local viewL, viewT = camX - halfW, camY - halfH
     local viewR, viewB = camX + halfW, camY + halfH
-    if player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
-        local tx, ty = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
+
+    refreshMouseAimOverride(player)
+    local tNow = love.timer.getTime()
+    local mouseAimOn = tNow < (player.mouseAimOverrideUntil or 0)
+    local autoTx, autoTy = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB)
+    if mouseAimOn then
+        player.effectiveAimX, player.effectiveAimY = player.aimWorldX, player.aimWorldY
+    elseif autoTx then
+        player.effectiveAimX, player.effectiveAimY = autoTx, autoTy
+    else
+        player.effectiveAimX, player.effectiveAimY = player.aimWorldX, player.aimWorldY
+    end
+
+    -- Player update
+    player:update(dt, world, enemies)
+
+    -- Auto-fire only when at least one enemy exists; otherwise don't spray into empty rooms
+    if player.autoGun and not player.blocking and not player.reloading and player.shootCooldown <= 0 and player.ammo > 0
+        and hasLivingEnemy() then
+        local tx, ty
+        if mouseAimOn then
+            tx, ty = player.aimWorldX, player.aimWorldY
+        else
+            tx, ty = autoTx, autoTy
+        end
         if tx then
             local bulletData = player:shoot(tx, ty)
             if bulletData then
@@ -494,18 +547,29 @@ function game:keypressed(key)
     end
 end
 
+function game:mousemoved(x, y, dx, dy)
+    if not player then return end
+    if math.abs(dx) + math.abs(dy) > 0.25 then
+        player.mouseAimOverrideUntil = love.timer.getTime() + 0.55
+    end
+end
+
 function game:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
     if button == 1 and not player.blocking then
-        local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
-        local bulletData = player:shoot(mx, my)
-        if bulletData then
-            for _, data in ipairs(bulletData) do
-                local b = Combat.spawnBullet(world, data)
-                table.insert(bullets, b)
+        player.mouseAimOverrideUntil = love.timer.getTime() + 0.55
+        -- Auto gun fires in update(); manual LMB only when auto is off (avoids double shot)
+        if not player.autoGun then
+            local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            local bulletData = player:shoot(mx, my)
+            if bulletData then
+                for _, data in ipairs(bulletData) do
+                    local b = Combat.spawnBullet(world, data)
+                    table.insert(bullets, b)
+                end
+                shakeTimer = 0.08
+                shakeIntensity = 2
             end
-            shakeTimer = 0.08
-            shakeIntensity = 2
         end
     end
     if button == 2 then
@@ -624,6 +688,7 @@ function game:draw()
 
     -- Player
     player:draw()
+    drawAimCrosshair()
 
     -- Bullets
     for _, b in ipairs(bullets) do

@@ -19,6 +19,22 @@ local DASH_SPEED = 520
 local DASH_DURATION = 0.12
 local DASH_COOLDOWN = 0.52
 
+-- Face sprite toward horizontal aim; small deadzone only when aim is ~through torso
+local AIM_FACE_DEADZONE = 3
+
+-- Head/gun draw: turn relative to body forward so we never flip the cowboy upside down
+local MAX_HEAD_TURN = 1.32 -- ~75° each way from facing
+
+local function angleWrapPi(a)
+    while a > math.pi do a = a - 2 * math.pi end
+    while a < -math.pi do a = a + 2 * math.pi end
+    return a
+end
+
+local function angleDiff(a, b)
+    return angleWrapPi(a - b)
+end
+
 function Player.new(x, y)
     local self = setmetatable({}, Player)
     self.x = x
@@ -106,7 +122,13 @@ function Player.new(x, y)
     self.aimWorldX = 0
     self.aimWorldY = 0
 
-    -- Loadout automation (toggled via HUD right-click). Gun + melee on by default.
+    -- Set in game state: cursor aim, auto-target, or cursor fallback — drives gun/head angle + crosshair.
+    self.effectiveAimX = nil
+    self.effectiveAimY = nil
+    -- While > love.timer.getTime(), shooting uses mouse aim instead of findAutoTarget.
+    self.mouseAimOverrideUntil = 0
+
+    -- Loadout automation (toggled via HUD right-click). Auto gun + mouse overrides aim while active.
     -- Shield auto-block only applies when equipped shield has stats.allowAutoBlock.
     self.autoGun   = true
     self.autoMelee = true
@@ -233,19 +255,37 @@ function Player:update(dt, world, enemies)
     end
 
     -- Horizontal movement (dash overrides walk; rooted block = no move)
+    local moveLeft = love.keyboard.isDown("a") or love.keyboard.isDown("left")
+    local moveRight = love.keyboard.isDown("d") or love.keyboard.isDown("right")
     if self.dashTimer > 0 and not blockRooted then
         self.vx = self.dashDir * DASH_SPEED
     elseif blockRooted then
         self.vx = 0
     else
         self.vx = 0
-        if love.keyboard.isDown("a") or love.keyboard.isDown("left") then
-            self.vx = -effectiveStats.moveSpeed
-            self.facingRight = false
+        if moveLeft then
+            self.vx = self.vx - effectiveStats.moveSpeed
         end
-        if love.keyboard.isDown("d") or love.keyboard.isDown("right") then
-            self.vx = effectiveStats.moveSpeed
+        if moveRight then
+            self.vx = self.vx + effectiveStats.moveSpeed
+        end
+    end
+
+    -- Facing follows effective aim (game: auto-target or cursor), not walk direction alone
+    do
+        local cx = self.x + self.w * 0.5
+        local ax = self.effectiveAimX or self.aimWorldX or cx
+        local aimDx = ax - cx
+        if math.abs(aimDx) > AIM_FACE_DEADZONE then
+            self.facingRight = aimDx > 0
+        elseif self.dashTimer > 0 and not blockRooted then
+            self.facingRight = self.dashDir > 0
+        elseif self.vx ~= 0 then
+            self.facingRight = self.vx > 0
+        elseif moveRight and not moveLeft then
             self.facingRight = true
+        elseif moveLeft and not moveRight then
+            self.facingRight = false
         end
     end
 
@@ -396,14 +436,33 @@ function Player:shoot(mx, my)
     return bullets
 end
 
---- Aim direction for melee when not locked into a swing (mouse world aim, else facing).
-function Player:getMeleeAimAngleLive()
+--- World angle (radians) from body center toward effective aim (auto target or cursor).
+function Player:getAimAngle()
     local cx = self.x + self.w * 0.5
     local cy = self.y + self.h * 0.5
-    if self.aimWorldX and self.aimWorldY then
-        return math.atan2(self.aimWorldY - cy, self.aimWorldX - cx)
+    local ax = self.effectiveAimX
+    local ay = self.effectiveAimY
+    if ax == nil or ay == nil then
+        ax = self.aimWorldX
+        ay = self.aimWorldY
+    end
+    if ax and ay then
+        return math.atan2(ay - cy, ax - cx)
     end
     return self.facingRight and 0 or math.pi
+end
+
+--- Tilt (radians) for head + gun vs body forward. Use with translate + optional scale(-1,1) — never rotate(π) or hat flips under the body.
+function Player:getHeadGunTilt()
+    local worldAim = self:getAimAngle()
+    local bodyAng = self.facingRight and 0 or math.pi
+    local rel = angleDiff(worldAim, bodyAng)
+    return math.max(-MAX_HEAD_TURN, math.min(MAX_HEAD_TURN, rel))
+end
+
+--- Aim direction for melee when not locked into a swing (mouse world aim, else facing).
+function Player:getMeleeAimAngleLive()
+    return self:getAimAngle()
 end
 
 -- Axis-aligned bounds of the oriented melee stroke at `angle` (radians).
@@ -561,36 +620,15 @@ function Player.filter(item, other)
 end
 
 function Player:draw()
-    local es = self:getEffectiveStats()
-    -- HP bar: always above the cowboy (world space; follows camera with player)
-    do
-        local hpRatio = math.max(0, math.min(1, self.hp / math.max(1, es.maxHP)))
-        local hbw, hbh = 56, 6
-        local hx = self.x + self.w * 0.5 - hbw * 0.5
-        local hy = self.y - 28
-        love.graphics.setColor(0, 0, 0, 0.4)
-        love.graphics.rectangle("fill", hx - 2, hy - 2, hbw + 4, hbh + 4)
-        love.graphics.setColor(0.14, 0.05, 0.05, 0.92)
-        love.graphics.rectangle("fill", hx, hy, hbw, hbh)
-        love.graphics.setColor(0.35, 0.1, 0.1)
-        love.graphics.rectangle("fill", hx, hy, hbw * hpRatio, hbh)
-        love.graphics.setColor(0.92, 0.22, 0.18)
-        love.graphics.rectangle("fill", hx, hy, hbw * hpRatio, hbh)
-        love.graphics.setColor(1, 0.5, 0.42, 0.55)
-        love.graphics.rectangle("fill", hx, hy, hbw * hpRatio, math.min(3, hbh))
-        love.graphics.setColor(0.95, 0.35, 0.28, 0.65)
-        love.graphics.rectangle("line", hx, hy, hbw, hbh)
-        love.graphics.setColor(1, 1, 1)
-    end
-
-    -- Reload progress: thin bar just under HP (world space)
+    -- Reload progress: thin bar above the cowboy (world space)
     if self.reloading then
+        local es = self:getEffectiveStats()
         local total = es.reloadSpeed
         local pct = (total > 0) and (1 - self.reloadTimer / total) or 1
         pct = math.max(0, math.min(1, pct))
         local bw, bh = 48, 3
         local bx = self.x + self.w * 0.5 - bw * 0.5
-        local by = self.y - 18
+        local by = self.y - 16
         love.graphics.setColor(0, 0, 0, 0.28)
         love.graphics.rectangle("fill", bx - 1, by - 1, bw + 2, bh + 2)
         love.graphics.setColor(0.2, 0.18, 0.16, 0.45)
@@ -629,26 +667,37 @@ function Player:draw()
     love.graphics.setColor(0.85, 0.65, 0.4)
     love.graphics.rectangle("fill", self.x, self.y, self.w, self.h)
 
-    -- Hat
+    local tilt = self:getHeadGunTilt()
+    local neckX = self.x + self.w * 0.5
+    local neckY = self.y + 9
+
+    -- Head + hat: mirror for left-facing (never full π rotate — that inverts Y and draws head under torso)
+    love.graphics.push()
+    love.graphics.translate(neckX, neckY)
+    if not self.facingRight then
+        love.graphics.scale(-1, 1)
+    end
+    love.graphics.rotate(tilt)
     love.graphics.setColor(0.5, 0.3, 0.1)
-    love.graphics.rectangle("fill", self.x - 3, self.y - 6, self.w + 6, 6)
-    love.graphics.rectangle("fill", self.x + 2, self.y - 12, self.w - 4, 8)
-
-    -- Eyes
+    love.graphics.rectangle("fill", -self.w * 0.5 - 3, -15, self.w + 6, 6)
+    love.graphics.rectangle("fill", -self.w * 0.5 + 2, -21, self.w - 4, 8)
     love.graphics.setColor(0, 0, 0)
-    if self.facingRight then
-        love.graphics.rectangle("fill", self.x + 10, self.y + 6, 3, 3)
-    else
-        love.graphics.rectangle("fill", self.x + 3, self.y + 6, 3, 3)
-    end
+    love.graphics.rectangle("fill", -5, -12, 3, 3)
+    love.graphics.rectangle("fill", 2, -12, 3, 3)
+    love.graphics.pop()
 
-    -- Gun (right hand side)
-    love.graphics.setColor(0.3, 0.3, 0.3)
-    if self.facingRight then
-        love.graphics.rectangle("fill", self.x + self.w, self.y + 10, 8, 3)
-    else
-        love.graphics.rectangle("fill", self.x - 8, self.y + 10, 8, 3)
+    -- Revolver: same transform (barrel along +local X)
+    love.graphics.push()
+    love.graphics.translate(neckX, neckY)
+    if not self.facingRight then
+        love.graphics.scale(-1, 1)
     end
+    love.graphics.rotate(tilt)
+    love.graphics.setColor(0.22, 0.22, 0.24)
+    love.graphics.rectangle("fill", 2, -3, 5, 5)
+    love.graphics.setColor(0.3, 0.3, 0.32)
+    love.graphics.rectangle("fill", 6, -2, 12, 4)
+    love.graphics.pop()
 
     -- Shield (off-hand, opposite to gun) — drawn as a small coloured square
     if self.gear.shield then
@@ -666,12 +715,15 @@ function Player:draw()
 
     -- Dagger (idle; during swing the swipe rect reads as the blade)
     if self.gear.melee and self.meleeSwingTimer <= 0 then
-        love.graphics.setColor(0.7, 0.7, 0.8)
-        if self.facingRight then
-            love.graphics.rectangle("fill", self.x + self.w, self.y + 16, 10, 2)
-        else
-            love.graphics.rectangle("fill", self.x - 10, self.y + 16, 10, 2)
+        love.graphics.push()
+        love.graphics.translate(neckX, neckY)
+        if not self.facingRight then
+            love.graphics.scale(-1, 1)
         end
+        love.graphics.rotate(tilt)
+        love.graphics.setColor(0.7, 0.7, 0.8)
+        love.graphics.rectangle("fill", 8, 10, 10, 2)
+        love.graphics.pop()
     end
 
     -- Melee swipe (oriented like gun fire direction)

@@ -68,7 +68,7 @@ function menu:draw()
     love.graphics.setColor(0.5, 0.5, 0.5)
     love.graphics.setFont(fonts.hint)
     love.graphics.printf("A/D - Move  |  SPACE - Jump  |  SHIFT - Dash  |  CTRL - Shield  |  F - Melee (aim w/ mouse)  |  E - Exit", 0, screenH * 0.70, screenW, "center")
-    love.graphics.printf("LMB shoot  |  RMB slots: auto gun/melee (+ shield only if shield allows)  |  R reload  |  F1 debug", 0, screenH * 0.76, screenW, "center")
+    love.graphics.printf("LMB (auto off)  |  Auto gun + mouse overrides aim  |  RMB: auto toggles  |  R reload  |  F1 debug", 0, screenH * 0.76, screenW, "center")
 
     love.graphics.setColor(1, 1, 1)
     love.graphics.setFont(fonts.default)
