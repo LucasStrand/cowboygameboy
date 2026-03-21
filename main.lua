@@ -12,6 +12,7 @@ local saloon = require("src.states.saloon")
 GAME_WIDTH = 1280
 GAME_HEIGHT = 720
 DEBUG = true
+DEV_TOOLS_ENABLED = DEBUG
 
 local gameCanvas
 local canvasScale = 1
@@ -37,6 +38,10 @@ local function syncGameDimensions()
     local ok, BlurBG = pcall(require, "src.ui.blur_bg")
     if ok and BlurBG and BlurBG.invalidate then
         BlurBG.invalidate()
+    end
+    local okWL, WorldLighting = pcall(require, "src.systems.world_lighting")
+    if okWL and WorldLighting and WorldLighting.invalidate then
+        WorldLighting.invalidate()
     end
 end
 

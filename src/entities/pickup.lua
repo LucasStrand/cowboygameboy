@@ -1,6 +1,7 @@
 local PlatformCollision = require("src.systems.platform_collision")
 local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
+local Vision = require("src.data.vision")
 
 -- Coin sprite (lazy-loaded from HUD sprite sheet)
 local coinSheet, coinQuad
@@ -104,7 +105,14 @@ function Pickup:update(dt, world, playerX, playerY)
     end
 end
 
-function Pickup:draw()
+function Pickup:draw(player, camera, shakeX, shakeY, room)
+    if player and camera then
+        local cx = self.x + self.w * 0.5
+        local cy = self.y + self.h * 0.5
+        if not Vision.isEntityVisibleToPlayer(room, player, cx, cy, camera, shakeX, shakeY) then
+            return
+        end
+    end
     local dy = self.bobOffset or 0
     if self.pickupType == "xp" then
         local cx = self.x + self.w / 2

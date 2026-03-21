@@ -118,7 +118,8 @@ function gameover:keypressed(key)
     if timer > 1 then
         if key == "return" or key == "space" then
             local game = require("src.states.game")
-            Gamestate.switch(game)
+            -- Same 3→2→1 intro as “Start game” from the menu (not instant gameplay).
+            Gamestate.switch(game, { introCountdown = true })
         end
         if key == "escape" then
             local menu = require("src.states.menu")

@@ -4,6 +4,10 @@ local RoomData = {}
 
 RoomData.ROOMS_PER_CHECKPOINT = 5
 
+--- Pool entries may set `night = true` for player lamp, fog-of-war, and WorldLighting shader.
+--- Omit or `false` for full daylight (default). `RoomManager.nightVisualsOverride` can force all rooms.
+--- Room layouts live under `src/data/rooms/<worldId>/` and are loaded via RoomLoader.
+
 --- Get the room pool for a given world (loads from per-room files).
 --- Falls back to "forest" if no worldId given.
 function RoomData.getPool(worldId)
@@ -23,8 +27,36 @@ setmetatable(RoomData, {
     end,
 })
 
+--- Sandbox: not in `pool`; used when `RoomManager.devArenaMode` is set.
+RoomData.devArena = {
+    id = "dev_arena",
+    devArena = true,
+    width = 1600,
+    height = 800,
+    platforms = {
+        { x = 0,    y = 736, w = 700,  h = 64 },
+        { x = 800,  y = 736, w = 800,  h = 64 },
+        { x = 180,  y = 580, w = 200, h = 16 },
+        { x = 480,  y = 500, w = 160, h = 16 },
+        { x = 780,  y = 540, w = 220, h = 16 },
+        { x = 1100, y = 460, w = 140, h = 16 },
+        { x = 320,  y = 380, w = 120, h = 16 },
+        { x = 900,  y = 340, w = 160, h = 16 },
+    },
+    spawns = {},
+    playerSpawn = { x = 120, y = 680 },
+}
+
 -- Foot height per type (must match src/data/enemies.lua)
-local TYPE_H = { bandit = 28, gunslinger = 28, buzzard = 16 }
+local TYPE_H = {
+    bandit = 28,
+    gunslinger = 28,
+    buzzard = 16,
+    necromancer = 34,
+    nightborne = 30,
+    ogreboss = 44,
+    blackkid = 40,
+}
 local PLAYER_FEET_H = 28
 
 -- Match room_manager jump tier (~double-jump vertical budget)
@@ -162,13 +194,25 @@ end
 -- More rushers (bandits), fewer shooters / flyers as difficulty rises slowly
 local function pickEnemyType(difficulty, playerLevel)
     local tier = math.min(1, (difficulty - 1) * 0.18 + (playerLevel - 1) * 0.05)
+    local nightborneChance = 0.08 + tier * 0.14
+    local necromancerChance = 0.03 + tier * 0.10
+    local buzzardChance = 0.10 + tier * 0.04
+    local gunslingerChance = 0.18
+    local banditChance = math.max(0.22, 1 - nightborneChance - necromancerChance - buzzardChance - gunslingerChance)
     local r = math.random()
-    local bCut = 0.74 - tier * 0.14
-    local gCut = bCut + 0.20
-    if r < bCut then
+    local banditCut = banditChance
+    local nightborneCut = banditCut + nightborneChance
+    local gunslingerCut = nightborneCut + gunslingerChance
+    local necromancerCut = gunslingerCut + necromancerChance
+
+    if r < banditCut then
         return "bandit"
-    elseif r < gCut then
+    elseif r < nightborneCut then
+        return "nightborne"
+    elseif r < gunslingerCut then
         return "gunslinger"
+    elseif r < necromancerCut then
+        return "necromancer"
     else
         return "buzzard"
     end

@@ -5,6 +5,7 @@ local Roulette = require("src.systems.roulette")
 local Shop = require("src.systems.shop")
 local PerkCard = require("src.ui.perk_card")
 local Cursor = require("src.ui.cursor")
+local MusicDirector = require("src.systems.music_director")
 
 local saloon = {}
 
@@ -30,6 +31,7 @@ local dealerAnimTimer = 0
 local DEALER_ANIM_SPEED = 0.25  -- seconds per frame
 
 function saloon:enter(_, _player, _roomManager)
+    MusicDirector.suspendGameplay()
     if not bgImage then
         local ok, img = pcall(love.graphics.newImage, "assets/backgrounds/saloonLobby.png")
         bgImage = ok and img or nil

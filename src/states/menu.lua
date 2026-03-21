@@ -46,18 +46,28 @@ local function beginGameWithIntroCountdown()
     Gamestate.switch(game, { introCountdown = true })
 end
 
+local function beginDevArena()
+    MenuBgm.stop()
+    local game = require("src.states.game")
+    Gamestate.switch(game, { devArena = true, introCountdown = false })
+end
+
 local function beginFakeSession()
     local game = require("src.states.game")
     Gamestate.switch(game, { fakeSession = true })
 end
 
 local function menuButtons()
-    return {
+    local list = {
         { id = "start", label = "Start game" },
         { id = "editor", label = "Level Editor" },
-        { id = "settings", label = "Settings" },
-        { id = "quit", label = "Quit" },
     }
+    if DEV_TOOLS_ENABLED or DEBUG then
+        list[#list + 1] = { id = "dev_arena", label = "Dev arena" }
+    end
+    list[#list + 1] = { id = "settings", label = "Settings" }
+    list[#list + 1] = { id = "quit", label = "Quit" }
+    return list
 end
 
 local function clearPreview()
@@ -245,6 +255,8 @@ function menu:mousepressed(x, y, button)
             if hitRect(gx, gy, r) then
                 if r.id == "start" then
                     beginGameWithIntroCountdown()
+                elseif r.id == "dev_arena" then
+                    beginDevArena()
                 elseif r.id == "editor" then
                     MenuBgm.stop()
                     local editorState = require("src.states.editor")
@@ -318,6 +330,8 @@ function menu:keypressed(key)
         local id = list[selectedIndex].id
         if id == "start" then
             beginGameWithIntroCountdown()
+        elseif id == "dev_arena" then
+            beginDevArena()
         elseif id == "editor" then
             MenuBgm.stop()
             local editorState = require("src.states.editor")

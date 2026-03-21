@@ -98,10 +98,10 @@ function TileRenderer.drawWall(x, y, w, h, theme)
     for ty = 0, tilesH - 1 do
         for tx = 0, tilesW - 1 do
             local quad
-            local isTop    = (ty == 0)
+            local isTop = (ty == 0)
             local isBottom = (ty == tilesH - 1) and tilesH > 1
-            local isLeft   = (tx == 0)
-            local isRight  = (tx == tilesW - 1)
+            local isLeft = (tx == 0)
+            local isRight = (tx == tilesW - 1)
 
             if isTop then
                 if isLeft then
