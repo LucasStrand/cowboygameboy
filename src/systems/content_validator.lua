@@ -1,4 +1,5 @@
 local StatRegistry = require("src.data.stat_registry")
+local Statuses = require("src.data.statuses")
 
 local ContentValidator = {}
 
@@ -29,6 +30,19 @@ local KNOWN_TAGS = {
     melee = true,
     player = true,
     enemy = true,
+    dot = true,
+    buildup = true,
+}
+
+local KNOWN_TAG_PREFIXES = {
+    attack = true,
+    weapon = true,
+    damage = true,
+    status = true,
+    set = true,
+    boon = true,
+    setup = true,
+    cc = true,
 }
 
 local function fail(content_type, content_id, field, reason)
@@ -70,8 +84,30 @@ local function validateOptionalTags(content_type, content_id, field, tags)
         fail(content_type, content_id, field, "expected table")
     end
     for _, tag in ipairs(tags) do
-        if not KNOWN_TAGS[tag] then
+        if type(tag) ~= "string" then
+            fail(content_type, content_id, field, "expected string tag")
+        end
+        local prefix = tag:match("^([%w_%-]+):")
+        if not KNOWN_TAGS[tag] and not (prefix and KNOWN_TAG_PREFIXES[prefix]) then
             fail(content_type, content_id, field, "unknown tag '" .. tostring(tag) .. "'")
+        end
+    end
+end
+
+local function validateStatusApplications(content_type, content_id, field, applications)
+    if not applications then
+        return
+    end
+    if type(applications) ~= "table" then
+        fail(content_type, content_id, field, "expected table")
+    end
+    for index, app in ipairs(applications) do
+        if type(app) ~= "table" then
+            fail(content_type, content_id, field, "expected table entry")
+        end
+        local status_id = app.id
+        if not status_id or not Statuses.get(status_id) then
+            fail(content_type, content_id, field, "unknown status id at entry " .. tostring(index))
         end
     end
 end
@@ -94,6 +130,7 @@ local function validateGuns()
         validateStatMap("gun", id, "baseStats", gun.baseStats)
         validateOptionalFileRef("gun", id, "sprite", gun.sprite and ("assets/weapons/Weapons/" .. gun.sprite) or nil)
         validateOptionalTags("gun", id, "tags", gun.tags)
+        validateStatusApplications("gun", id, "status_applications", gun.status_applications)
     end
 end
 
@@ -167,12 +204,25 @@ local function validateBuffs()
     end
 end
 
+local function validateStatuses()
+    for id, def in pairs(Statuses.definitions or {}) do
+        if type(def.name) ~= "string" then
+            fail("status", id, "name", "expected string")
+        end
+        if def.statMods then
+            validateStatMap("status", id, "statMods", def.statMods)
+        end
+        validateOptionalTags("status", id, "tags", def.tags)
+    end
+end
+
 function ContentValidator.validate_combat_content()
     validateGuns()
     validatePerks()
     validateGear()
     validateWeapons()
     validateBuffs()
+    validateStatuses()
     return true
 end
 

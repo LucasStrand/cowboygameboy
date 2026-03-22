@@ -36,6 +36,7 @@ Guns.pool = {
         tags = { "attack:projectile", "weapon:revolver" },
         capabilities = {},
         rules = {},
+        status_applications = {},
         sprite      = "ColtSingleActionArmy.png",
         -- Sprite origin: fraction of 32x32 where the grip is (for rotation pivot)
         spriteOrigin = { x = 0.25, y = 0.55 },
@@ -67,6 +68,15 @@ Guns.pool = {
         capabilities = {},
         rules = {
             recoil_only_when_aiming_down = true,
+        },
+        status_applications = {
+            {
+                id = "bleed",
+                chance = 0.28,
+                stacks = 1,
+                duration = 6,
+                bleed_scalar = 0.18,
+            },
         },
         sprite      = "Blunderbuss.png",
         spriteOrigin = { x = 0.3, y = 0.55 },
@@ -108,6 +118,16 @@ Guns.pool = {
         tags = { "attack:projectile", "weapon:rifle" },
         capabilities = {},
         rules = {},
+        status_applications = {
+            {
+                id = "shock",
+                chance = 0.18,
+                stacks = 1,
+                duration = 5,
+                overload_damage_scale = 0.75,
+                overload_stun_duration = 0.6,
+            },
+        },
         sprite      = "AK47.png",
         spriteOrigin = { x = 0.22, y = 0.50 },
         spriteScale  = 0.72,

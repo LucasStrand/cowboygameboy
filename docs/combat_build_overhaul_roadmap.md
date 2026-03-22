@@ -29,6 +29,7 @@ Syftet är att:
 | [phases/phase_02_shared_foundations.md](./phases/phase_02_shared_foundations.md) | Phase 2 implementation log | `implemented` |
 | [phases/phase_03_player_loadout_weapon_runtime.md](./phases/phase_03_player_loadout_weapon_runtime.md) | Phase 3 implementation log | `implemented + hardened` |
 | [phases/phase_04_direct_hit_damage_migration.md](./phases/phase_04_direct_hit_damage_migration.md) | Phase 4 implementation log | `implemented` |
+| [phases/phase_05_unified_status_cc_runtime.md](./phases/phase_05_unified_status_cc_runtime.md) | Phase 5 implementation log | `implemented` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -91,7 +92,7 @@ Just nu gäller det:
 - [x] Phase 2: Shared foundations
 - [x] Phase 3: Player/loadout/weapon runtime
 - [x] Phase 4: Direct-hit damage migration
-- [ ] Phase 5: Status + CC subsystem `CURRENT`
+- [x] Phase 5: Status + CC subsystem
 - [ ] Phase 6: Proc system + rule-breaking overrides
 - [ ] Phase 7: Content pipeline + tooltips + presentation hooks
 - [ ] Phase 8: Economy + rewards + meta + run metadata
@@ -168,7 +169,7 @@ Delar:
 - basic explosions
 - basic delayed secondary hits
 
-### [ ] Phase 5: Status + CC subsystem
+### [x] Phase 5: Status + CC subsystem
 
 Mål:
 

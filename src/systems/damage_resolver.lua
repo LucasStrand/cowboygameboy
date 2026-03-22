@@ -202,9 +202,10 @@ local function resolveSourceContext(packet, source_actor)
     return sourceContextFromSnapshot(packet)
 end
 
-local function getTargetDefenseState(target_actor, target_kind)
+local function getTargetDefenseState(target_actor, target_kind, packet)
     if target_kind == "player" then
         local stats = target_actor:getEffectiveStats()
+        local allow_block = not (packet and packet.metadata and packet.metadata.ignore_block)
         return {
             armor = stats.armor or 0,
             magic_resist = stats.magicResist or 0,
@@ -213,7 +214,7 @@ local function getTargetDefenseState(target_actor, target_kind)
             incoming_damage_mul = target_actor.incomingDamageMul or 1,
             incoming_physical_mul = target_actor.incomingPhysicalMul or 1,
             incoming_magical_mul = target_actor.incomingMagicalMul or 1,
-            block_damage_mul = (target_actor.blocking and (stats.blockReduction or 0) > 0)
+            block_damage_mul = (allow_block and target_actor.blocking and (stats.blockReduction or 0) > 0)
                 and (1 - stats.blockReduction)
                 or 1,
         }
@@ -307,7 +308,7 @@ local function createSecondaryJobs(packet, result, target_actor)
     }
 end
 
-function DamageResolver.resolve_direct_hit(spec)
+function DamageResolver.resolve_packet(spec)
     spec = spec or {}
     local packet = DamagePacket.new(spec.packet or {})
     local source_actor = spec.source_actor
@@ -368,7 +369,7 @@ function DamageResolver.resolve_direct_hit(spec)
     end
 
     local pre_defense_damage = damage_after_crit
-    local defense_state = getTargetDefenseState(target_actor, target_kind)
+    local defense_state = getTargetDefenseState(target_actor, target_kind, packet)
     local damage_after_mitigation = pre_defense_damage
     local effective_defense = 0
 
@@ -514,7 +515,7 @@ function DamageResolver.processSecondaryJobs(ctx)
                     local dx = ex - job.origin_x
                     local dy = ey - job.origin_y
                     if dx * dx + dy * dy <= (job.radius * job.radius) then
-                        local result = DamageResolver.resolve_direct_hit({
+                        local result = DamageResolver.resolve_packet({
                             packet = job.packet,
                             source_actor = job.source_actor,
                             target_actor = enemy,
@@ -537,6 +538,10 @@ function DamageResolver.processSecondaryJobs(ctx)
 
     DamageResolver._secondary_jobs = remaining
     return executed
+end
+
+function DamageResolver.resolve_direct_hit(spec)
+    return DamageResolver.resolve_packet(spec)
 end
 
 return DamageResolver

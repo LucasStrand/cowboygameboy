@@ -7,6 +7,7 @@ local ImpactFX = require("src.systems.impact_fx")
 local Sfx = require("src.systems.sfx")
 local DamagePacket = require("src.systems.damage_packet")
 local DamageResolver = require("src.systems.damage_resolver")
+local Buffs = require("src.systems.buffs")
 local GameRng = require("src.systems.game_rng")
 local SourceRef = require("src.systems.source_ref")
 
@@ -14,6 +15,103 @@ local Combat = {}
 
 -- Must be this close to the player (after attraction) to collect
 local PICKUP_COLLECT_RADIUS = 26
+
+local function statusApplyChannel(packet, result, status_id)
+    return table.concat({
+        "combat.status_apply",
+        tostring(status_id),
+        tostring(packet.kind or "direct_hit"),
+        tostring(packet.source and packet.source.owner_source_id or "unknown"),
+        tostring(result and result.target_id or "unknown"),
+    }, ".")
+end
+
+local function applyStatusApplications(packet, result, source_actor, target_actor, target_kind, world)
+    if not packet or not result or not result.applied or not target_actor or not target_actor.statuses then
+        return
+    end
+
+    for _, app in ipairs(packet.status_applications or {}) do
+        local chance = app.chance or 1
+        if chance >= 1 or GameRng.randomChance(statusApplyChannel(packet, result, app.id), chance) then
+            local snapshot_data = nil
+            if app.id == "bleed" then
+                local tick_damage = math.max(1, math.floor((result.pre_defense_damage or result.final_damage or 0) * (app.bleed_scalar or 0.18)))
+                snapshot_data = {
+                    tick_damage = tick_damage,
+                    tick_damage_per_stack = true,
+                    family = "physical",
+                    source_context = {
+                        damage = 1,
+                        physical_damage = 0,
+                        magical_damage = 0,
+                        true_damage = 0,
+                        crit_chance = 0,
+                        crit_damage = 1.5,
+                        armor_pen = 0,
+                        magic_pen = 0,
+                    },
+                }
+            elseif app.id == "burn" then
+                local source_level = source_actor and source_actor.level or 1
+                local base_damage = app.base_damage or 2
+                local level_scale = app.level_scale or 0
+                local tick_damage = math.max(1, math.floor(base_damage * (1 + level_scale * source_level)))
+                snapshot_data = {
+                    tick_damage = tick_damage,
+                    tick_damage_per_stack = true,
+                    family = "magical",
+                    source_context = {
+                        damage = 1,
+                        physical_damage = 0,
+                        magical_damage = 0,
+                        true_damage = 0,
+                        crit_chance = 0,
+                        crit_damage = 1.5,
+                        armor_pen = 0,
+                        magic_pen = 0,
+                    },
+                }
+            elseif app.id == "shock" then
+                snapshot_data = {
+                    overload_damage = math.max(1, math.floor((result.pre_defense_damage or result.final_damage or 0) * (app.overload_damage_scale or 0.75))),
+                    overload_stun_duration = app.overload_stun_duration or 0.6,
+                    source_context = {
+                        damage = 1,
+                        physical_damage = 0,
+                        magical_damage = 0,
+                        true_damage = 0,
+                        crit_chance = 0,
+                        crit_damage = 1.5,
+                        armor_pen = 0,
+                        magic_pen = 0,
+                    },
+                }
+            end
+
+            Buffs.applyStatus(target_actor.statuses, {
+                id = app.id,
+                stacks = app.stacks or 1,
+                duration = app.duration,
+                source = packet.source,
+                source_actor = source_actor,
+                target_actor = target_actor,
+                family = app.family,
+                snapshot_data = snapshot_data,
+                runtime_ctx = {
+                    owner_actor = target_actor,
+                    target_kind = target_kind,
+                    world = world,
+                },
+                metadata = {
+                    from_packet_kind = packet.kind,
+                    from_family = packet.family,
+                    source_tag = app.source_tag,
+                },
+            })
+        end
+    end
+end
 
 local function pickupAttractRadius(player)
     local s = player:getEffectiveStats()
@@ -52,6 +150,7 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
                 world = world,
             })
             if result.applied then
+                applyStatusApplications(packet, result, b.source_actor, b.hitEnemy, "enemy", world)
                 DamageNumbers.spawn(hitX, hitY, result.final_damage, "out")
                 local fxScale = b.ultBullet and 2.0 or nil
                 ImpactFX.spawn(hitX, hitY, "hit_enemy", fxScale)
@@ -88,6 +187,7 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
                 world = world,
             })
             if result.applied then
+                applyStatusApplications(packet, result, b.source_actor, player, "player", world)
                 DamageNumbers.spawn(b.x + b.w / 2, b.y + b.h / 2, result.final_damage, "in")
                 ImpactFX.spawn(b.x + b.w / 2, b.y + b.h / 2, "hit_enemy")
             end
@@ -215,6 +315,7 @@ function Combat.checkMeleeEnemies(enemies, player)
                 target_kind = "player",
             })
             if result.applied then
+                applyStatusApplications(packet, result, enemy, player, "player", nil)
                 local mx = (enemy.x + enemy.w * 0.5 + player.x + player.w * 0.5) * 0.5
                 local my = (enemy.y + enemy.h * 0.5 + player.y + player.h * 0.5) * 0.5
                 DamageNumbers.spawn(mx, my, result.final_damage, "in")
@@ -273,6 +374,7 @@ function Combat.checkContactDamage(enemies, player)
                         target_kind = "player",
                     })
                     if result.applied then
+                        applyStatusApplications(packet, result, enemy, player, "player", nil)
                         local mx = (ex + px) * 0.5
                         local my = (ey + py) * 0.5
                         DamageNumbers.spawn(mx, my, result.final_damage, "in")
@@ -415,6 +517,7 @@ function Combat.checkPlayerMelee(player, enemies)
                     target_kind = "enemy",
                 })
                 if result.applied then
+                    applyStatusApplications(packet, result, player, e, "enemy", nil)
                     DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, result.final_damage, "out")
                     ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee", nil, player.meleeAimAngle)
                     Sfx.play("melee_hit")

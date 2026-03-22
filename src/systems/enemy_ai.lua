@@ -719,9 +719,30 @@ local function tryRangedAttack(enemy, senses)
         owner_source_type = "enemy_attack",
         owner_source_id = enemy.typeId or enemy.name or "enemy",
     })
+    local family = enemy.typeId == "necromancer" and "magical" or "physical"
+    local tags = { "projectile", "enemy" }
+    local status_applications = {}
+    if enemy.typeId == "gunslinger" then
+        status_applications[1] = {
+            id = "slow",
+            chance = 0.35,
+            stacks = 1,
+            duration = 2.5,
+        }
+    elseif enemy.typeId == "necromancer" then
+        tags[#tags + 1] = "damage:fire"
+        status_applications[1] = {
+            id = "burn",
+            chance = 1,
+            stacks = 1,
+            duration = 4,
+            base_damage = 2,
+            level_scale = 0,
+        }
+    end
     local packet = DamagePacket.new({
         kind = "direct_hit",
-        family = "physical",
+        family = family,
         base_min = enemy.damage,
         base_max = enemy.damage,
         can_crit = true,
@@ -730,14 +751,15 @@ local function tryRangedAttack(enemy, senses)
         can_trigger_proc = true,
         can_lifesteal = false,
         source = source_ref,
-        tags = { "projectile", "enemy" },
+        tags = tags,
+        status_applications = status_applications,
         snapshot_data = {
             source_context = {
                 base_min = enemy.damage,
                 base_max = enemy.damage,
                 damage = 1,
-                physical_damage = 0,
-                magical_damage = 0,
+                physical_damage = family == "physical" and 0 or 0,
+                magical_damage = family == "magical" and 0 or 0,
                 true_damage = 0,
                 crit_chance = 0,
                 crit_damage = 1.5,
@@ -760,9 +782,10 @@ local function tryRangedAttack(enemy, senses)
         source_actor = enemy,
         damage = enemy.damage,
         fromEnemy = true,
-        damage_family = "physical",
+        damage_family = family,
         packet_kind = "direct_hit",
-        damage_tags = { "projectile", "enemy" },
+        damage_tags = tags,
+        status_applications = status_applications,
     }
 end
 

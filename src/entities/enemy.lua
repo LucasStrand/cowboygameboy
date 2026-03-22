@@ -3,6 +3,7 @@ local Vision = require("src.data.vision")
 local DamagePacket = require("src.systems.damage_packet")
 local DamageResolver = require("src.systems.damage_resolver")
 local EnemyAI = require("src.systems.enemy_ai")
+local Buffs = require("src.systems.buffs")
 local PlatformCollision = require("src.systems.platform_collision")
 local GameRng = require("src.systems.game_rng")
 local SourceRef = require("src.systems.source_ref")
@@ -252,6 +253,7 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     self.incoming_physical_mul = 1
     self.incoming_magical_mul = 1
     self.speed = data.speed
+    self.baseSpeed = data.speed
     self.xpValue = data.xpValue
     self.goldValue = data.goldValue
     self.color = data.color
@@ -293,6 +295,15 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     self.vy = 0
     self.grounded = false
     self.hurtTimer = 0
+    self.cc_profile = (typeId == "ogreboss" or typeId == "blackkid") and "boss" or "normal"
+    self.statuses = Buffs.newTracker({
+        owner_actor_id = self.actorId,
+    }, {
+        owner_actor = self,
+        owner_actor_id = self.actorId,
+        owner_kind = "enemy",
+        cc_profile = self.cc_profile,
+    })
 
     -- Flying enemies hover
     self.flying = (data.behavior == "flying")
@@ -348,6 +359,20 @@ function Enemy:update(dt, world, context)
     if self.hurtTimer > 0 then
         self.hurtTimer = self.hurtTimer - dt
     end
+
+    Buffs.update(self.statuses, dt, {
+        owner_actor = self,
+        target_kind = "enemy",
+        world = world,
+    })
+    if not self.alive then
+        return nil
+    end
+
+    local statusMods = Buffs.getStatMods(self.statuses)
+    local moveSpeedDelta = statusMods.moveSpeed or statusMods.move_speed or 0
+    self.speed = math.max(12, (self.baseSpeed or self.speed) + moveSpeedDelta)
+    local control = Buffs.getControlState(self.statuses)
 
     local dx = 0
     local player = context and context.player
@@ -451,6 +476,12 @@ function Enemy:update(dt, world, context)
                 self.spriteFrame = math.min(anim.frames, self.spriteFrame + 1)
             end
         end
+    end
+
+    if control.stunned then
+        self.vx = 0
+        self.vy = 0
+        return nil
     end
 
     return EnemyAI.update(self, dt, world, context or {})
@@ -1126,6 +1157,25 @@ function Enemy:draw(player, camera, shakeX, shakeY, room)
         love.graphics.rectangle("fill", barX, barY, barW, barH)
         love.graphics.setColor(0.8, 0.1, 0.1)
         love.graphics.rectangle("fill", barX, barY, barW * (self.hp / self.maxHP), barH)
+    end
+
+    local topStatuses = Buffs.getTopStatuses(self.statuses, 2)
+    if #topStatuses > 0 then
+        local totalW = #topStatuses * 12 - 2
+        local startX = self.x + self.w * 0.5 - totalW * 0.5
+        local startY = self.y - 22
+        for i, entry in ipairs(topStatuses) do
+            local color = entry.fallback_color or (entry.isBuff and { 0.3, 0.72, 0.35 } or { 0.84, 0.24, 0.24 })
+            if entry.category == "hard_cc" then
+                color = { 1.0, 0.95, 0.55 }
+            end
+            local bx = startX + (i - 1) * 12
+            love.graphics.setColor(0.08, 0.08, 0.1, 0.92)
+            love.graphics.rectangle("fill", bx, startY, 10, 10, 2, 2)
+            love.graphics.setColor(color[1], color[2], color[3], 1)
+            love.graphics.rectangle("fill", bx + 1, startY + 1, 8, 8, 2, 2)
+        end
+        love.graphics.setColor(1, 1, 1)
     end
 
     if DEBUG and self.debugAI then

@@ -691,10 +691,6 @@ function saloon:update(dt)
         messageTimer = messageTimer - dt
     end
 
-    if player and player.buffs then
-        Buffs.update(player.buffs, dt, player)
-    end
-
     if mode == "walking" then
         tryFlushCasinoGoldToFloor()
 

@@ -144,6 +144,25 @@ local function snapshotSourceContext(base_damage, normalized)
     }
 end
 
+local function buildStatusApplications(ctx)
+    local applications = {}
+    for _, app in ipairs(ctx.gun.status_applications or {}) do
+        applications[#applications + 1] = cloneTable(app)
+    end
+    if ctx.stats.explosiveRounds then
+        applications[#applications + 1] = {
+            id = "burn",
+            chance = 1,
+            stacks = 1,
+            duration = 4,
+            base_damage = 3,
+            level_scale = 0.06,
+            source_tag = "explosive_rounds",
+        }
+    end
+    return applications
+end
+
 local function buildProjectilePacket(ctx)
     local base_scale = ctx.base_scale or 1
     local base_damage = math.max(0, (ctx.normalized_stats.projectile_damage or 0) * base_scale)
@@ -160,6 +179,7 @@ local function buildProjectilePacket(ctx)
         can_lifesteal = true,
         source = ctx.source_ref,
         tags = { "projectile", ctx.gun.id or "gun" },
+        status_applications = buildStatusApplications(ctx),
         snapshot_data = {
             source_context = snapshotSourceContext(base_damage, ctx.normalized_stats),
         },

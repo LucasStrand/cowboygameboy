@@ -70,8 +70,10 @@ function DamagePacket.new(spec)
         can_trigger_proc = spec.can_trigger_proc ~= false,
         can_lifesteal = spec.can_lifesteal ~= false,
         allow_zero_damage = spec.allow_zero_damage == true,
+        snapshots = spec.snapshots ~= false,
         snapshot_data = cloneTable(spec.snapshot_data or spec.snapshot),
         target_id = spec.target_id,
+        status_applications = cloneTable(spec.status_applications or {}),
         metadata = cloneTable(spec.metadata or {}),
     }
 end

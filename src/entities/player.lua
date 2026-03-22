@@ -271,8 +271,16 @@ function Player.new(x, y)
 
     self.perks = {}
 
-    -- Buff/debuff tracker
-    self.buffs = Buffs.newTracker()
+    -- Shared status runtime (legacy player.buffs remains as alias this phase).
+    self.statuses = Buffs.newTracker({
+        owner_actor_id = self.actorId,
+    }, {
+        owner_actor = self,
+        owner_actor_id = self.actorId,
+        owner_kind = "player",
+        cc_profile = "normal",
+    })
+    self.buffs = self.statuses
 
     -- Monster Energy (saloon): cumulative drinks this run — move bonus + rare speech / visual jitter
     self.monsterDrinks = 0
@@ -423,8 +431,6 @@ function Player:update(dt, world, enemies)
         return
     end
 
-    local effectiveStats = self:getEffectiveStats()
-
     -- I-frames
     if self.iframes > 0 then
         self.iframes = self.iframes - dt
@@ -442,8 +448,19 @@ function Player:update(dt, world, enemies)
         end
     end
 
-    -- Update buff/debuff system
-    Buffs.update(self.buffs, dt, self)
+    -- Update shared status runtime before movement/combat gates.
+    Buffs.update(self.statuses, dt, {
+        owner_actor = self,
+        target_kind = "player",
+        world = world,
+    })
+    if self.dying then
+        self.deathTimer = self.deathTimer + dt
+        self.anim:update(dt)
+        return
+    end
+    local effectiveStats = self:getEffectiveStats()
+    local control = Buffs.getControlState(self.statuses)
 
     if self.monsterSpeechText then
         self.monsterSpeechLife = (self.monsterSpeechLife or 0) + dt
@@ -496,7 +513,8 @@ function Player:update(dt, world, enemies)
         self.dropThroughTimer = math.max(0, self.dropThroughTimer - dt)
     end
 
-    local blockRooted = self.blocking and effectiveStats.blockMobility <= 0
+    local hardLocked = control.stunned
+    local blockRooted = hardLocked or (self.blocking and effectiveStats.blockMobility <= 0)
 
     -- Dash timers
     if self.dashTimer > 0 then
@@ -516,7 +534,9 @@ function Player:update(dt, world, enemies)
     -- Horizontal movement (dash overrides walk; rooted block = no move)
     local moveLeft = love.keyboard.isDown("a") or love.keyboard.isDown("left")
     local moveRight = love.keyboard.isDown("d") or love.keyboard.isDown("right")
-    if self.dashTimer > 0 and not blockRooted then
+    if hardLocked then
+        self.vx = 0
+    elseif self.dashTimer > 0 and not blockRooted then
         self.vx = self.dashDir * DASH_SPEED
     elseif blockRooted then
         self.vx = 0
@@ -655,6 +675,9 @@ end
 
 function Player:jump()
     local s = self:getEffectiveStats()
+    if Buffs.getControlState(self.statuses).stunned then
+        return
+    end
     if self.blocking and s.blockMobility <= 0 then
         return
     end
@@ -671,6 +694,7 @@ end
 
 function Player:tryDash()
     if self.combatDisabled then return end
+    if Buffs.getControlState(self.statuses).stunned then return end
     local s = self:getEffectiveStats()
     if self.blocking and s.blockMobility <= 0 then
         return
@@ -705,6 +729,9 @@ end
 
 --- Fire one weapon slot (each gun has its own cooldown, damage, and reload — akimbo works like gun + melee coexistence).
 function Player:shootFromSlot(slotIndex, mx, my)
+    if Buffs.getControlState(self.statuses).stunned then
+        return nil
+    end
     local fired = WeaponRuntime.fireSlot(self, slotIndex, mx, my)
     if not fired then return nil end
 
@@ -811,6 +838,7 @@ end
 
 function Player:meleeAttack(aimX, aimY)
     if self.combatDisabled then return false end
+    if Buffs.getControlState(self.statuses).stunned then return false end
     local s = self:getEffectiveStats()
     if self.meleeCooldown > 0 or s.meleeDamage <= 0 then return false end
     local cx = self.x + self.w * 0.5
@@ -865,6 +893,7 @@ function Player:startReloadSlot(slotIndex)
 end
 
 function Player:reload()
+    if Buffs.getControlState(self.statuses).stunned then return end
     local slot = self:getActiveWeaponRuntime()
     if not slot or slot.mode ~= "weapon" then return end
     if (slot.reload_timer or 0) > 0 then return end
@@ -924,14 +953,18 @@ function Player:takeDamage(amount, packet)
 end
 
 function Player:applyResolvedDamage(result, _, packet)
-    if self.dying or self.devGodMode or self.iframes > 0 then
+    local packet_kind = packet and packet.kind or "direct_hit"
+    local bypass_iframes = packet_kind == "status_tick" or packet_kind == "status_payoff_hit"
+    if self.dying or self.devGodMode or ((not bypass_iframes) and self.iframes > 0) then
         return false, 0, false
     end
 
     local before = self.hp
     self.hp = self.hp - (result.final_damage or 0)
-    self.iframes = 0.5
-    Sfx.play("hurt")
+    if not bypass_iframes then
+        self.iframes = 0.5
+        Sfx.play("hurt")
+    end
 
     if debugLog then
         local suffix = self.blocking and " [blocked]" or ""
@@ -994,15 +1027,15 @@ function Player:consumeMonsterEnergy()
 end
 
 function Player:applyBuff(id, stacks)
-    return Buffs.apply(self.buffs, id, stacks)
+    return Buffs.apply(self.statuses, id, stacks)
 end
 
 function Player:removeBuff(id)
-    Buffs.remove(self.buffs, id, self)
+    Buffs.remove(self.statuses, id, self)
 end
 
 function Player:hasBuff(id)
-    return Buffs.has(self.buffs, id)
+    return Buffs.has(self.statuses, id)
 end
 
 function Player:addXP(amount)
@@ -1038,6 +1071,9 @@ end
 --- Always toggles 1 <-> 2 so Tab can highlight which slot a ground weapon will replace
 --- (including when slot 2 is empty / melee).
 function Player:switchWeapon()
+    if Buffs.getControlState(self.statuses).stunned then
+        return
+    end
     WeaponRuntime.switchActiveSlot(self)
     self:syncLegacyWeaponViews()
     self.anim:play("holster", true)
@@ -1046,6 +1082,9 @@ end
 --- Equip a gun definition into a weapon slot (1 or 2). Resets ammo to full.
 --- Auto-switches to the new weapon slot for immediate feedback.
 function Player:equipWeapon(gunDef, slotIndex)
+    if Buffs.getControlState(self.statuses).stunned then
+        return
+    end
     slotIndex = slotIndex or 2
     WeaponRuntime.equipWeapon(self, gunDef, slotIndex)
     self:syncLegacyWeaponViews()
