@@ -1,7 +1,10 @@
 local RoomData = require("src.data.rooms")
 local Vision = require("src.data.vision")
 local RoomLoader = require("src.systems.room_loader")
+local ChunkLoader = require("src.systems.chunk_loader")
+local ChunkAssembler = require("src.systems.chunk_assembler")
 local Worlds = require("src.data.worlds")
+local RoomProps = require("src.systems.room_props")
 local Enemy = require("src.entities.enemy")
 local bump = require("lib.bump")
 
@@ -51,16 +54,27 @@ function RoomManager:generateSequence()
         return
     end
     self.roomSequence = {}
-    local pool = RoomLoader.getPool(self.worldId)
-    if #pool == 0 then
-        -- Fallback to legacy pool
-        pool = RoomData.pool or {}
-    end
     local roomsPerCheckpoint = (self.worldDef and self.worldDef.roomsPerCheckpoint)
         or RoomData.ROOMS_PER_CHECKPOINT
+
+    -- Check if this world has chunks for procedural assembly
+    local chunks = ChunkLoader.getPool(self.worldId)
+    local useChunks = #chunks > 0
+
     for i = 1, roomsPerCheckpoint do
-        local room = pool[math.random(#pool)]
-        table.insert(self.roomSequence, room)
+        if useChunks then
+            -- Procedural: assemble a room from chunks (Dead Cells-style)
+            local room = ChunkAssembler.generate(self.worldId, self.difficulty)
+            table.insert(self.roomSequence, room)
+        else
+            -- Legacy: pick a random hand-crafted room
+            local pool = RoomLoader.getPool(self.worldId)
+            if #pool == 0 then
+                pool = RoomData.pool or {}
+            end
+            local room = pool[math.random(#pool)]
+            table.insert(self.roomSequence, room)
+        end
     end
     self.currentRoomIndex = 0
     self.roomsCleared = 0
@@ -188,20 +202,28 @@ function RoomManager:loadRoom(room, world, player, opts)
         if oneWay == nil then
             oneWay = plat.h <= 24
         end
-        local p = {
-            x = plat.x, y = plat.y, w = plat.w, h = plat.h,
-            isPlatform = true,
-            oneWay = oneWay,
-        }
+        local p = {}
+        for k, v in pairs(plat) do p[k] = v end
+        p.isPlatform = true
+        p.oneWay = oneWay
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(platforms, p)
     end
 
     local floorBand = room.height - 110
     local segs = {}
+    -- Collect platform x ranges that must not be auto-bridged (train car gaps etc.)
+    local noFillEdges = {}  -- set of x2 values where bridging should be skipped
     for _, plat in ipairs(room.platforms) do
         if plat.h >= 36 and plat.y + plat.h >= floorBand - 24 then
-            table.insert(segs, {x1 = plat.x, x2 = plat.x + plat.w, top = plat.y})
+            if not plat.noFill then
+                table.insert(segs, {x1 = plat.x, x2 = plat.x + plat.w, top = plat.y})
+            else
+                -- Still record extent so jump-chain doesn't over-generate,
+                -- but mark the right edge as a no-fill boundary
+                table.insert(segs, {x1 = plat.x, x2 = plat.x + plat.w, top = plat.y, noFill = true})
+                noFillEdges[plat.x + plat.w] = true
+            end
         end
     end
     if #segs > 0 then
@@ -209,6 +231,8 @@ function RoomManager:loadRoom(room, world, player, opts)
         for i = 1, #merged - 1 do
             local left, right = merged[i], merged[i + 1]
             local gw = right.x1 - left.x2
+            -- Skip bridging if the left segment ends at a noFill boundary
+            if noFillEdges[left.x2] then goto skipBridge end
             if gw >= MIN_FLOOR_GAP_FILL and gw <= MAX_FLOOR_GAP_FILL then
                 local topY = math.min(left.top, right.top)
                 local bridge = {
@@ -222,6 +246,7 @@ function RoomManager:loadRoom(room, world, player, opts)
                 world:add(bridge, bridge.x, bridge.y, bridge.w, bridge.h)
                 table.insert(platforms, bridge)
             end
+            ::skipBridge::
         end
     end
 
@@ -242,7 +267,8 @@ function RoomManager:loadRoom(room, world, player, opts)
     local enemies = {}
     local pendingEnemySpawns = {}
     if not (opts and opts.skipEnemies) and not room.devArena then
-        local plan = RoomData.buildSpawnPlan(room, self.difficulty, player.level or 1)
+        local roster = self.worldDef and self.worldDef.enemyRoster
+        local plan = RoomData.buildSpawnPlan(room, self.difficulty, player.level or 1, roster)
         for _, spawn in ipairs(plan.immediate) do
             local enemy = Enemy.new(spawn.type, spawn.x, spawn.y, self.difficulty, { elite = spawn.elite })
             if enemy then
@@ -316,6 +342,11 @@ function RoomManager:loadRoom(room, world, player, opts)
         out.fogCanvasLQ = fog.fogCanvasLQ
         out.fogDirty = fog.fogDirty
     end
+
+    out.decorProps = RoomProps.buildForRoom(self.worldId, room, out, {
+        roomIndex = self.currentRoomIndex,
+        totalCleared = self.totalRoomsCleared,
+    })
     return out
 end
 

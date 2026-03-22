@@ -193,8 +193,31 @@ local function collectReachablePlatforms(room, playerSpawn)
     return list
 end
 
--- More rushers (bandits), fewer shooters / flyers as difficulty rises slowly
-local function pickEnemyType(difficulty, playerLevel)
+-- Pick an enemy type using the world's roster weights (if provided).
+-- Falls back to hardcoded tier-based probabilities when no roster is given.
+local function pickEnemyType(difficulty, playerLevel, enemyRoster)
+    -- Use roster weights if available
+    if enemyRoster and next(enemyRoster) then
+        local total = 0
+        local entries = {}
+        for typeId, weight in pairs(enemyRoster) do
+            if weight > 0 then
+                total = total + weight
+                entries[#entries + 1] = { type = typeId, weight = weight }
+            end
+        end
+        if total > 0 then
+            local r = math.random() * total
+            local sum = 0
+            for _, e in ipairs(entries) do
+                sum = sum + e.weight
+                if r <= sum then return e.type end
+            end
+            return entries[#entries].type
+        end
+    end
+
+    -- Fallback: original tier-based distribution
     local tier = math.min(1, (difficulty - 1) * 0.18 + (playerLevel - 1) * 0.05)
     local nightborneChance = 0.08 + tier * 0.14
     local necromancerChance = 0.03 + tier * 0.10
@@ -232,7 +255,7 @@ local function eliteChance(difficulty, playerLevel)
 end
 
 --- Random placements, mixed types, optional elite; split into instant spawns vs delayed arrivals.
-function RoomData.buildSpawnPlan(room, difficulty, playerLevel)
+function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
     local walkPlats = collectReachablePlatforms(room, room.playerSpawn)
     if #walkPlats == 0 then
         local s = findStartPlatform(room, room.playerSpawn)
@@ -402,7 +425,7 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel)
     end
 
     for _ = 1, n do
-        local t = pickEnemyType(difficulty, playerLevel)
+        local t = pickEnemyType(difficulty, playerLevel, enemyRoster)
         local elite = math.random() < eChance
         local x, y
         if t == "buzzard" then

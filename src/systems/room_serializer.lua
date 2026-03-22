@@ -3,6 +3,14 @@
 
 local RoomSerializer = {}
 
+--- Ensure arrays the editor and gameplay assume exist (chunk/room data may omit them).
+function RoomSerializer.normalize(room)
+    if type(room) ~= "table" then return nil end
+    room.platforms = room.platforms or {}
+    room.spawns = room.spawns or {}
+    return room
+end
+
 --- Indent helper
 local function indent(level)
     return string.rep("    ", level)
@@ -69,14 +77,30 @@ function RoomSerializer.serialize(room)
             .. serializeFlatTable(room.exitDoor, {"x", "y", "w", "h"}) .. ","
     end
 
+    -- Chunk-specific fields (for chunk editing mode)
+    if room.chunkType then
+        lines[#lines + 1] = indent(1) .. "chunkType = " .. serializeValue(room.chunkType) .. ","
+    end
+    if room.edges then
+        lines[#lines + 1] = indent(1) .. "edges = {"
+        for _, side in ipairs({"left", "right", "top", "bottom"}) do
+            if room.edges[side] ~= nil then
+                lines[#lines + 1] = indent(2) .. side .. " = " .. serializeValue(room.edges[side]) .. ","
+            end
+        end
+        lines[#lines + 1] = indent(1) .. "},"
+    end
+
     lines[#lines + 1] = "}"
     return table.concat(lines, "\n") .. "\n"
 end
 
 --- Save a room to the LÖVE2D save directory.
+--- Chunks (rooms with chunkType) save to chunks/<worldId>/, rooms to rooms/<worldId>/.
 function RoomSerializer.save(room)
     local worldId = room.world or "forest"
-    local dir = "rooms/" .. worldId
+    local isChunk = room.chunkType ~= nil
+    local dir = (isChunk and "chunks/" or "rooms/") .. worldId
     love.filesystem.createDirectory(dir)
     local path = dir .. "/" .. room.id .. ".lua"
     local source = RoomSerializer.serialize(room)
@@ -99,7 +123,7 @@ function RoomSerializer.load(path)
         print("[RoomSerializer] Parse failed: " .. tostring(room))
         return nil
     end
-    return room
+    return RoomSerializer.normalize(room)
 end
 
 return RoomSerializer

@@ -1,5 +1,6 @@
 -- Shared first-room rendering for the main menu (matches game parallax + geometry).
 local TileRenderer = require("src.systems.tile_renderer")
+local RoomProps = require("src.systems.room_props")
 local CAM_ZOOM = 2
 
 local M = {}
@@ -70,6 +71,8 @@ function M.draw(camera, currentRoom, bgImage, doorOpen, showLockedLabel)
             TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h)
         end
     end
+
+    RoomProps.drawDecor(currentRoom)
 
     local door = currentRoom.door
     if door then

@@ -21,6 +21,9 @@ local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
 local TileRenderer = require("src.systems.tile_renderer")
+local RoomProps = require("src.systems.room_props")
+local Wind = require("src.systems.wind")
+local TrainRenderer = require("src.systems.train_renderer")
 local Worlds = require("src.data.worlds")
 local ImpactFX = require("src.systems.impact_fx")
 local Sfx = require("src.systems.sfx")
@@ -1132,13 +1135,21 @@ function game:enter(_, opts)
     devShowHitboxes = true
 
     devArenaMode = opts and opts.devArena == true
-    local worldId = (opts and opts.worldId) or Worlds.default or "forest"
+    local worldId = (opts and opts.worldId) or Worlds.order[1]
     roomManager = RoomManager.new(worldId)
     roomManager.devArenaMode = devArenaMode
     currentTheme = roomManager:getTheme()
 
+    -- Activate world-specific atmosphere systems
+    if worldId == "train" then
+        Wind.activate()
+        TrainRenderer.preload()
+    else
+        Wind.deactivate()
+    end
+
     local worldDef = Worlds.get(worldId)
-    local bgPath = worldDef and worldDef.background or "assets/backgrounds/forest.png"
+    local bgPath = worldDef and worldDef.background or Worlds.get(Worlds.order[1]).background
     bgImage = love.graphics.newImage(bgPath)
     bgImage:setWrap("repeat", "clampzero")
 
@@ -1185,6 +1196,7 @@ end
 function game:leave()
     Cursor.setDefault()
     MusicDirector.onLeaveGameplay()
+    Wind.deactivate()
 end
 
 function loadNextRoom()
@@ -1386,6 +1398,9 @@ function game:update(dt)
     local viewL, viewT = camX - halfW, camY - halfH
     local viewR, viewB = camX + halfW, camY + halfH
 
+    -- Update wind (needs camera position for particle spawning)
+    Wind.update(dt, camX, camY, halfW * 2, halfH * 2)
+
     if currentRoom and currentRoom.nightMode and currentRoom.fogExplored and player and not player.dying then
         Vision.markFogExplored(currentRoom, player, CAM_ZOOM)
     end
@@ -1422,6 +1437,21 @@ function game:update(dt)
 
     -- Player update
     player:update(dt, world, enemies)
+
+    -- Wind physics: nudge player with headwind (train world only)
+    if Wind.active and not player.dying and player.filter then
+        local windNudge = Wind.getForce() * dt
+        if windNudge ~= 0 then
+            local nx, ny = world:move(player, player.x + windNudge, player.y, player.filter)
+            player.x = nx
+            player.y = ny
+        end
+        -- Wind gusts add a mild camera shake
+        if Wind.isGusting() and shakeTimer <= 0 then
+            shakeTimer    = 0.08
+            shakeIntensity = 1.2
+        end
+    end
 
     if not player.dying then
     local i, leveledUp -- hoisted for goto (cannot jump over `local` in same block)
@@ -2059,12 +2089,30 @@ function game:draw()
                 viewW * 2, viewH * 2)
         end
 
+        -- Rail tracks (train world — drawn behind everything else)
+        if roomManager and roomManager.worldId == "train" then
+            TrainRenderer.drawRails(camX, camY, viewW, viewH, currentRoom.height)
+        end
+
         -- Walls (left, right, ceiling)
         for _, wall in ipairs(currentRoom.walls) do
             TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h, currentTheme)
         end
 
-        -- Platforms
+        -- Platforms: train cars use the sprite renderer; others use tiles
+        if roomManager and roomManager.worldId == "train" then
+            TrainRenderer.drawRoomCars(currentRoom.platforms, currentRoom.height)
+            -- Non-car platforms (crates, structural overhangs, etc.) still use tiles
+            for _, plat in ipairs(currentRoom.platforms) do
+                if not plat.trainCar then
+                    if plat.h >= 32 then
+                        TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme)
+                    else
+                        TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme)
+                    end
+                end
+            end
+        else
         for _, plat in ipairs(currentRoom.platforms) do
             if plat.h >= 32 then
                 TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme)
@@ -2072,6 +2120,9 @@ function game:draw()
                 TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme)
             end
         end
+        end  -- end train/non-train platform branch
+
+        RoomProps.drawDecor(currentRoom)
 
         -- Door (saloon door sprite)
         local door = currentRoom.door
@@ -2135,6 +2186,9 @@ function game:draw()
 
     ImpactFX.draw()
     DamageNumbers.draw()
+
+    -- Wind particles (world-space, drawn over entities but under HUD)
+    Wind.draw()
 
     drawActiveDevSpawnPreview()
     -- Ult world-space effects: shockwave rings + target reticles
