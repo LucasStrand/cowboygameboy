@@ -76,6 +76,7 @@ local editorTestMode = false
 local ult = { flashAlpha = 0, shotFlashScreen = 0, vignetteAlpha = 0, rings = {}, pulseTimer = 0 }
 local devPanelState = {
     open = false,
+    pauseGameplay = true,
     scroll = 0,
     hover = nil,
     rows = nil,
@@ -178,6 +179,15 @@ end
 
 local function pointInRect(x, y, rx, ry, rw, rh)
     return x >= rx and x <= rx + rw and y >= ry and y <= ry + rh
+end
+
+local function getDebugConsoleLayout()
+    local panelX = GAME_WIDTH - 260
+    local consoleGap = 12
+    local consoleH = 240
+    local consoleW = math.min(720, math.max(420, panelX - 24))
+    local consoleX = math.max(12, panelX - consoleW - consoleGap)
+    return consoleX, 60, consoleW, consoleH
 end
 
 local function currentDevSpawnCount()
@@ -1060,6 +1070,7 @@ end
 
 devRebuildPanelRows = function()
     devPanelState.rows = DevPanel.buildRows({
+        gameplayPaused = devPanelState.pauseGameplay,
         showHitboxes = devShowHitboxes,
         nightOverride = roomManager and roomManager.nightVisualsOverride,
         bossFightActive = currentRoom and currentRoom.bossFight,
@@ -1106,8 +1117,10 @@ local function openDevPanel()
         devNpcSpawn = defaultDevNpcSpawn()
     end
     devPanelState.open = true
+    devPanelState.pauseGameplay = true
     characterSheetOpen = false
     devPanelState.scroll = 0
+    devPanelState.hover = nil
     devRebuildPanelRows()
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Font.new(16)
@@ -1166,6 +1179,10 @@ function game:enter(_, opts)
     shakeTimer = 0
     shakeIntensity = 0
     gameTimer = 0
+    devPanelState.open = false
+    devPanelState.pauseGameplay = true
+    devPanelState.scroll = 0
+    devPanelState.hover = nil
     doorOpen = false
     doorAnimFrame = 1
     doorAnimTimer = 0
@@ -1320,7 +1337,7 @@ function game:update(dt)
 
     if paused then return end
 
-    if devPanelState.open then
+    if devPanelState.open and devPanelState.pauseGameplay ~= false then
         if player and player.dying then
             devPanelState.open = false
             clearDevNpcPlacement(false)
@@ -1779,6 +1796,23 @@ function game:keypressed(key)
         return
     end
 
+    local _, _, _, consoleH = getDebugConsoleLayout()
+    if DEBUG then
+        if key == "end" then
+            DevLog.followConsole()
+            return
+        elseif key == "pageup" then
+            DevLog.scrollConsole(10, consoleH)
+            return
+        elseif key == "pagedown" then
+            DevLog.scrollConsole(-10, consoleH)
+            return
+        elseif key == "home" then
+            DevLog.scrollConsole(9999, consoleH)
+            return
+        end
+    end
+
     if DEBUG and devPanelState.open then
         if key == "escape" then
             if devNpcSpawn and devNpcSpawn.placement then
@@ -1942,9 +1976,12 @@ function game:mousemoved(x, y, dx, dy)
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Font.new(16)
         end
+        if not game.devPanelRowFont then
+            game.devPanelRowFont = Font.new(13)
+        end
         local px, py, pw, ph = getDevPanelLayout()
         if pointInRect(gx, gy, px, py, pw, ph) then
-        devPanelState.hover = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
+            devPanelState.hover = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
         else
             devPanelState.hover = nil
         end
@@ -2011,8 +2048,13 @@ function game:mousepressed(x, y, button)
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Font.new(16)
         end
+        if not game.devPanelRowFont then
+            game.devPanelRowFont = Font.new(13)
+        end
         local px, py, pw, ph = getDevPanelLayout()
+        local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
         local insidePanel = pointInRect(gx, gy, px, py, pw, ph)
+        local insideConsole = pointInRect(gx, gy, consoleX - 4, consoleY - 4, consoleW + 8, consoleH)
         if insidePanel then
             if button == 1 then
                 local hit = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
@@ -2020,6 +2062,9 @@ function game:mousepressed(x, y, button)
                     devApplyAction(hit)
                 end
             end
+            return
+        end
+        if insideConsole then
             return
         end
         if devNpcSpawn and devNpcSpawn.placement and camera then
@@ -2133,9 +2178,24 @@ function game:mousereleased(x, y, button)
 end
 
 function game:wheelmoved(x, y)
-    if not DEBUG or not devPanelState.open then return end
-    devPanelState.scroll = devPanelState.scroll - y * 36
-    devClampScroll()
+    if not DEBUG then return end
+    local mx, my = love.mouse.getPosition()
+    local gx, gy = windowToGame(mx, my)
+    local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+    local overConsole = pointInRect(gx, gy, consoleX - 4, consoleY - 4, consoleW + 8, consoleH)
+    if devPanelState.open then
+        local px, py, pw, ph = getDevPanelLayout()
+        if pointInRect(gx, gy, px, py, pw, ph) then
+            devPanelState.scroll = devPanelState.scroll - y * 36
+            devClampScroll()
+        elseif overConsole then
+            DevLog.scrollConsole(y * 3, consoleH)
+        end
+        return
+    end
+    if overConsole then
+        DevLog.scrollConsole(y * 3, consoleH)
+    end
 end
 
 function game:draw()
@@ -2418,7 +2478,9 @@ function game:draw()
 
         -- HUD (screen space)
         HUD.draw(player)
-        DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
+        if not DEBUG then
+            DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
+        end
         if roomManager then
             HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
         end
@@ -2612,8 +2674,9 @@ function game:draw()
         end
         py = py + 20
 
-        -- Dev log
-        DevLog.draw(panelX, py, 250)
+        -- Dev log: wide console to the left of the stat panel.
+        local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+        DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
     end
 
     drawDevPanelOverlay()

@@ -286,6 +286,11 @@ local function apply(id, ctx)
         devRebuildPanelRows()
         devClampScroll()
         DevLog.push("sys", "[dev] hitboxes " .. (ctx.devShowHitboxes and "on" or "off"))
+    elseif id == "toggle_dev_pause" then
+        devPanelState.pauseGameplay = not (devPanelState.pauseGameplay ~= false)
+        devRebuildPanelRows()
+        devClampScroll()
+        DevLog.push("sys", "[dev] gameplay " .. ((devPanelState.pauseGameplay ~= false) and "paused" or "live"))
     elseif id == "time_auto" then
         roomManager.nightVisualsOverride = nil
         syncCurrentRoomNightMode()

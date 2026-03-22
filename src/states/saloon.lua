@@ -96,6 +96,7 @@ local devPanelOpen = false
 local devPanelScroll = 0
 local devPanelHover = nil
 local devPanelRows = nil
+local devPanelPauseGameplay = true
 local devShowHitboxes = true
 
 ---------------------------------------------------------------------------
@@ -144,6 +145,7 @@ local function pauseRestartRun()
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
+    devPanelPauseGameplay = true
     devShowHitboxes = true
     characterSheetOpen = false
     local game = require("src.states.game")
@@ -158,6 +160,7 @@ local function pauseGoToMainMenu()
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
+    devPanelPauseGameplay = true
     characterSheetOpen = false
     local menu = require("src.states.menu")
     Gamestate.switch(menu)
@@ -177,24 +180,52 @@ local function devPlayerHasPerk(pid)
     return false
 end
 
+local function pointInRect(x, y, rx, ry, rw, rh)
+    return x >= rx and x <= rx + rw and y >= ry and y <= ry + rh
+end
+
+local function getDevPanelLayout()
+    return DevPanel.panelRect(GAME_WIDTH, GAME_HEIGHT)
+end
+
+local function getDebugConsoleLayout()
+    local panelX = GAME_WIDTH - 260
+    local consoleGap = 12
+    local consoleH = 240
+    local consoleW = math.min(720, math.max(420, panelX - 24))
+    local consoleX = math.max(12, panelX - consoleW - consoleGap)
+    return consoleX, 60, consoleW, consoleH
+end
+
 local function devClampScroll()
     if not devPanelRows then return end
     if not saloon.devPanelTitleFont then
         saloon.devPanelTitleFont = Font.new(16)
     end
-    local ph = math.min(560, GAME_HEIGHT - 56)
-    local maxS = DevPanel.maxScroll(devPanelRows, saloon.devPanelTitleFont, ph)
+    if not saloon.devPanelRowFont then
+        saloon.devPanelRowFont = Font.new(13)
+    end
+    local _, _, pw, ph = getDevPanelLayout()
+    local maxS = DevPanel.maxScroll(devPanelRows, saloon.devPanelTitleFont, saloon.devPanelRowFont, pw, ph)
     devPanelScroll = math.max(0, math.min(maxS, devPanelScroll))
 end
 
 local function openDevPanel()
     if not DEBUG then return end
     devPanelOpen = true
+    devPanelPauseGameplay = true
     characterSheetOpen = false
     devPanelScroll = 0
-    devPanelRows = DevPanel.buildRows({ showHitboxes = devShowHitboxes })
+    devPanelHover = nil
+    devPanelRows = DevPanel.buildRows({
+        gameplayPaused = devPanelPauseGameplay,
+        showHitboxes = devShowHitboxes,
+    })
     if not saloon.devPanelTitleFont then
         saloon.devPanelTitleFont = Font.new(16)
+    end
+    if not saloon.devPanelRowFont then
+        saloon.devPanelRowFont = Font.new(13)
     end
     devClampScroll()
 end
@@ -263,6 +294,16 @@ end
 
 local function saloonDevApplyAction(id)
     if not DEBUG or not player or not id then return end
+    if id == "toggle_dev_pause" then
+        devPanelPauseGameplay = not (devPanelPauseGameplay ~= false)
+        devPanelRows = DevPanel.buildRows({
+            gameplayPaused = devPanelPauseGameplay,
+            showHitboxes = devShowHitboxes,
+        })
+        devClampScroll()
+        DevLog.push("sys", "[dev] gameplay " .. ((devPanelPauseGameplay ~= false) and "paused" or "live"))
+        return
+    end
     if id == "kill_player" then
         devPanelOpen = false
         characterSheetOpen = false
@@ -277,7 +318,10 @@ local function saloonDevApplyAction(id)
         DevLog.push("sys", "[dev] hurt 1")
     elseif id == "toggle_hitboxes" then
         devShowHitboxes = not devShowHitboxes
-        devPanelRows = DevPanel.buildRows({ showHitboxes = devShowHitboxes })
+        devPanelRows = DevPanel.buildRows({
+            gameplayPaused = devPanelPauseGameplay,
+            showHitboxes = devShowHitboxes,
+        })
         devClampScroll()
         DevLog.push("sys", "[dev] hitboxes " .. (devShowHitboxes and "on" or "off"))
     elseif id == "toggle_god" then
@@ -669,8 +713,12 @@ function saloon:enter(_, _player, _roomManager)
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
+    devPanelPauseGameplay = true
     devShowHitboxes = true
-    devPanelRows = DevPanel.buildRows({ showHitboxes = devShowHitboxes })
+    devPanelRows = DevPanel.buildRows({
+        gameplayPaused = devPanelPauseGameplay,
+        showHitboxes = devShowHitboxes,
+    })
 end
 
 function saloon:leave()
@@ -685,7 +733,7 @@ end
 ---------------------------------------------------------------------------
 function saloon:update(dt)
     if paused then return end
-    if DEBUG and devPanelOpen then return end
+    if DEBUG and devPanelOpen and devPanelPauseGameplay ~= false then return end
 
     if messageTimer > 0 then
         messageTimer = messageTimer - dt
@@ -784,8 +832,21 @@ end
 -- Input
 ---------------------------------------------------------------------------
 function saloon:keypressed(key)
+    local _, _, _, consoleH = getDebugConsoleLayout()
     if DEBUG and devPanelOpen then
-        if key == "escape" or key == "f2" then
+        if key == "end" then
+            DevLog.followConsole()
+            return
+        elseif key == "pageup" then
+            DevLog.scrollConsole(10, consoleH)
+            return
+        elseif key == "pagedown" then
+            DevLog.scrollConsole(-10, consoleH)
+            return
+        elseif key == "home" then
+            DevLog.scrollConsole(9999, consoleH)
+            return
+        elseif key == "escape" or key == "f2" then
             devPanelOpen = false
             devPanelHover = nil
         end
@@ -795,6 +856,22 @@ function saloon:keypressed(key)
     if key == "f2" and DEBUG then
         openDevPanel()
         return
+    end
+
+    if DEBUG and not devPanelOpen then
+        if key == "end" then
+            DevLog.followConsole()
+            return
+        elseif key == "pageup" then
+            DevLog.scrollConsole(10, consoleH)
+            return
+        elseif key == "pagedown" then
+            DevLog.scrollConsole(-10, consoleH)
+            return
+        elseif key == "home" then
+            DevLog.scrollConsole(9999, consoleH)
+            return
+        end
     end
 
     if paused and pauseMenuView == "settings" and pauseSettingsBindCapture then
@@ -986,10 +1063,15 @@ function saloon:mousemoved(x, y, dx, dy)
         if not saloon.devPanelTitleFont then
             saloon.devPanelTitleFont = Font.new(16)
         end
-        local px, py = 12, 44
-        local pw = 308
-        local ph = math.min(560, GAME_HEIGHT - 56)
-        devPanelHover = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont)
+        if not saloon.devPanelRowFont then
+            saloon.devPanelRowFont = Font.new(13)
+        end
+        local px, py, pw, ph = getDevPanelLayout()
+        if pointInRect(gx, gy, px, py, pw, ph) then
+            devPanelHover = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont, saloon.devPanelRowFont)
+        else
+            devPanelHover = nil
+        end
         return
     end
     if paused then
@@ -1038,16 +1120,28 @@ end
 
 function saloon:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelOpen and devPanelRows and button == 1 then
+    if DEBUG and devPanelOpen and devPanelRows then
         if not saloon.devPanelTitleFont then
             saloon.devPanelTitleFont = Font.new(16)
         end
-        local px, py = 12, 44
-        local pw = 308
-        local ph = math.min(560, GAME_HEIGHT - 56)
-        local hit = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont)
-        if hit then
-            saloonDevApplyAction(hit)
+        if not saloon.devPanelRowFont then
+            saloon.devPanelRowFont = Font.new(13)
+        end
+        local px, py, pw, ph = getDevPanelLayout()
+        local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+        local insidePanel = pointInRect(gx, gy, px, py, pw, ph)
+        local insideConsole = pointInRect(gx, gy, consoleX - 4, consoleY - 4, consoleW + 8, consoleH)
+        if insidePanel then
+            if button == 1 then
+                local hit = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont, saloon.devPanelRowFont)
+                if hit then
+                    saloonDevApplyAction(hit)
+                end
+            end
+            return
+        end
+        if insideConsole then
+            return
         end
         return
     end
@@ -1132,9 +1226,24 @@ function saloon:mousereleased(x, y, button)
 end
 
 function saloon:wheelmoved(x, y)
-    if not DEBUG or not devPanelOpen then return end
-    devPanelScroll = devPanelScroll - y * 36
-    devClampScroll()
+    if not DEBUG then return end
+    local mx, my = love.mouse.getPosition()
+    local gx, gy = windowToGame(mx, my)
+    local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+    local overConsole = pointInRect(gx, gy, consoleX - 4, consoleY - 4, consoleW + 8, consoleH)
+    if devPanelOpen then
+        local px, py, pw, ph = getDevPanelLayout()
+        if pointInRect(gx, gy, px, py, pw, ph) then
+            devPanelScroll = devPanelScroll - y * 36
+            devClampScroll()
+        elseif overConsole then
+            DevLog.scrollConsole(y * 3, consoleH)
+        end
+        return
+    end
+    if overConsole then
+        DevLog.scrollConsole(y * 3, consoleH)
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -1451,7 +1560,9 @@ function saloon:draw()
 
     -- HUD — same pipeline as game state (saloon is another map)
     HUD.draw(player)
-    DevLog.drawOverlay(screenW, screenH)
+    if not DEBUG then
+        DevLog.drawOverlay(screenW, screenH)
+    end
     if roomManager then
         HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
     end
@@ -1581,7 +1692,8 @@ function saloon:draw()
         end
         py = py + 20
 
-        DevLog.draw(panelX, py, 250)
+        local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+        DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
     end
 
     if DEBUG and devPanelOpen and devPanelRows and player then
@@ -1594,16 +1706,11 @@ function saloon:draw()
             saloon.devPanelRowFont = Font.new(13)
         end
         devClampScroll()
-        local px, py = 12, 44
-        local pw = 308
-        local ph = math.min(560, screenH - 56)
+        local px, py, pw, ph = getDevPanelLayout()
         DevPanel.draw(devPanelRows, devPanelScroll, px, py, pw, ph, devPanelHover, {
             title = saloon.devPanelTitleFont,
             row = saloon.devPanelRowFont,
         })
-        love.graphics.setFont(saloon.devPanelRowFont)
-        love.graphics.setColor(0.55, 0.55, 0.58)
-        love.graphics.printf("F2 / ESC close  ·  wheel scroll", px, math.min(py + ph + 6, screenH - 20), pw, "center")
     end
 
     love.graphics.setColor(1, 1, 1)

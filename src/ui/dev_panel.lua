@@ -9,7 +9,7 @@ local SECTION_H = 24
 local GAP = 4
 local PANEL_PAD = 14
 local PANEL_W = 468
-local FOOTER_H = 20
+local FOOTER_H = 28
 
 local function rowSection(id, label, open)
     return { kind = "section", id = id, label = label, open = open ~= false }
@@ -25,7 +25,7 @@ end
 
 function DevPanel.panelRect(screenW, screenH)
     local pw = math.min(PANEL_W, screenW - 24)
-    local ph = math.min(680, screenH - 56)
+    local ph = math.min(664, screenH - 64)
     return 12, 44, pw, ph
 end
 
@@ -55,6 +55,10 @@ function DevPanel.buildRows(args)
     end
 
     if addSection("debug", "Debug") then
+        rows[#rows + 1] = rowAction(
+            "toggle_dev_pause",
+            (args.gameplayPaused ~= false) and "Gameplay: PAUSED" or "Gameplay: LIVE"
+        )
         rows[#rows + 1] = rowAction(
             "toggle_hitboxes",
             (args.showHitboxes ~= false) and "Hitboxes: ON" or "Hitboxes: OFF"
@@ -284,9 +288,11 @@ function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
 
     love.graphics.setScissor()
 
-    local footerY = py + ph - PANEL_PAD - FOOTER_H + 2
+    local footerY = py + ph - PANEL_PAD - FOOTER_H + 4
     love.graphics.setColor(0.1, 0.09, 0.12, 0.95)
-    love.graphics.rectangle("fill", px + 1, footerY - 4, pw - 2, FOOTER_H + PANEL_PAD - 1, 0, 0)
+    love.graphics.rectangle("fill", px + 1, footerY - 6, pw - 2, FOOTER_H + PANEL_PAD + 1, 0, 0)
+    love.graphics.setColor(0.26, 0.22, 0.18, 0.95)
+    love.graphics.line(x0 - 4, footerY - 6, x0 + innerW + 4, footerY - 6)
     love.graphics.setFont(rowFont)
     love.graphics.setColor(0.55, 0.55, 0.58)
     love.graphics.printf("F2 close  |  ESC/right click cancel  |  wheel scroll", x0, footerY, innerW, "center")
