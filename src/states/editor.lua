@@ -61,6 +61,8 @@ local defaults = {}   -- deep copy of world definitions taken on first enter
 local decorSearchFocused = false
 --- Per-world: { query = string, folderIdx = number }
 local decorUIByWorld = {}
+--- Per-world playtest: 0 = random assembled level, 1..N = Nth chunk in sorted pool
+local previewChunkChoiceByWorld = {}
 --- Loaded Image cache for decor thumbnails (path -> Image|false)
 local decorThumbCache = {}
 
@@ -237,6 +239,26 @@ local function buildRows()
     stepper("Rooms / Checkpoint", 1, 15, 1,
         function() return wd.roomsPerCheckpoint or 5 end,
         function(v) wd.roomsPerCheckpoint = v; dirty = true end)
+
+    section("LEVEL PREVIEW")
+    do
+        local wid = worldId()
+        local pool = {}
+        for _, c in ipairs(ChunkLoader.getPool(wid)) do
+            pool[#pool + 1] = c
+        end
+        table.sort(pool, function(a, b) return (a.id or "") < (b.id or "") end)
+        if previewChunkChoiceByWorld[wid] == nil then
+            previewChunkChoiceByWorld[wid] = (#pool > 0) and 1 or 0
+        end
+        if #pool == 0 then
+            previewChunkChoiceByWorld[wid] = 0
+        else
+            previewChunkChoiceByWorld[wid] = math.max(0, math.min(#pool, previewChunkChoiceByWorld[wid]))
+        end
+        rows[#rows + 1] = { type = "previewchunk", y = y, h = ROW_H, pool = pool, wid = wid }
+        y = y + ROW_H
+    end
 
     -- ── Decor: pick image paths from the project (saved as decorPropPaths) ──
     section("DECOR ASSETS (PROJECT)")
@@ -462,6 +484,55 @@ local function drawSearchRow(row, fx, fw)
         txt = "Search filename or path…"
     end
     love.graphics.print(txt, fx + 16, sy + 10)
+end
+
+local function previewChunkLabel(wid, pool)
+    local ch = previewChunkChoiceByWorld[wid] or 0
+    if #pool == 0 then
+        return "(no chunk files)"
+    elseif ch == 0 then
+        return "Random assembled"
+    end
+    local c = pool[ch]
+    if not c then return "?" end
+    return string.format("%s  (%s)", c.id or "?", c.chunkType or "?")
+end
+
+local function drawPreviewChunk(row, fx, fw)
+    local sy = row.y - scrollY + NAV_H
+    local pool = row.pool
+    local wid = row.wid
+    local ch = previewChunkChoiceByWorld[wid] or 0
+    if #pool > 0 then
+        ch = math.max(0, math.min(#pool, ch))
+        previewChunkChoiceByWorld[wid] = ch
+    end
+    local vs = previewChunkLabel(wid, pool)
+    local sx = fx + LABEL_W
+    local a = accent()
+
+    love.graphics.setFont(fonts.sm)
+    love.graphics.setColor(DIM)
+    love.graphics.print("Playtest", fx + 8, sy + 8)
+
+    if #pool > 0 then
+        love.graphics.setColor(a)
+        love.graphics.rectangle("fill", sx, sy + 6, 22, 20, 3, 3)
+        love.graphics.setColor(WHITE)
+        love.graphics.print("<", sx + 6, sy + 7)
+
+        love.graphics.setColor(WHITE)
+        love.graphics.print(vs, sx + 30, sy + 8)
+
+        local rx = sx + 30 + fonts.sm:getWidth(vs) + 6
+        love.graphics.setColor(a)
+        love.graphics.rectangle("fill", rx, sy + 6, 22, 20, 3, 3)
+        love.graphics.setColor(WHITE)
+        love.graphics.print(">", rx + 6, sy + 7)
+    else
+        love.graphics.setColor(DIM)
+        love.graphics.printf(vs, sx, sy + 8, fw - sx - 8, "left")
+    end
 end
 
 local function drawFolderStepper(row, fx, fw)
@@ -778,6 +849,7 @@ function editor:draw()
             elseif row.type == "stepper" then drawStepper(row, fx, fw)
             elseif row.type == "enemy" then   drawEnemy(row, fx, fw)
             elseif row.type == "search" then   drawSearchRow(row, fx, fw)
+            elseif row.type == "previewchunk" then drawPreviewChunk(row, fx, fw)
             elseif row.type == "folderstepper" then drawFolderStepper(row, fx, fw)
             elseif row.type == "decorgrid" then drawDecorGrid(row, fx, fw)
             elseif row.type == "decorclear" then drawDecorClear(row, fx, fw)
@@ -848,7 +920,26 @@ function editor:mousepressed(mx, my, button)
             end
             decorSearchFocused = false
 
-            if row.type == "folderstepper" then
+            if row.type == "previewchunk" then
+                local pool = row.pool
+                local wid = row.wid
+                if #pool == 0 then
+                    return
+                end
+                local ch = previewChunkChoiceByWorld[wid] or 0
+                ch = math.max(0, math.min(#pool, ch))
+                local vs = previewChunkLabel(wid, pool)
+                local sx = fx + LABEL_W
+                if mx >= sx and mx < sx + 22 then
+                    previewChunkChoiceByWorld[wid] = math.max(0, ch - 1)
+                    buildRows()
+                elseif mx >= sx + 30 + fonts.sm:getWidth(vs) + 6
+                    and mx < sx + 30 + fonts.sm:getWidth(vs) + 28 then
+                    previewChunkChoiceByWorld[wid] = math.min(#pool, ch + 1)
+                    buildRows()
+                end
+                return
+            elseif row.type == "folderstepper" then
                 local folders = row.folders
                 local idx = decorUI().folderIdx
                 local vs = folderStepperLabel(folders, idx)
@@ -984,7 +1075,24 @@ end
 -- ─── Actions ───────────────────────────────────────────────────────
 function editor:doPreview()
     local wid = worldId()
-    local room = ChunkAssembler.generate(wid, 1)
+    local pool = {}
+    for _, c in ipairs(ChunkLoader.getPool(wid)) do
+        pool[#pool + 1] = c
+    end
+    table.sort(pool, function(a, b) return (a.id or "") < (b.id or "") end)
+    local ch = previewChunkChoiceByWorld[wid] or 0
+    if #pool > 0 then
+        ch = math.max(0, math.min(#pool, ch))
+        previewChunkChoiceByWorld[wid] = ch
+    end
+    local room
+    if #pool == 0 then
+        room = ChunkAssembler.generate(wid, 1)
+    elseif ch == 0 then
+        room = ChunkAssembler.generate(wid, 1)
+    else
+        room = ChunkAssembler.chunkToPreviewRoom(pool[ch])
+    end
     if room then
         returnFromPreview = true
         local game = require("src.states.game")

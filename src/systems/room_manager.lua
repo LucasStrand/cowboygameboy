@@ -202,11 +202,10 @@ function RoomManager:loadRoom(room, world, player, opts)
         if oneWay == nil then
             oneWay = plat.h <= 24
         end
-        local p = {
-            x = plat.x, y = plat.y, w = plat.w, h = plat.h,
-            isPlatform = true,
-            oneWay = oneWay,
-        }
+        local p = {}
+        for k, v in pairs(plat) do p[k] = v end
+        p.isPlatform = true
+        p.oneWay = oneWay
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(platforms, p)
     end

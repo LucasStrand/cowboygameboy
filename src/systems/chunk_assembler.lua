@@ -674,4 +674,64 @@ function ChunkAssembler.getCellSize()
     return CELL_W, CELL_H
 end
 
+-- Player AABB height matches src/entities/player.lua (standing on platform top).
+local PREVIEW_PLAYER_H = 28
+
+--- Build a one-cell room table from a single chunk (editor playtest of a specific level file).
+function ChunkAssembler.chunkToPreviewRoom(chunk)
+    if not chunk then return nil end
+    local w = chunk.width or CELL_W
+    local h = chunk.height or CELL_H
+    local platforms = {}
+    for _, p in ipairs(chunk.platforms or {}) do
+        local np = {}
+        for k, v in pairs(p) do np[k] = v end
+        platforms[#platforms + 1] = np
+    end
+
+    local playerSpawn = chunk.playerSpawn
+    if playerSpawn then
+        playerSpawn = { x = playerSpawn.x, y = playerSpawn.y }
+    else
+        local floorPlat = nil
+        local bestY = -1e9
+        for _, p in ipairs(platforms) do
+            if p.y > bestY then
+                bestY = p.y
+                floorPlat = p
+            end
+        end
+        if floorPlat then
+            local px = math.floor(floorPlat.x + 40)
+            px = math.min(px, floorPlat.x + floorPlat.w - 40)
+            px = math.max(floorPlat.x + 8, px)
+            playerSpawn = { x = px, y = floorPlat.y - PREVIEW_PLAYER_H }
+        else
+            playerSpawn = { x = 60, y = h - 100 }
+        end
+    end
+
+    local exitDoor = chunk.exitDoor
+    if exitDoor then
+        exitDoor = {
+            x = exitDoor.x, y = exitDoor.y,
+            w = exitDoor.w or 32, h = exitDoor.h or 32,
+        }
+    else
+        exitDoor = { x = w - 60, y = h - 72, w = 32, h = 32 }
+    end
+
+    return {
+        id = "preview_" .. tostring(chunk.id or "chunk"),
+        width = w,
+        height = h,
+        platforms = platforms,
+        playerSpawn = playerSpawn,
+        exitDoor = exitDoor,
+        spawns = {},
+        generated = true,
+        editorPreviewChunk = true,
+    }
+end
+
 return ChunkAssembler
