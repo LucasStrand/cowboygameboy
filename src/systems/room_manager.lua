@@ -4,6 +4,7 @@ local RoomLoader = require("src.systems.room_loader")
 local ChunkLoader = require("src.systems.chunk_loader")
 local ChunkAssembler = require("src.systems.chunk_assembler")
 local Worlds = require("src.data.worlds")
+local RoomProps = require("src.systems.room_props")
 local Enemy = require("src.entities.enemy")
 local bump = require("lib.bump")
 
@@ -330,6 +331,11 @@ function RoomManager:loadRoom(room, world, player, opts)
         out.fogCanvasLQ = fog.fogCanvasLQ
         out.fogDirty = fog.fogDirty
     end
+
+    out.decorProps = RoomProps.buildForRoom(self.worldId, room, out, {
+        roomIndex = self.currentRoomIndex,
+        totalCleared = self.totalRoomsCleared,
+    })
     return out
 end
 

@@ -8,6 +8,7 @@ local Worlds = require("src.data.worlds")
 local EnemyData = require("src.data.enemies")
 local ChunkLoader = require("src.systems.chunk_loader")
 local ChunkAssembler = require("src.systems.chunk_assembler")
+local AssetScan = require("src.data.asset_scan")
 
 local editor = {}
 
@@ -15,13 +16,19 @@ local editor = {}
 local NAV_H = 56
 local ROW_H = 34
 local SECTION_PAD = 10
-local FORM_MAX_W = 660
+local FORM_MAX_W = 920
 local LABEL_W = 180
 local SLIDER_H = 14
 local SLIDER_W = 220
 local BTN_H = 34
 local BTN_W = 110
 local BOTTOM_BAR_H = 54
+local ROW_SEARCH_H = 38
+--- Thumbnail grid for decor picker
+local DECOR_THUMB = 72
+local DECOR_PAD = 8
+local DECOR_LABEL_H = 26
+local MAX_DECOR_GRID = 96
 
 local BG = {0.10, 0.10, 0.12}
 local SECTION_BG = {0.16, 0.16, 0.20}
@@ -51,6 +58,11 @@ local statusMsg = ""
 local statusTimer = 0
 local returnFromPreview = false
 local defaults = {}   -- deep copy of world definitions taken on first enter
+local decorSearchFocused = false
+--- Per-world: { query = string, folderIdx = number }
+local decorUIByWorld = {}
+--- Loaded Image cache for decor thumbnails (path -> Image|false)
+local decorThumbCache = {}
 
 local function deepCopy(t)
     if type(t) ~= "table" then return t end
@@ -64,6 +76,27 @@ local function worldId()   return Worlds.order[currentIdx] end
 local function world()     return Worlds.definitions[worldId()] end
 local function accent()    return WORLD_ACCENTS[worldId()] or ACCENT end
 
+local function decorUI()
+    local wid = worldId()
+    if not decorUIByWorld[wid] then
+        decorUIByWorld[wid] = { query = "", folderIdx = 1 }
+    end
+    return decorUIByWorld[wid]
+end
+
+local function getDecorThumb(path)
+    local c = decorThumbCache[path]
+    if c ~= nil then return c end
+    local ok, img = pcall(love.graphics.newImage, path)
+    if ok and img then
+        img:setFilter("nearest", "nearest")
+        decorThumbCache[path] = img
+        return img
+    end
+    decorThumbCache[path] = false
+    return nil
+end
+
 local function formBounds()
     local w = love.graphics.getWidth()
     local fw = math.min(w - 40, FORM_MAX_W)
@@ -73,6 +106,52 @@ end
 local function setStatus(msg)
     statusMsg = msg
     statusTimer = 3
+end
+
+local function pathInDecorList(wd, path)
+    if not wd or not wd.decorPropPaths then return false end
+    for _, p in ipairs(wd.decorPropPaths) do
+        local s = type(p) == "string" and p or (p and p.path)
+        if s == path then return true end
+    end
+    return false
+end
+
+local function toggleDecorPath(wd, path)
+    if not wd then return end
+    if wd.decorPropPaths == nil then
+        wd.decorPropPaths = { path }
+        dirty = true
+        return
+    end
+    local list = wd.decorPropPaths
+    local idx = nil
+    for i, p in ipairs(list) do
+        local s = type(p) == "string" and p or (p and p.path)
+        if s == path then idx = i; break end
+    end
+    if idx then
+        table.remove(list, idx)
+        if #list == 0 then
+            wd.decorPropPaths = {}
+        end
+    else
+        list[#list + 1] = path
+    end
+    dirty = true
+end
+
+local function escapeLuaStr(s)
+    return s:gsub("\\", "\\\\"):gsub('"', '\\"')
+end
+
+local function folderStepperLabel(folders, idx)
+    local prefix = folders[idx]
+    local vs = (prefix == "" or prefix == nil) and "(all folders)" or prefix
+    if #vs > 36 then
+        vs = vs:sub(1, 16) .. "…" .. vs:sub(-16)
+    end
+    return vs
 end
 
 -- ─── Layout ────────────────────────────────────────────────────────
@@ -158,6 +237,93 @@ local function buildRows()
     stepper("Rooms / Checkpoint", 1, 15, 1,
         function() return wd.roomsPerCheckpoint or 5 end,
         function(v) wd.roomsPerCheckpoint = v; dirty = true end)
+
+    -- ── Decor: pick image paths from the project (saved as decorPropPaths) ──
+    section("DECOR ASSETS (PROJECT)")
+    rows[#rows + 1] = {
+        type = "search",
+        y = y,
+        h = ROW_SEARCH_H,
+    }
+    y = y + ROW_SEARCH_H
+
+    local _, fw = formBounds()
+    local ui = decorUI()
+    local folderList = AssetScan.getAssetSubfolders()
+    if ui.folderIdx > #folderList then ui.folderIdx = 1 end
+    ui.folderIdx = math.max(1, math.min(#folderList, ui.folderIdx))
+    local prefix = folderList[ui.folderIdx] or ""
+
+    local allPaths = AssetScan.getImagePaths()
+    local qlow = ui.query:lower()
+    local filtered = {}
+    for _, p in ipairs(allPaths) do
+        local ok = true
+        if prefix ~= "" then
+            if p:sub(1, #prefix) ~= prefix or p:sub(#prefix + 1, #prefix + 1) ~= "/" then
+                ok = false
+            end
+        end
+        if ok and qlow ~= "" and not p:lower():find(qlow, 1, true) then
+            ok = false
+        end
+        if ok then
+            filtered[#filtered + 1] = p
+        end
+    end
+
+    rows[#rows + 1] = { type = "folderstepper", y = y, h = ROW_H, folders = folderList }
+    y = y + ROW_H
+
+    local totalF = #filtered
+    local capped = {}
+    local nCap = math.min(totalF, MAX_DECOR_GRID)
+    for i = 1, nCap do
+        capped[i] = filtered[i]
+    end
+
+    local cols = math.max(1, math.floor((fw - 24) / (DECOR_THUMB + DECOR_PAD)))
+    local cellW = DECOR_THUMB + DECOR_PAD
+    local cellH = DECOR_THUMB + DECOR_LABEL_H + DECOR_PAD
+    local gridRows = math.max(1, math.ceil(math.max(nCap, 1) / cols))
+    local gridH = gridRows * cellH + 16
+
+    rows[#rows + 1] = {
+        type = "decorgrid",
+        y = y,
+        h = gridH,
+        paths = capped,
+        cols = cols,
+        cellW = cellW,
+        cellH = cellH,
+        totalFiltered = totalF,
+    }
+    y = y + gridH
+
+    if totalF > MAX_DECOR_GRID then
+        rows[#rows + 1] = {
+            type = "label",
+            y = y,
+            h = ROW_H,
+            label = "Showing",
+            value = string.format("%d of %d — narrow folder or search", MAX_DECOR_GRID, totalF),
+        }
+        y = y + ROW_H
+    end
+
+    rows[#rows + 1] = { type = "decorclear", y = y, h = ROW_H }
+    y = y + ROW_H
+    rows[#rows + 1] = { type = "decorrescan", y = y, h = ROW_H }
+    y = y + ROW_H
+
+    local custom = wd.decorPropPaths
+    if custom == nil then
+        label("Selected", "none — no decor props in-game until you pick images above")
+    elseif #custom == 0 then
+        label("Selected", "0 images — no decor props")
+    else
+        label("Selected", string.format("%d image(s) used for this world", #custom))
+    end
 
     -- ── Enemies ──
     section("ENEMIES")
@@ -282,6 +448,165 @@ local function drawEnemy(row, fx, fw)
     end
 end
 
+local function drawSearchRow(row, fx, fw)
+    local sy = row.y - scrollY + NAV_H
+    love.graphics.setColor(0.12, 0.12, 0.14)
+    love.graphics.rectangle("fill", fx + 8, sy + 4, fw - 16, row.h - 8, 4, 4)
+    love.graphics.setColor(decorSearchFocused and accent() or DIM)
+    love.graphics.rectangle("line", fx + 8, sy + 4, fw - 16, row.h - 8, 4, 4)
+    love.graphics.setFont(fonts.sm)
+    love.graphics.setColor(LIGHT)
+    local txt = decorUI().query
+    if txt == "" then
+        love.graphics.setColor(DIM)
+        txt = "Search filename or path…"
+    end
+    love.graphics.print(txt, fx + 16, sy + 10)
+end
+
+local function drawFolderStepper(row, fx, fw)
+    local sy = row.y - scrollY + NAV_H
+    local folders = row.folders
+    local idx = decorUI().folderIdx
+    idx = math.max(1, math.min(#folders, idx))
+    decorUI().folderIdx = idx
+    local vs = folderStepperLabel(folders, idx)
+    local sx = fx + LABEL_W
+    local a = accent()
+
+    love.graphics.setFont(fonts.sm)
+    love.graphics.setColor(DIM)
+    love.graphics.print("Folder", fx + 8, sy + 8)
+
+    love.graphics.setColor(a)
+    love.graphics.rectangle("fill", sx, sy + 6, 22, 20, 3, 3)
+    love.graphics.setColor(WHITE)
+    love.graphics.print("<", sx + 6, sy + 7)
+
+    love.graphics.setColor(WHITE)
+    love.graphics.print(vs, sx + 30, sy + 8)
+
+    local rx = sx + 30 + fonts.sm:getWidth(vs) + 6
+    love.graphics.setColor(a)
+    love.graphics.rectangle("fill", rx, sy + 6, 22, 20, 3, 3)
+    love.graphics.setColor(WHITE)
+    love.graphics.print(">", rx + 6, sy + 7)
+end
+
+local function drawDecorGrid(row, fx, fw)
+    local sy = row.y - scrollY + NAV_H
+    local paths = row.paths
+    local cols = row.cols
+    local cellW = row.cellW
+    local cellH = row.cellH
+    local wd = world()
+
+    love.graphics.setColor(0.11, 0.11, 0.13)
+    love.graphics.rectangle("fill", fx + 4, sy, fw - 8, row.h, 4, 4)
+
+    if not paths or #paths == 0 then
+        love.graphics.setFont(fonts.sm)
+        love.graphics.setColor(DIM)
+        love.graphics.printf(
+            "No images match. Change folder or search.",
+            fx + 12,
+            sy + row.h * 0.5 - 6,
+            fw - 24,
+            "center"
+        )
+        return
+    end
+
+    for i, path in ipairs(paths) do
+        local col = (i - 1) % cols
+        local rowIndex = math.floor((i - 1) / cols)
+        local cx = fx + 8 + col * cellW
+        local cy = sy + 8 + rowIndex * cellH
+
+        love.graphics.setColor(0.16, 0.16, 0.2)
+        love.graphics.rectangle("fill", cx, cy, DECOR_THUMB, DECOR_THUMB, 0, 0)
+
+        local img = getDecorThumb(path)
+        if img then
+            local iw, ih = img:getDimensions()
+            local scale = math.min(DECOR_THUMB / iw, DECOR_THUMB / ih) * 0.92
+            local dw, dh = iw * scale, ih * scale
+            local ox = cx + (DECOR_THUMB - dw) / 2
+            local oy = cy + (DECOR_THUMB - dh) / 2
+            love.graphics.setColor(1, 1, 1)
+            love.graphics.draw(img, ox, oy, 0, scale, scale)
+        else
+            love.graphics.setColor(DIM)
+            love.graphics.setFont(fonts.sm)
+            love.graphics.print("?", cx + DECOR_THUMB * 0.45, cy + DECOR_THUMB * 0.4)
+        end
+
+        local on = pathInDecorList(wd, path)
+        love.graphics.setColor(accent())
+        if on then
+            love.graphics.rectangle("fill", cx + DECOR_THUMB - 18, cy + 4, 14, 14, 2, 2)
+        else
+            love.graphics.rectangle("line", cx + DECOR_THUMB - 18, cy + 4, 14, 14, 2, 2)
+        end
+
+        love.graphics.setFont(fonts.sm)
+        love.graphics.setColor(LIGHT)
+        local fname = path:match("[^/]+$") or path
+        if #fname > 12 then
+            fname = fname:sub(1, 10) .. "…"
+        end
+        love.graphics.printf(fname, cx, cy + DECOR_THUMB + 2, DECOR_THUMB, "center")
+    end
+end
+
+local function decorGridHitTest(row, fx, mx, cy)
+    if cy < row.y or cy >= row.y + row.h then
+        return nil
+    end
+    local relY = cy - row.y - 8
+    local relX = mx - fx - 8
+    if relX < 0 or relY < 0 then
+        return nil
+    end
+    local cols = row.cols
+    local cellW = row.cellW
+    local cellH = row.cellH
+    local ix = math.floor(relX / cellW)
+    local rx = relX - ix * cellW
+    local iy = math.floor(relY / cellH)
+    local ry = relY - iy * cellH
+    if ix < 0 or ix >= cols or rx > DECOR_THUMB then
+        return nil
+    end
+    if ry > DECOR_THUMB + DECOR_LABEL_H then
+        return nil
+    end
+    local idx = iy * cols + ix + 1
+    local paths = row.paths
+    if not paths or idx < 1 or idx > #paths then
+        return nil
+    end
+    return paths[idx]
+end
+
+local function drawDecorClear(row, fx, fw)
+    local sy = row.y - scrollY + NAV_H
+    love.graphics.setColor(0.7, 0.45, 0.2)
+    love.graphics.rectangle("line", fx + 8, sy + 4, fw - 16, row.h - 8, 4, 4)
+    love.graphics.setFont(fonts.sm)
+    love.graphics.setColor(LIGHT)
+    love.graphics.print("Clear selected images (no decor until you pick again)", fx + 16, sy + 8)
+end
+
+local function drawDecorRescan(row, fx, fw)
+    local sy = row.y - scrollY + NAV_H
+    love.graphics.setColor(accent())
+    love.graphics.rectangle("line", fx + 8, sy + 4, fw - 16, row.h - 8, 4, 4)
+    love.graphics.setFont(fonts.sm)
+    love.graphics.setColor(LIGHT)
+    love.graphics.print("Rescan assets/ folder (new files)", fx + 16, sy + 8)
+end
+
 -- ─── Nav Bar ───────────────────────────────────────────────────────
 local function drawNav()
     local w = love.graphics.getWidth()
@@ -390,6 +715,8 @@ function editor:enter()
         buildRows()  -- refresh in case window resized
         return
     end
+    AssetScan.invalidateCache()
+    decorSearchFocused = false
     fonts.big = Font.new(20)
     fonts.med = Font.new(14)
     fonts.sm  = Font.new(11)
@@ -450,6 +777,11 @@ function editor:draw()
             elseif row.type == "slider" then  drawSlider(row, fx, fw)
             elseif row.type == "stepper" then drawStepper(row, fx, fw)
             elseif row.type == "enemy" then   drawEnemy(row, fx, fw)
+            elseif row.type == "search" then   drawSearchRow(row, fx, fw)
+            elseif row.type == "folderstepper" then drawFolderStepper(row, fx, fw)
+            elseif row.type == "decorgrid" then drawDecorGrid(row, fx, fw)
+            elseif row.type == "decorclear" then drawDecorClear(row, fx, fw)
+            elseif row.type == "decorrescan" then drawDecorRescan(row, fx, fw)
             end
         end
     end
@@ -479,6 +811,7 @@ function editor:mousepressed(mx, my, button)
 
     -- nav arrows
     if my < NAV_H then
+        decorSearchFocused = false
         if mx < 50 and currentIdx > 1 then
             currentIdx = currentIdx - 1; scrollY = 0; buildRows()
         elseif mx > w - 50 and currentIdx < #Worlds.order then
@@ -490,6 +823,7 @@ function editor:mousepressed(mx, my, button)
     -- bottom buttons
     local bx, by = buttonBounds()
     if my >= by and my <= by + BTN_H then
+        decorSearchFocused = false
         for i = 0, #BUTTONS - 1 do
             local x = bx + i * (BTN_W + 16)
             if mx >= x and mx <= x + BTN_W then
@@ -508,6 +842,49 @@ function editor:mousepressed(mx, my, button)
     local cy = my - NAV_H + scrollY
     for _, row in ipairs(rows) do
         if cy >= row.y and cy < row.y + row.h then
+            if row.type == "search" then
+                decorSearchFocused = true
+                return
+            end
+            decorSearchFocused = false
+
+            if row.type == "folderstepper" then
+                local folders = row.folders
+                local idx = decorUI().folderIdx
+                local vs = folderStepperLabel(folders, idx)
+                local sx = fx + LABEL_W
+                if mx >= sx and mx < sx + 22 then
+                    decorUI().folderIdx = math.max(1, idx - 1)
+                    buildRows()
+                elseif mx >= sx + 30 + fonts.sm:getWidth(vs) + 6
+                    and mx < sx + 30 + fonts.sm:getWidth(vs) + 28 then
+                    decorUI().folderIdx = math.min(#folders, idx + 1)
+                    buildRows()
+                end
+                return
+            elseif row.type == "decorgrid" then
+                local cy = my - NAV_H + scrollY
+                local path = decorGridHitTest(row, fx, mx, cy)
+                if path then
+                    toggleDecorPath(world(), path)
+                end
+                return
+            elseif row.type == "decorclear" then
+                if mx >= fx + 8 and mx <= fx + fw - 8 then
+                    world().decorPropPaths = nil
+                    dirty = true
+                end
+                return
+            elseif row.type == "decorrescan" then
+                if mx >= fx + 8 and mx <= fx + fw - 8 then
+                    AssetScan.invalidateCache()
+                    decorThumbCache = {}
+                    buildRows()
+                    setStatus("Rescanned assets/ for images.")
+                end
+                return
+            end
+
             local sx = fx + LABEL_W
             local sw = sliderW(fw)
 
@@ -571,6 +948,19 @@ end
 
 -- ─── Keys ──────────────────────────────────────────────────────────
 function editor:keypressed(key)
+    if decorSearchFocused then
+        if key == "backspace" then
+            decorUI().query = decorUI().query:sub(1, -2)
+            buildRows()
+            return
+        elseif key == "escape" then
+            decorSearchFocused = false
+            return
+        elseif key == "return" or key == "kpenter" then
+            decorSearchFocused = false
+            return
+        end
+    end
     if key == "left" and currentIdx > 1 then
         currentIdx = currentIdx - 1; scrollY = 0; buildRows()
     elseif key == "right" and currentIdx < #Worlds.order then
@@ -582,6 +972,13 @@ function editor:keypressed(key)
     elseif key == "s" and love.keyboard.isDown("lctrl", "rctrl") then
         self:doSave()
     end
+end
+
+function editor:textinput(t)
+    if not decorSearchFocused then return end
+    if t:find("%c") then return end
+    decorUI().query = decorUI().query .. t
+    buildRows()
 end
 
 -- ─── Actions ───────────────────────────────────────────────────────
@@ -626,6 +1023,20 @@ function editor:doSave()
                     end
                 end
                 lines[#lines+1] = "        },"
+            end
+            if wd.decorPropPaths ~= nil then
+                if #wd.decorPropPaths == 0 then
+                    lines[#lines+1] = "        decorPropPaths = {},"
+                else
+                    lines[#lines+1] = "        decorPropPaths = {"
+                    for _, p in ipairs(wd.decorPropPaths) do
+                        local path = type(p) == "string" and p or (p and p.path)
+                        if type(path) == "string" then
+                            lines[#lines+1] = string.format('            "%s",', escapeLuaStr(path))
+                        end
+                    end
+                    lines[#lines+1] = "        },"
+                end
             end
             lines[#lines+1] = "    },"
         end

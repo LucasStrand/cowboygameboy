@@ -21,6 +21,7 @@ local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
 local TileRenderer = require("src.systems.tile_renderer")
+local RoomProps = require("src.systems.room_props")
 local Worlds = require("src.data.worlds")
 local ImpactFX = require("src.systems.impact_fx")
 local Sfx = require("src.systems.sfx")
@@ -2072,6 +2073,8 @@ function game:draw()
                 TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme)
             end
         end
+
+        RoomProps.drawDecor(currentRoom)
 
         -- Door (saloon door sprite)
         local door = currentRoom.door

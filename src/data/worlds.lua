@@ -80,6 +80,15 @@ Worlds.definitions = {
             verticalWeight = 1, -- rarely go up/down
             branchChance = 0.3, -- fewer branches in early world
         },
+        --- Procedural decor (see World Editor / world_props); versioned with the repo.
+        decorPropPaths = {
+            "assets/wild_west_free_pack/plant_1.png",
+            "assets/sprites/props/cacti/barrel_cactus.png",
+            "assets/sprites/props/cacti/leaning_cactus.png",
+            "assets/sprites/props/cacti/prickly_pear_cluster.png",
+            "assets/sprites/props/cacti/short_saguaro_1_arm.png",
+            "assets/sprites/props/cacti/tall_saguaro_2_arms.png",
+        },
     },
 
     train = {
