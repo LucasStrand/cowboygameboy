@@ -16,7 +16,7 @@ local SHEETS = {
         cols = DEFAULT_COLS,
     },
     pack3a = {
-        path = "assets/Retro Impact Effect Pack ALL/Retro Impact Effect Pack 3 A.png",
+        path = "assets/Retro Impact Effect Pack ALL/Retro Impact Effect Pack 3A.png",
         frame_size = DEFAULT_FRAME_SIZE,
         cols = DEFAULT_COLS,
     },

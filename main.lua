@@ -13,7 +13,7 @@ local saloon = require("src.states.saloon")
 GAME_WIDTH = 1280
 GAME_HEIGHT = 720
 DEBUG = false
-DEV_TOOLS_ENABLED = DEBUG
+DEV_TOOLS_ENABLED = true
 
 local gameCanvas
 local canvasScale = 1

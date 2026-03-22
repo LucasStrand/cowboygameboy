@@ -99,6 +99,10 @@ local DEV_GROUND_SUPPORT_DEPTH = 6
 local DEV_PANEL_HINT = "F2 close | ESC/right click cancel | left click world spawn | wheel scroll"
 local DEV_PANEL_HELP = "F2 / ESC close  ·  click section headers  ·  wheel scroll"
 
+local function devToolsEnabled()
+    return DEBUG or DEV_TOOLS_ENABLED
+end
+
 --- Spawn world gold pickups (same as loot) instead of crediting instantly — for dev cheats.
 local function spawnCheatGoldDrops(amount)
     if not amount or amount <= 0 or not player or not world then return end
@@ -504,7 +508,7 @@ local function drawActiveDevSpawnPreview()
 end
 
 local function drawDevPanelOverlay()
-    if not DEBUG or not devPanelState.open or not devPanelState.rows or not player then
+    if not devToolsEnabled() or not devPanelState.open or not devPanelState.rows or not player then
         return
     end
 
@@ -901,10 +905,14 @@ local function pauseMenuEntries()
     }
 end
 
-local function pauseMenuButtonLayout()
+local function pauseMenuButtonLayout(variant)
     local screenW, screenH = GAME_WIDTH, GAME_HEIGHT
     local bw, bh = 340, 48
     local gap = 10
+    if variant == "large" then
+        bw, bh = 420, 60
+        gap = 12
+    end
     local list = pauseMenuEntries()
     local totalH = #list * bh + (#list - 1) * gap
     local startY = screenH * 0.38 - totalH * 0.5
@@ -1109,7 +1117,7 @@ do
 end
 
 local function openDevPanel()
-    if not DEBUG then return end
+    if not devToolsEnabled() then return end
     if not devPanelState.sections then
         devPanelState.sections = defaultDevPanelSections()
     end
@@ -1785,7 +1793,7 @@ end
 
 function game:keypressed(key)
     if introCD.active then
-        if key == "f2" and DEBUG then
+        if key == "f2" and devToolsEnabled() then
             openDevPanel()
             return
         end
@@ -1813,7 +1821,7 @@ function game:keypressed(key)
         end
     end
 
-    if DEBUG and devPanelState.open then
+    if devToolsEnabled() and devPanelState.open then
         if key == "escape" then
             if devNpcSpawn and devNpcSpawn.placement then
                 clearDevNpcPlacement(true)
@@ -1831,7 +1839,7 @@ function game:keypressed(key)
         return
     end
 
-    if key == "f2" and DEBUG then
+    if key == "f2" and devToolsEnabled() then
         openDevPanel()
         return
     end
@@ -1972,7 +1980,7 @@ end
 
 function game:mousemoved(x, y, dx, dy)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelState.open and devPanelState.rows then
+    if devToolsEnabled() and devPanelState.open and devPanelState.rows then
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Font.new(16)
         end
@@ -2008,7 +2016,7 @@ function game:mousemoved(x, y, dx, dy)
         end
         pauseMenu.hoverIndex = nil
         if pauseMenu.view == "main" then
-            for i, r in ipairs(pauseMenuButtonLayout()) do
+            for i, r in ipairs(pauseMenuButtonLayout("large")) do
                 if pauseHitRect(gx, gy, r) then
                     pauseMenu.hoverIndex = i
                     pauseMenu.selectedIndex = i
@@ -2017,7 +2025,7 @@ function game:mousemoved(x, y, dx, dy)
             end
         else
             if not game.pauseMenuButtonFont then
-                game.pauseMenuButtonFont = Font.new(22)
+                game.pauseMenuButtonFont = Font.new(26)
             end
             local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, gx, gy, game.pauseMenuButtonFont)
             if h then
@@ -2044,7 +2052,7 @@ end
 
 function game:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelState.open and devPanelState.rows then
+    if devToolsEnabled() and devPanelState.open and devPanelState.rows then
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Font.new(16)
         end
@@ -2086,7 +2094,7 @@ function game:mousepressed(x, y, button)
     if paused then
         if button ~= 1 then return end
         if pauseMenu.view == "main" then
-            for _, r in ipairs(pauseMenuButtonLayout()) do
+            for _, r in ipairs(pauseMenuButtonLayout("large")) do
                 if pauseHitRect(gx, gy, r) then
                     if r.id == "resume" then
                         paused = false
@@ -2103,7 +2111,7 @@ function game:mousepressed(x, y, button)
             end
         else
             if not game.pauseMenuButtonFont then
-                game.pauseMenuButtonFont = Font.new(22)
+                game.pauseMenuButtonFont = Font.new(26)
             end
             local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, gx, gy, game.pauseMenuButtonFont)
             local r = SettingsPanel.applyHit(h, player)
@@ -2178,7 +2186,7 @@ function game:mousereleased(x, y, button)
 end
 
 function game:wheelmoved(x, y)
-    if not DEBUG then return end
+    if not devToolsEnabled() then return end
     local mx, my = love.mouse.getPosition()
     local gx, gy = windowToGame(mx, my)
     local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
@@ -2549,7 +2557,7 @@ function game:draw()
                 game.pauseTitleFont = Font.new(32)
             end
             if not game.pauseMenuButtonFont then
-                game.pauseMenuButtonFont = Font.new(22)
+                game.pauseMenuButtonFont = Font.new(26)
             end
             if not game.pauseHintFont then
                 game.pauseHintFont = Font.new(15)
@@ -2563,7 +2571,7 @@ function game:draw()
                 love.graphics.setColor(1, 0.86, 0.28, 0.95)
                 love.graphics.printf("PAUSED", 0, GAME_HEIGHT * 0.16, GAME_WIDTH, "center")
 
-                local rects = pauseMenuButtonLayout()
+                local rects = pauseMenuButtonLayout("large")
                 for i, r in ipairs(rects) do
                     local hover = (pauseMenu.hoverIndex == i) or (pauseMenu.hoverIndex == nil and pauseMenu.selectedIndex == i)
                     if hover then

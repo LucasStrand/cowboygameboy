@@ -1,4 +1,4 @@
-# Phase 06 Kickoff: Explosive Bullet VFX + Ricochet Exclusivity
+# Phase 06 Verified Kickoff Slice: Explosive Bullet VFX + Ricochet Exclusivity
 
 ## Goals
 
@@ -102,17 +102,24 @@
 - Explosive projectile authoring now carries VFX metadata from weapon runtime.
 - Ricochet is suppressed in resolved weapon stats when explosive rounds are active.
 - Blunderbuss gets a dedicated explosive muzzle effect instead of looking like a normal pellet hit.
+- `ImpactFX` now loads the Phase 6 explosive sheet from the real asset path:
+  - `assets/Retro Impact Effect Pack ALL/Retro Impact Effect Pack 3A.png`
+- A LOVE smoke run of the Phase 6 preview harness launches cleanly after the asset-path fix and no longer crashes on `pack3a` load.
 
-### Still Unverified In Gameplay
+### Still Unverified In Live Visual Play
 
-- Exact frame-row selection quality from `Retro Impact Effect Pack 3 A.png` at gameplay zoom.
-- Readability difference between `small`, `medium`, and `large` explosion tiers during active fights.
-- Whether large blunderbuss explosive impact needs a lower or higher scale after live testing.
-- Whether wall-collision explosive VFX feels right relative to enemy-hit explosive VFX.
+- Revolver + explosive: confirm the small tier stays readable at gameplay zoom.
+- AK + explosive: confirm the medium tier reads clearly distinct from revolver and blunderbuss.
+- Blunderbuss + explosive: confirm the Dragon's Breath-style muzzle read is obvious in real fights.
+- Compare enemy-hit vs wall-hit explosive feedback in active combat so wall hits do not feel stronger than enemy hits.
+- Final tune pass for row choice, fps, and scale if live combat exposes visual confusion between `small`, `medium`, and `large`.
 
 ### Bugs / Balance Problems Found During Closeout
 
-- None confirmed in this pass.
+- Confirmed and fixed:
+  - `ImpactFX` referenced `Retro Impact Effect Pack 3 A.png`, but the real asset on disk is `Retro Impact Effect Pack 3A.png`.
+  - This caused an immediate runtime crash during draw/load for Phase 6 explosive effects.
+- No balance problems confirmed in this pass.
 
 ## Verification Status
 
@@ -121,9 +128,16 @@
   - bullet wall-hit behavior uses explosive VFX/SFX before ricochet logic
   - explosive hits in `combat` use tiered impact FX
   - F1 debug stats reflect ricochet suppression
+- LOVE smoke verification confirms:
+  - `explosion_small`
+  - `explosion_medium`
+  - `explosion_large`
+  - `muzzle_explosive_shotgun`
+  - all load through the definition-driven `ImpactFX.spawn(cx, cy, effect_id, opts, legacy_angle)` path without a missing-asset crash
 - Manual gameplay verification is still required for:
   - revolver explosive feel
   - AK explosive feel
   - blunderbuss Dragon's Breath read
   - visual tier readability
+  - enemy-hit vs wall-hit feel in actual fights
   - explosive-vs-ricochet lock behavior in actual fights

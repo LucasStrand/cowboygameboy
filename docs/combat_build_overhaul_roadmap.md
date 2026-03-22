@@ -92,8 +92,8 @@ Just nu gäller det:
 - [x] Phase 1: Lock runtime specs
 - [x] Phase 2: Shared foundations
 - [x] Phase 3: Player/loadout/weapon runtime
-- [ ] Phase 4: Direct-hit damage migration `implemented + verification debt`
-- [ ] Phase 5: Status + CC subsystem `implemented + verification debt`
+- [x] Phase 4: Direct-hit damage migration `implemented + verification debt`
+- [x] Phase 5: Status + CC subsystem `implemented + verification debt`
 - [ ] Phase 6: Proc system + rule-breaking overrides `kickoff slice implemented`
 - [ ] Phase 7: Content pipeline + tooltips + presentation hooks
 - [ ] Phase 8: Economy + rewards + meta + run metadata

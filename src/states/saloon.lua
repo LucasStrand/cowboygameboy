@@ -99,6 +99,10 @@ local devPanelRows = nil
 local devPanelPauseGameplay = true
 local devShowHitboxes = true
 
+local function devToolsEnabled()
+    return DEBUG or DEV_TOOLS_ENABLED
+end
+
 ---------------------------------------------------------------------------
 -- Pause menu + dev (saloon context)
 ---------------------------------------------------------------------------
@@ -111,10 +115,14 @@ local function pauseMenuEntries()
     }
 end
 
-local function pauseMenuButtonLayout()
+local function pauseMenuButtonLayout(variant)
     local screenW, screenH = GAME_WIDTH, GAME_HEIGHT
     local bw, bh = 340, 48
     local gap = 10
+    if variant == "large" then
+        bw, bh = 420, 60
+        gap = 12
+    end
     local list = pauseMenuEntries()
     local totalH = #list * bh + (#list - 1) * gap
     local startY = screenH * 0.38 - totalH * 0.5
@@ -211,7 +219,7 @@ local function devClampScroll()
 end
 
 local function openDevPanel()
-    if not DEBUG then return end
+    if not devToolsEnabled() then return end
     devPanelOpen = true
     devPanelPauseGameplay = true
     characterSheetOpen = false
@@ -293,7 +301,7 @@ local function saloonSettingsDebugAction(action)
 end
 
 local function saloonDevApplyAction(id)
-    if not DEBUG or not player or not id then return end
+    if not devToolsEnabled() or not player or not id then return end
     if id == "toggle_dev_pause" then
         devPanelPauseGameplay = not (devPanelPauseGameplay ~= false)
         devPanelRows = DevPanel.buildRows({
@@ -733,7 +741,7 @@ end
 ---------------------------------------------------------------------------
 function saloon:update(dt)
     if paused then return end
-    if DEBUG and devPanelOpen and devPanelPauseGameplay ~= false then return end
+    if devToolsEnabled() and devPanelOpen and devPanelPauseGameplay ~= false then return end
 
     if messageTimer > 0 then
         messageTimer = messageTimer - dt
@@ -833,7 +841,7 @@ end
 ---------------------------------------------------------------------------
 function saloon:keypressed(key)
     local _, _, _, consoleH = getDebugConsoleLayout()
-    if DEBUG and devPanelOpen then
+    if devToolsEnabled() and devPanelOpen then
         if key == "end" then
             DevLog.followConsole()
             return
@@ -853,7 +861,7 @@ function saloon:keypressed(key)
         return
     end
 
-    if key == "f2" and DEBUG then
+    if key == "f2" and devToolsEnabled() then
         openDevPanel()
         return
     end
@@ -1059,7 +1067,7 @@ end
 
 function saloon:mousemoved(x, y, dx, dy)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelOpen and devPanelRows then
+    if devToolsEnabled() and devPanelOpen and devPanelRows then
         if not saloon.devPanelTitleFont then
             saloon.devPanelTitleFont = Font.new(16)
         end
@@ -1089,7 +1097,7 @@ function saloon:mousemoved(x, y, dx, dy)
         end
         pauseHoverIndex = nil
         if pauseMenuView == "main" then
-            for i, r in ipairs(pauseMenuButtonLayout()) do
+            for i, r in ipairs(pauseMenuButtonLayout("large")) do
                 if pauseHitRect(gx, gy, r) then
                     pauseHoverIndex = i
                     pauseSelectedIndex = i
@@ -1098,7 +1106,7 @@ function saloon:mousemoved(x, y, dx, dy)
             end
         else
             if not saloon.pauseMenuButtonFont then
-                saloon.pauseMenuButtonFont = Font.new(22)
+                saloon.pauseMenuButtonFont = Font.new(26)
             end
             local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, saloon.pauseMenuButtonFont)
             if h then
@@ -1120,7 +1128,7 @@ end
 
 function saloon:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelOpen and devPanelRows then
+    if devToolsEnabled() and devPanelOpen and devPanelRows then
         if not saloon.devPanelTitleFont then
             saloon.devPanelTitleFont = Font.new(16)
         end
@@ -1148,7 +1156,7 @@ function saloon:mousepressed(x, y, button)
     if paused then
         if button ~= 1 then return end
         if pauseMenuView == "main" then
-            for _, r in ipairs(pauseMenuButtonLayout()) do
+            for _, r in ipairs(pauseMenuButtonLayout("large")) do
                 if pauseHitRect(gx, gy, r) then
                     if r.id == "resume" then
                         paused = false
@@ -1165,7 +1173,7 @@ function saloon:mousepressed(x, y, button)
             end
         else
             if not saloon.pauseMenuButtonFont then
-                saloon.pauseMenuButtonFont = Font.new(22)
+                saloon.pauseMenuButtonFont = Font.new(26)
             end
             local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, saloon.pauseMenuButtonFont)
             local r = SettingsPanel.applyHit(h, player)
@@ -1176,8 +1184,10 @@ function saloon:mousepressed(x, y, button)
                 if r.setTab then pauseSettingsTab = r.setTab end
                 if r.goBack then
                     pauseMenuView = "main"
+                    pauseSettingsBindCapture = nil
                     pauseSettingsSliderDragKey = nil
                 end
+                if r.startBind then pauseSettingsBindCapture = r.startBind end
                 if r.action then saloonSettingsDebugAction(r.action) end
             end
         end
@@ -1226,7 +1236,7 @@ function saloon:mousereleased(x, y, button)
 end
 
 function saloon:wheelmoved(x, y)
-    if not DEBUG then return end
+    if not devToolsEnabled() then return end
     local mx, my = love.mouse.getPosition()
     local gx, gy = windowToGame(mx, my)
     local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
@@ -1591,7 +1601,7 @@ function saloon:draw()
             saloon.pauseTitleFont = Font.new(32)
         end
         if not saloon.pauseMenuButtonFont then
-            saloon.pauseMenuButtonFont = Font.new(22)
+            saloon.pauseMenuButtonFont = Font.new(26)
         end
         if not saloon.pauseHintFont then
             saloon.pauseHintFont = Font.new(15)
@@ -1605,7 +1615,7 @@ function saloon:draw()
             love.graphics.setColor(1, 0.86, 0.28, 0.95)
             love.graphics.printf("PAUSED", 0, screenH * 0.16, screenW, "center")
 
-            local rects = pauseMenuButtonLayout()
+            local rects = pauseMenuButtonLayout("large")
             for i, r in ipairs(rects) do
                 local hover = (pauseHoverIndex == i) or (pauseHoverIndex == nil and pauseSelectedIndex == i)
                 if hover then
@@ -1697,7 +1707,7 @@ function saloon:draw()
         DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
     end
 
-    if DEBUG and devPanelOpen and devPanelRows and player then
+    if devToolsEnabled() and devPanelOpen and devPanelRows and player then
         love.graphics.setColor(0, 0, 0, 0.38)
         love.graphics.rectangle("fill", 0, 0, screenW, screenH)
         if not saloon.devPanelTitleFont then
