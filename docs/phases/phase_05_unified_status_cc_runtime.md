@@ -102,7 +102,7 @@
 
 ### Still Unverified In Live Visual Play
 
-- enemy badge readability
+- none
 
 ### Bugs / Balance Problems Found During Closeout
 
