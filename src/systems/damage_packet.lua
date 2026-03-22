@@ -5,7 +5,7 @@ local DamagePacket = {}
 local KNOWN_FAMILIES = {
     physical = true,
     magical = true,
-    true = true,
+    ["true"] = true,
     true_damage = true,
 }
 
