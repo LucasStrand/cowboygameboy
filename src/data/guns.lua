@@ -32,6 +32,10 @@ Guns.pool = {
         rarity      = "common",
         dropWeight  = 0,            -- 0 = starter only
         ammoType    = "cylinder",   -- HUD render style
+        attack_profile_id = "projectile_basic",
+        tags = { "attack:projectile", "weapon:revolver" },
+        capabilities = {},
+        rules = {},
         sprite      = "ColtSingleActionArmy.png",
         -- Sprite origin: fraction of 32x32 where the grip is (for rotation pivot)
         spriteOrigin = { x = 0.25, y = 0.55 },
@@ -58,6 +62,12 @@ Guns.pool = {
         rarity      = "uncommon",
         dropWeight  = 8,
         ammoType    = "double_barrel",
+        attack_profile_id = "projectile_spread",
+        tags = { "attack:projectile", "weapon:shotgun", "attack:recoil_mobility" },
+        capabilities = {},
+        rules = {
+            recoil_only_when_aiming_down = true,
+        },
         sprite      = "Blunderbuss.png",
         spriteOrigin = { x = 0.3, y = 0.55 },
         spriteScale  = 0.75,
@@ -94,6 +104,10 @@ Guns.pool = {
         rarity      = "rare",
         dropWeight  = 4,
         ammoType    = "magazine",
+        attack_profile_id = "projectile_basic",
+        tags = { "attack:projectile", "weapon:rifle" },
+        capabilities = {},
+        rules = {},
         sprite      = "AK47.png",
         spriteOrigin = { x = 0.22, y = 0.50 },
         spriteScale  = 0.72,

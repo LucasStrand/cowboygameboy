@@ -217,7 +217,15 @@ function StatRuntime.build_player_context(player, gun, base_gun_stats)
         end
     end
 
-    if not (player.weapons and player.weapons[2] and player.weapons[2].gun) then
+    local secondary_is_melee = true
+    if player.getWeaponRuntime then
+        local slot2 = player:getWeaponRuntime(2)
+        secondary_is_melee = not slot2 or slot2.mode ~= "weapon"
+    else
+        secondary_is_melee = not (player.weapons and player.weapons[2] and player.weapons[2].gun)
+    end
+
+    if secondary_is_melee then
         local melee = player.gear and player.gear.melee
         if melee and melee.stats then
             flat_sources.gear_melee = cloneTable(melee.stats)

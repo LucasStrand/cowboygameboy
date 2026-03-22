@@ -74,7 +74,7 @@ function Shop:buyItem(index, player)
         player:equipGear(item.gearData)
     elseif item.type == "ammo" then
         player.stats.cylinderSize = player.stats.cylinderSize + 2
-        player.ammo = player.ammo + 2
+        player:addAmmoToActiveSlot(2, "shop:ammo_upgrade")
     end
 
     return true, "Purchased!"

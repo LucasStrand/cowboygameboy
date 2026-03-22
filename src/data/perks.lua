@@ -65,7 +65,7 @@ Perks.pool = {
         weight = 8,
         apply = function(player)
             player.stats.cylinderSize = player.stats.cylinderSize + 1
-            player.ammo = player.ammo + 1
+            player:addAmmoToActiveSlot(1, "perk:extra_bullet")
         end
     },
     {

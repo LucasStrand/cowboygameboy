@@ -346,7 +346,13 @@ local function drawMagazineCounter(cx, cy, capacity, loadedCount, reloading)
 end
 
 local BASE_CYLINDER_SIZE = 6
-local function gunCapacity(gun, player)
+local function gunCapacity(gun, player, slotIndex)
+    if slotIndex and player.getResolvedWeaponStats then
+        local stats = player:getResolvedWeaponStats(slotIndex)
+        if stats and stats.cylinderSize then
+            return stats.cylinderSize
+        end
+    end
     local perkDelta = player.stats.cylinderSize - BASE_CYLINDER_SIZE
     return gun.baseStats.cylinderSize + perkDelta
 end
@@ -355,7 +361,7 @@ local function drawAmmoDisplay(cx, cy, player, effectiveStats)
     local gun = player:getActiveGun()
     if not gun then return 0 end
 
-    local cap = gunCapacity(gun, player)
+    local cap = gunCapacity(gun, player, player.activeWeaponSlot)
     local ammoType = gun.ammoType
     if ammoType == "cylinder" then
         drawRevolverCylinder(cx, cy, cap, player.ammo, player.reloading)
@@ -518,7 +524,7 @@ function HUD.draw(player)
             local function ammoR(gun)
                 if not gun then return 20 end
                 if gun.ammoType == "cylinder" then
-                    return drumOuterRadius(gunCapacity(gun, player))
+                    return drumOuterRadius(gunCapacity(gun, player, gun == gun1 and 1 or 2))
                 elseif gun.ammoType == "double_barrel" then return 24
                 elseif gun.ammoType == "magazine" then return 30
                 end
@@ -534,20 +540,20 @@ function HUD.draw(player)
             if gun1 then
                 local ammo1 = player.activeWeaponSlot == 1 and player.ammo or slot1.ammo
                 local reloading1 = player.activeWeaponSlot == 1 and player.reloading or slot1.reloading
-                drawAmmoForGun(cx1, cy1, gun1, gunCapacity(gun1, player), ammo1, reloading1)
+                drawAmmoForGun(cx1, cy1, gun1, gunCapacity(gun1, player, 1), ammo1, reloading1)
             end
 
             local cx2 = cx1 + r1 + agap + r2
             if gun2 then
                 local ammo2 = player.activeWeaponSlot == 2 and player.ammo or slot2.ammo
                 local reloading2 = player.activeWeaponSlot == 2 and player.reloading or slot2.reloading
-                drawAmmoForGun(cx2, cy1, gun2, gunCapacity(gun2, player), ammo2, reloading2)
+                drawAmmoForGun(cx2, cy1, gun2, gunCapacity(gun2, player, 2), ammo2, reloading2)
             end
         else
             local displayR = 36
             local gun = player:getActiveGun()
             if gun and gun.ammoType == "cylinder" then
-                displayR = drumOuterRadius(gunCapacity(gun, player))
+                displayR = drumOuterRadius(gunCapacity(gun, player, player.activeWeaponSlot))
             elseif gun and gun.ammoType == "double_barrel" then
                 displayR = 24
             elseif gun and gun.ammoType == "magazine" then

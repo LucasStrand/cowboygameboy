@@ -1487,17 +1487,17 @@ function game:update(dt)
             local bulletData
             local gunForShake
             if player:isAkimbo() then
-                if not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
+                if player:canAnyAkimboGunFire() then
                     bulletData = player:shoot(tx, ty)
                     gunForShake = player:getActiveGun()
                 end
             else
                 local s = player:getWeaponSlotForAutoFire()
                 if s then
-                    local w = player.weapons[s]
-                    if not w.reloading and (w.shootCooldown or 0) <= 0 and w.ammo > 0 then
+                    local w = player:getWeaponRuntime(s)
+                    if w and w.mode == "weapon" and (w.reload_timer or 0) <= 0 and (w.cooldown_timer or 0) <= 0 and (w.ammo or 0) > 0 then
                         bulletData = player:shootFromSlot(s, tx, ty)
-                        gunForShake = w.gun
+                        gunForShake = w.weapon_def
                     end
                 end
             end
