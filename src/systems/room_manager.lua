@@ -1,6 +1,8 @@
 local RoomData = require("src.data.rooms")
 local Vision = require("src.data.vision")
 local RoomLoader = require("src.systems.room_loader")
+local ChunkLoader = require("src.systems.chunk_loader")
+local ChunkAssembler = require("src.systems.chunk_assembler")
 local Worlds = require("src.data.worlds")
 local Enemy = require("src.entities.enemy")
 local bump = require("lib.bump")
@@ -51,16 +53,27 @@ function RoomManager:generateSequence()
         return
     end
     self.roomSequence = {}
-    local pool = RoomLoader.getPool(self.worldId)
-    if #pool == 0 then
-        -- Fallback to legacy pool
-        pool = RoomData.pool or {}
-    end
     local roomsPerCheckpoint = (self.worldDef and self.worldDef.roomsPerCheckpoint)
         or RoomData.ROOMS_PER_CHECKPOINT
+
+    -- Check if this world has chunks for procedural assembly
+    local chunks = ChunkLoader.getPool(self.worldId)
+    local useChunks = #chunks > 0
+
     for i = 1, roomsPerCheckpoint do
-        local room = pool[math.random(#pool)]
-        table.insert(self.roomSequence, room)
+        if useChunks then
+            -- Procedural: assemble a room from chunks (Dead Cells-style)
+            local room = ChunkAssembler.generate(self.worldId, self.difficulty)
+            table.insert(self.roomSequence, room)
+        else
+            -- Legacy: pick a random hand-crafted room
+            local pool = RoomLoader.getPool(self.worldId)
+            if #pool == 0 then
+                pool = RoomData.pool or {}
+            end
+            local room = pool[math.random(#pool)]
+            table.insert(self.roomSequence, room)
+        end
     end
     self.currentRoomIndex = 0
     self.roomsCleared = 0
@@ -242,7 +255,8 @@ function RoomManager:loadRoom(room, world, player, opts)
     local enemies = {}
     local pendingEnemySpawns = {}
     if not (opts and opts.skipEnemies) and not room.devArena then
-        local plan = RoomData.buildSpawnPlan(room, self.difficulty, player.level or 1)
+        local roster = self.worldDef and self.worldDef.enemyRoster
+        local plan = RoomData.buildSpawnPlan(room, self.difficulty, player.level or 1, roster)
         for _, spawn in ipairs(plan.immediate) do
             local enemy = Enemy.new(spawn.type, spawn.x, spawn.y, self.difficulty, { elite = spawn.elite })
             if enemy then

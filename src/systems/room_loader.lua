@@ -3,6 +3,7 @@
 -- user-created rooms in the save directory (rooms/<worldId>/).
 
 local RoomLoader = {}
+local RoomSerializer = require("src.systems.room_serializer")
 
 --- Validate that a room table has the required fields.
 local function isValidRoom(room)
@@ -25,7 +26,7 @@ local function loadRoomsFromDir(dir)
             if chunk then
                 local ok, room = pcall(chunk)
                 if ok and isValidRoom(room) then
-                    rooms[#rooms + 1] = room
+                    rooms[#rooms + 1] = RoomSerializer.normalize(room)
                 else
                     print("[RoomLoader] Invalid room: " .. path)
                 end

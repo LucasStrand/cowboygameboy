@@ -110,7 +110,14 @@
       "Bash(find /c/github/cowboygameboy/assets -path */Tiles/Tiles/* -o -path */Tiles/Assets/*)",
       "Bash(love . --fused)",
       "Bash(unzip -o blackjack_dealer.zip -d sprites/blackjack_dealer/)",
-      "Bash(lua -e \":*)"
+      "Bash(lua -e \":*)",
+      "Bash(grep:*)",
+      "Bash(lua -c src/systems/chunk_loader.lua)",
+      "Bash(lua -c src/systems/chunk_assembler.lua)",
+      "Bash(lua -c src/systems/room_serializer.lua)",
+      "Bash(lua -c src/systems/room_manager.lua)",
+      "Bash(luac -p src/data/worlds.lua src/data/rooms.lua src/systems/room_manager.lua src/states/editor.lua)",
+      "Bash(lua -e \"loadfile\\(''src/states/editor.lua''\\)\")"
     ]
   }
 }

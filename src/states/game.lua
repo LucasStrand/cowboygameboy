@@ -1132,13 +1132,13 @@ function game:enter(_, opts)
     devShowHitboxes = true
 
     devArenaMode = opts and opts.devArena == true
-    local worldId = (opts and opts.worldId) or "forest"
+    local worldId = (opts and opts.worldId) or Worlds.order[1]
     roomManager = RoomManager.new(worldId)
     roomManager.devArenaMode = devArenaMode
     currentTheme = roomManager:getTheme()
 
     local worldDef = Worlds.get(worldId)
-    local bgPath = worldDef and worldDef.background or "assets/backgrounds/forest.png"
+    local bgPath = worldDef and worldDef.background or Worlds.get(Worlds.order[1]).background
     bgImage = love.graphics.newImage(bgPath)
     bgImage:setWrap("repeat", "clampzero")
 

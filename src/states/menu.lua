@@ -1,6 +1,7 @@
 local Gamestate = require("lib.hump.gamestate")
 local Camera = require("lib.hump.camera")
 local bump = require("lib.bump")
+local Worlds = require("src.data.worlds")
 local Font = require("src.ui.font")
 local Cursor = require("src.ui.cursor")
 local Player = require("src.entities.player")
@@ -43,7 +44,7 @@ local introFadeAlpha = 0
 local function beginGameWithIntroCountdown()
     MenuBgm.stop()
     local game = require("src.states.game")
-    Gamestate.switch(game, { introCountdown = true })
+    Gamestate.switch(game, { introCountdown = true, worldId = Worlds.order[1] })
 end
 
 local function beginDevArena()
@@ -60,7 +61,7 @@ end
 local function menuButtons()
     local list = {
         { id = "start", label = "Start game" },
-        { id = "editor", label = "Level Editor" },
+        { id = "editor", label = "World Editor" },
     }
     if DEV_TOOLS_ENABLED or DEBUG then
         list[#list + 1] = { id = "dev_arena", label = "Dev arena" }
@@ -137,7 +138,8 @@ function menu:enter(_, opts)
         player.isPlayer = true
         player.keyboardAimMode = true
 
-        roomManager = RoomManager.new()
+        local startWorldId = Worlds.order[1]
+        roomManager = RoomManager.new(startWorldId)
         roomManager:generateSequence()
         local roomData = roomManager:nextRoom()
         if roomData then
@@ -145,7 +147,9 @@ function menu:enter(_, opts)
         end
 
         if not bgImage then
-            bgImage = love.graphics.newImage("assets/backgrounds/forest.png")
+            local startWorld = Worlds.get(startWorldId)
+            local bgPath = startWorld and startWorld.background or "assets/backgrounds/stage1vertical.jpg"
+            bgImage = love.graphics.newImage(bgPath)
             bgImage:setWrap("repeat", "clampzero")
         end
     end
