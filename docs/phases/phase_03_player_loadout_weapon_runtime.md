@@ -60,6 +60,19 @@
 
 These fields are still populated so HUD, game loop, and other legacy call sites keep working, but they are no longer authoritative.
 
+## Phase 3 Hardening Revision
+
+- Dead legacy fallback bodies were removed from `player.lua` runtime seams:
+  - `getEffectiveStatsForGun`
+  - `switchWeapon`
+  - `equipWeapon`
+- `weapon_runtime` no longer pretends to maintain a resolved-stat cache that was never invalidated correctly.
+- Compatibility mirrors are intentionally narrowed to:
+  - HUD/presentation reads
+  - small glue seams such as reload transition checks
+- New gameplay or combat logic should not read from mirrors when runtime accessors exist.
+- Runtime slot mode is now the preferred melee/ranged truth. Legacy `weapons[2]` reasoning remains only as one explicit fallback adapter in `stat_runtime` for non-runtime contexts.
+
 ### Legacy `gun.onShoot` survives only as a bridge
 
 - Attack execution now flows through `attack_profile_id`.
@@ -103,14 +116,25 @@ These fields are still populated so HUD, game loop, and other legacy call sites 
 - [ ] Ammo perk and ammo shop upgrade hit authoritative runtime state instead of writing to compatibility mirrors.
 - [ ] HUD ammo capacity can read resolved slot stats.
 
+## Hardening Acceptance
+
+- [x] Runtime-first player seams no longer contain unreachable legacy branches.
+- [x] Compatibility mirrors are documented as derived projections, not source of truth.
+- [x] Weapon runtime debug dumps remain authoritative and do not read mirrors.
+- [x] Gameplay-facing ammo mutations in perks/shop use runtime accessors.
+- [x] Auto-fire gameplay reads authoritative slot runtime.
+- [x] Remaining mirror reads are constrained to HUD/presentation and small glue paths.
+
 ## Remaining Adapters / Follow-Up
 
-- Some legacy readers still consume derived compatibility mirrors in `player`.
-- `player:getEffectiveStatsForGun` still exists as a compatibility seam and should be deleted once all runtime stat reads come through slot/runtime helpers.
+- HUD still consumes derived compatibility mirrors for slot/ammo presentation.
+- Reload transition glue in `game.lua` still reads `player.reloading` as a projection.
+- `player:getEffectiveStatsForGun` remains as a compatibility helper for non-slot stat reads and debug comparison.
+- `stat_runtime` retains one documented fallback for callers without runtime-backed player accessors.
 - Full attack profiles, capability enforcement, and rule transforms are still deferred to later phases.
 
 ## Verification Status
 
-- Implementation completed.
-- Static verification still required.
+- Phase 3 implementation and hardening pass completed.
+- Static repo-search verification confirms that remaining mirror reads are limited to approved UI/glue paths.
 - Manual gameplay verification is still required for reload persistence, akimbo, HUD ammo readout, and weapon swapping in live Love runtime.

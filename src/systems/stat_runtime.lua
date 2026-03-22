@@ -222,6 +222,7 @@ function StatRuntime.build_player_context(player, gun, base_gun_stats)
         local slot2 = player:getWeaponRuntime(2)
         secondary_is_melee = not slot2 or slot2.mode ~= "weapon"
     else
+        -- Legacy fallback for callers that do not yet provide a runtime-backed player.
         secondary_is_melee = not (player.weapons and player.weapons[2] and player.weapons[2].gun)
     end
 

@@ -27,7 +27,7 @@ Syftet är att:
 | [damage_resolution_spec.md](./damage_resolution_spec.md) | Exakt damage order och mitigationmodell | `phase 1 spec` |
 | [runtime_rules_spec.md](./runtime_rules_spec.md) | Hit-regler, overrides, slot/runtime-model och proc-defaults | `phase 1 spec` |
 | [phases/phase_02_shared_foundations.md](./phases/phase_02_shared_foundations.md) | Phase 2 implementation log | `implemented` |
-| [phases/phase_03_player_loadout_weapon_runtime.md](./phases/phase_03_player_loadout_weapon_runtime.md) | Phase 3 implementation log | `implemented` |
+| [phases/phase_03_player_loadout_weapon_runtime.md](./phases/phase_03_player_loadout_weapon_runtime.md) | Phase 3 implementation log | `implemented + hardened` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -294,8 +294,8 @@ Delar:
 | Del | Status | Nästa steg |
 |---|---|---|
 | N-slot backend model | `spec locked after Phase 1` | ersätt hårdkodade 2-slot-antaganden i runtime |
-| Resolved weapon stats | `implemented` | faslogg i `phase_03_player_loadout_weapon_runtime.md` |
-| Runtime counters | `implemented` | verifiera live behavior och bygg vidare i Phase 4 |
+| Resolved weapon stats | `implemented + hardened` | konsumera direkt från Phase 4 resolver-context |
+| Runtime counters | `implemented + hardened` | verifiera live behavior och bygg vidare i Phase 4 |
 
 ### Status System
 

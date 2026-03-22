@@ -184,8 +184,6 @@ function WeaponRuntime.initPlayerLoadout(player, primary_gun, secondary_gun)
                 passive_counters = {},
                 per_target_counters = {},
                 temporary_flags = {},
-                resolved_stats_cache = nil,
-                resolved_dirty = true,
             },
             [2] = {
                 slot_index = 2,
@@ -201,8 +199,6 @@ function WeaponRuntime.initPlayerLoadout(player, primary_gun, secondary_gun)
                 passive_counters = {},
                 per_target_counters = {},
                 temporary_flags = {},
-                resolved_stats_cache = nil,
-                resolved_dirty = true,
             },
         },
         active_slots = { 1, 2 },
@@ -219,6 +215,8 @@ function WeaponRuntime.syncLegacyViews(player)
         return
     end
 
+    -- Compatibility mirrors remain for UI/presentation and small glue seams only.
+    -- Gameplay code must read authoritative slot state from weapon_runtime.
     player.weapons = {
         [1] = legacyViewForSlot(runtime.weapon_slots[1]),
         [2] = legacyViewForSlot(runtime.weapon_slots[2]),
@@ -254,9 +252,7 @@ function WeaponRuntime.getResolvedStats(player, slot_index)
         return nil
     end
 
-    slot.resolved_stats_cache = computeResolvedStats(player, slot.weapon_def)
-    slot.resolved_dirty = false
-    return slot.resolved_stats_cache
+    return computeResolvedStats(player, slot.weapon_def)
 end
 
 function WeaponRuntime.getResolvedStatsForGun(player, gun_def)
@@ -316,8 +312,6 @@ function WeaponRuntime.equipWeapon(player, gun_def, slot_index)
     slot.passive_counters = {}
     slot.per_target_counters = {}
     slot.temporary_flags = {}
-    slot.resolved_stats_cache = nil
-    slot.resolved_dirty = true
 
     player.weaponRuntime.active_weapon_slot = slot_index
     WeaponRuntime.syncLegacyViews(player)

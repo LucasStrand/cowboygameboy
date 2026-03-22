@@ -401,64 +401,6 @@ function Player:getEffectiveStatsForGun(gun)
 
     compareStatRuntime(self, gun, resolved)
     return resolved
-
-    local s = {}
-    for k, v in pairs(self.stats) do
-        s[k] = v
-    end
-
-    -- Hat / vest / boots / shield — not melee (knife is merged below when secondary slot is free).
-    for slot, gear in pairs(self.gear) do
-        if gear and slot ~= "melee" and gear.stats then
-            for stat, val in pairs(gear.stats) do
-                if s[stat] ~= nil then
-                    s[stat] = s[stat] + val
-                end
-            end
-        end
-    end
-
-    -- Melee: only when no gun in slot 2. Use equipped knife or default (pickups clear gear.melee
-    -- but you still have the knife when secondary is empty).
-    if not (self.weapons[2] and self.weapons[2].gun) then
-        local m = self.gear.melee or Weapons.defaults.melee
-        if m and m.stats then
-            for stat, val in pairs(m.stats) do
-                if s[stat] ~= nil then
-                    s[stat] = s[stat] + val
-                end
-            end
-        end
-    end
-
-    if gun then
-        for stat, baseDefault in pairs(PLAYER_BASE_GUN_STATS) do
-            local perkDelta = self.stats[stat] - baseDefault
-            s[stat] = gun.baseStats[stat] + perkDelta
-        end
-        s.shootCooldown = gun.baseStats.shootCooldown
-        s.inaccuracy    = gun.baseStats.inaccuracy or 0
-    else
-        s.shootCooldown = 0.38
-        s.inaccuracy    = 0
-    end
-
-    if (self.monsterMoveBonus or 0) > 0 then
-        s.moveSpeed = s.moveSpeed + self.monsterMoveBonus
-    end
-
-    -- Apply buff/debuff stat modifiers
-    if self.buffs then
-        local mods = Buffs.getStatMods(self.buffs)
-        for stat, val in pairs(mods) do
-            if s[stat] ~= nil then
-                s[stat] = s[stat] + val
-            end
-        end
-    end
-
-    compareStatRuntime(self, gun, s)
-    return s
 end
 
 --- True if any ranged slot can fire (for akimbo auto-fire; each gun has its own cadence).
@@ -1091,36 +1033,6 @@ function Player:switchWeapon()
     WeaponRuntime.switchActiveSlot(self)
     self:syncLegacyWeaponViews()
     self.anim:play("holster", true)
-    return
-
-    -- Save current slot state
-    local cur = self.weapons[self.activeWeaponSlot]
-    if cur then
-        cur.ammo         = self.ammo
-        cur.reloading    = self.reloading
-        cur.reloadTimer  = self.reloadTimer
-        cur.shootCooldown = self.shootCooldown
-    end
-
-    local newSlot = self.activeWeaponSlot == 1 and 2 or 1
-    local target = self.weapons[newSlot]
-
-    self.activeWeaponSlot = newSlot
-
-    if target and target.gun then
-        self.ammo          = target.ammo
-        self.reloading     = target.reloading
-        self.reloadTimer   = target.reloadTimer
-        self.shootCooldown = target.shootCooldown or 0
-    else
-        -- Empty secondary: melee / no gun — nothing to mirror on self.*
-        self.ammo          = 0
-        self.reloading     = false
-        self.reloadTimer   = 0
-        self.shootCooldown = 0
-    end
-
-    self.anim:play("holster", true)
 end
 
 --- Equip a gun definition into a weapon slot (1 or 2). Resets ammo to full.
@@ -1130,36 +1042,6 @@ function Player:equipWeapon(gunDef, slotIndex)
     WeaponRuntime.equipWeapon(self, gunDef, slotIndex)
     self:syncLegacyWeaponViews()
 
-    if slotIndex == 2 then
-        self.gear.melee = nil
-    end
-    return
-
-    -- Save current active slot state before switching
-    local curSlot = self.weapons[self.activeWeaponSlot]
-    if curSlot then
-        curSlot.ammo         = self.ammo
-        curSlot.reloading    = self.reloading
-        curSlot.reloadTimer  = self.reloadTimer
-        curSlot.shootCooldown = self.shootCooldown
-    end
-
-    self.weapons[slotIndex] = {
-        gun          = gunDef,
-        ammo         = gunDef.baseStats.cylinderSize,
-        reloading    = false,
-        reloadTimer  = 0,
-        shootCooldown = 0,
-    }
-
-    -- Auto-switch to the newly equipped weapon
-    self.activeWeaponSlot = slotIndex
-    self.ammo         = gunDef.baseStats.cylinderSize
-    self.reloading    = false
-    self.reloadTimer  = 0
-    self.shootCooldown = 0
-
-    -- Replacing secondary with a gun drops the knife from the loadout (dual-wield = no melee).
     if slotIndex == 2 then
         self.gear.melee = nil
     end
