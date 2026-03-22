@@ -251,8 +251,10 @@ end
 -- Branch generation
 ---------------------------------------------------------------------------
 
-local function generateBranches(path, cols, rows, chunksByType, branchChance)
+local function generateBranches(path, cols, rows, chunksByType, branchChance, branchVertical)
     branchChance = branchChance or DEFAULT_BRANCH_CHANCE
+    -- When false, only branch into adjacent columns (no cells stacked above/below the path).
+    if branchVertical == nil then branchVertical = true end
     local branches = {}
     local occupied = {}
     for _, cell in ipairs(path) do
@@ -264,11 +266,14 @@ local function generateBranches(path, cols, rows, chunksByType, branchChance)
         if not cell.chunk then goto continue end
 
         local chunk = cell.chunk
-        local dirMap = {
+        local dirMap = branchVertical and {
             {side = "left",   dc = -1, dr = 0},
             {side = "right",  dc = 1,  dr = 0},
             {side = "top",    dc = 0,  dr = -1},
             {side = "bottom", dc = 0,  dr = 1},
+        } or {
+            {side = "left",   dc = -1, dr = 0},
+            {side = "right",  dc = 1,  dr = 0},
         }
 
         -- Find unused open edges that point to an empty cell
@@ -634,7 +639,9 @@ function ChunkAssembler.generate(worldId, difficulty, opts)
             recordOutHeight(cell, path, i)
         end
 
-        local branches = generateBranches(path, cols, rows, chunksByType, branchChance)
+        local branchVertical = gen.branchVertical
+        if branchVertical == nil then branchVertical = true end
+        local branches = generateBranches(path, cols, rows, chunksByType, branchChance, branchVertical)
 
         local allCells = {}
         for _, cell in ipairs(path) do allCells[#allCells + 1] = cell end

@@ -31,6 +31,7 @@ local MusicDirector = require("src.systems.music_director")
 local WorldLighting = require("src.systems.world_lighting")
 local Vision = require("src.data.vision")
 local GameDevApply = require("src.states.game_dev_apply")
+local MapActivities = require("src.systems.map_activities")
 
 local game = {}
 game._runtime = {}
@@ -41,6 +42,11 @@ local player
 local bullets
 local enemies
 local pickups
+local chests
+local shrines
+local merchants
+local weaponAltars
+local activeMerchant
 local roomManager
 local currentRoom
 local roomData
@@ -792,6 +798,86 @@ local function drawExitArrow()
     love.graphics.setColor(1, 1, 1)
 end
 
+--- Hook chest loot / ambush and procedural shrines, merchants, altars, wild pickups.
+local function wireRoomEntities(roomDef)
+    chests = {}
+    shrines = {}
+    merchants = {}
+    weaponAltars = {}
+    activeMerchant = nil
+
+    if currentRoom and currentRoom.chests then
+        for _, c in ipairs(currentRoom.chests) do
+            chests[#chests + 1] = c
+        end
+    end
+
+    local function attachChestCallbacks(chest)
+        chest.onLoot = function(drops)
+            local spawnX, spawnY = chest:getSpawnPos()
+            for _, drop in ipairs(drops) do
+                local p = Pickup.new(spawnX - 5, spawnY, drop.type, drop.value)
+                p.vx = drop.vx or 0
+                p.vy = drop.vy or -200
+                world:add(p, p.x, p.y, p.w, p.h)
+                table.insert(pickups, p)
+            end
+        end
+        chest.onAmbush = function(bonePiles)
+            for _, bp in ipairs(bonePiles) do
+                local ex = bp.x + (bp.w or 18) / 2 - 10
+                local ey = bp.y + (bp.h or 28) - 28
+                local skel = Enemy.new("skeleton", ex, ey, roomManager.difficulty, {})
+                if skel then
+                    world:add(skel, skel.x, skel.y, skel.w, skel.h)
+                    table.insert(enemies, skel)
+                    bp.riseProgress = 0
+                    bp._skelRef = skel
+                end
+            end
+        end
+    end
+
+    for _, chest in ipairs(chests) do
+        attachChestCallbacks(chest)
+    end
+
+    if roomDef and currentRoom and not roomDef.devArena then
+        local mapRoom = {
+            platforms = currentRoom.platforms,
+            playerSpawn = roomDef.playerSpawn,
+            exitDoor = roomDef.exitDoor,
+            chests = roomDef.chests,
+        }
+        local activities = MapActivities.generate(mapRoom, roomManager.difficulty, roomManager.currentRoomIndex)
+        for _, shrine in ipairs(activities.shrines or {}) do
+            shrine.onActivate = function(buffId)
+                if player then player:applyBuff(buffId) end
+            end
+            shrines[#shrines + 1] = shrine
+        end
+        for _, m in ipairs(activities.merchants or {}) do
+            merchants[#merchants + 1] = m
+        end
+        for _, altar in ipairs(activities.weaponAltars or {}) do
+            altar.onChoose = function(gun)
+                if gun and player then
+                    player:equipWeapon(gun, player.activeWeaponSlot or 1)
+                end
+            end
+            weaponAltars[#weaponAltars + 1] = altar
+        end
+        for _, chest in ipairs(activities.extraChests or {}) do
+            attachChestCallbacks(chest)
+            chests[#chests + 1] = chest
+        end
+        for _, p in ipairs(activities.wildPickups or {}) do
+            world:add(p, p.x, p.y, p.w, p.h)
+            table.insert(pickups, p)
+        end
+    end
+end
+
 local function tryExitThroughDoor()
     if transitionTimer > 0 or not isPlayerNearDoor() or not roomManager then
         return
@@ -809,6 +895,40 @@ local function tryExitThroughDoor()
     else
         transitionTimer = 0.5
     end
+end
+
+local function tryInteractWorld()
+    if not player or not currentRoom or transitionTimer > 0 then return end
+    local px = player.x + player.w / 2
+    local py = player.y + player.h / 2
+
+    for _, altar in ipairs(weaponAltars) do
+        if altar.state == "choosing" and altar:isNearPlayer(px, py) then
+            if altar:tryChoose(player) then return end
+        end
+    end
+    for _, shrine in ipairs(shrines) do
+        if shrine:isNearPlayer(px, py) and shrine:tryActivate(player) then
+            return
+        end
+    end
+    for _, chest in ipairs(chests) do
+        if chest:isNearPlayer(px, py) then
+            local function applyCursed(dmg)
+                if dmg and dmg > 0 then player:takeDamage(dmg) end
+            end
+            if chest:tryOpen(player, applyCursed) then return end
+        end
+    end
+    for _, m in ipairs(merchants) do
+        if m:isNearPlayer(px, py) and m.state == "idle" then
+            if m:tryInteract() then
+                activeMerchant = m
+                return
+            end
+        end
+    end
+    tryExitThroughDoor()
 end
 
 local bgImage
@@ -1109,6 +1229,11 @@ function game:enter(_, opts)
     bullets = {}
     enemies = {}
     pickups = {}
+    chests = {}
+    shrines = {}
+    merchants = {}
+    weaponAltars = {}
+    activeMerchant = nil
     enemyNoiseEvents = {}
     shakeTimer = 0
     shakeIntensity = 0
@@ -1139,6 +1264,7 @@ function game:enter(_, opts)
     roomManager = RoomManager.new(worldId)
     roomManager.devArenaMode = devArenaMode
     currentTheme = roomManager:getTheme()
+    TileRenderer.preloadTheme(currentTheme)
 
     -- Activate world-specific atmosphere systems
     if worldId == "train" then
@@ -1160,7 +1286,10 @@ function game:enter(_, opts)
         DevLog.init()
         DevLog.push("sys", "Editor test play")
         currentRoom = roomManager:loadRoom(editorRoom, world, player)
+        currentTheme = roomManager:getTheme()
+        TileRenderer.preloadTheme(currentTheme)
         enemies = currentRoom.enemies
+        wireRoomEntities(editorRoom)
         updateCamera(0, true)
     else
         roomManager:generateSequence()
@@ -1211,6 +1340,11 @@ function loadNextRoom()
     bullets = {}
     pickups = {}
     enemies = {}
+    chests = {}
+    shrines = {}
+    merchants = {}
+    weaponAltars = {}
+    activeMerchant = nil
     enemyNoiseEvents = {}
     if devNpcSpawn then
         devNpcSpawn.preview = nil
@@ -1236,7 +1370,10 @@ function loadNextRoom()
     end
 
     currentRoom = roomManager:loadRoom(roomData, world, player)
+    currentTheme = roomManager:getTheme()
+    TileRenderer.preloadTheme(currentTheme)
     enemies = currentRoom.enemies
+    wireRoomEntities(roomData)
     -- Snap camera to player on room load (no lerp lag)
     updateCamera(0, true)
     if roomManager.devArenaMode then
@@ -1437,6 +1574,31 @@ function game:update(dt)
 
     -- Player update
     player:update(dt, world, enemies)
+
+    do
+        local px = player.x + player.w / 2
+        local py = player.y + player.h / 2
+        for _, chest in ipairs(chests) do
+            chest:update(dt)
+            for _, bp in ipairs(chest.bonePiles) do
+                if bp._skelRef and bp._skelRef.alive then
+                    bp.riseProgress = math.min(1, (bp.riseProgress or 0) + dt * 1.5)
+                end
+            end
+        end
+        for _, shrine in ipairs(shrines) do
+            shrine:update(dt)
+        end
+        for _, m in ipairs(merchants) do
+            m:update(dt)
+        end
+        for _, altar in ipairs(weaponAltars) do
+            altar:update(dt)
+            if altar.state == "choosing" and altar:isNearPlayer(px, py) then
+                altar:updateSelection(px, py)
+            end
+        end
+    end
 
     -- Wind physics: nudge player with headwind (train world only)
     if Wind.active and not player.dying and player.filter then
@@ -1699,6 +1861,27 @@ function game:keypressed(key)
 
     if player and player.dying then return end
 
+    if activeMerchant and activeMerchant.state == "browsing" then
+        if key == "q" or key == "escape" then
+            activeMerchant:closeBrowse()
+            activeMerchant = nil
+            return
+        end
+        if key == "w" or key == "up" then
+            activeMerchant:selectPrev()
+            return
+        end
+        if key == "s" or key == "down" then
+            activeMerchant:selectNext()
+            return
+        end
+        if Keybinds.matches("interact", key) or key == "return" or key == "space" or key == "kpenter" then
+            activeMerchant:buySelected(player)
+            return
+        end
+        return
+    end
+
     if paused and pauseMenu.view == "settings" and pauseMenu.settingsBindCapture then
         if key == "escape" then
             pauseMenu.settingsBindCapture = nil
@@ -1826,8 +2009,8 @@ function game:keypressed(key)
     if key == "tab" then
         player:switchWeapon()
     end
-    if key == "e" then
-        tryExitThroughDoor()
+    if Keybinds.matches("interact", key) then
+        tryInteractWorld()
     end
 end
 
@@ -2089,9 +2272,37 @@ function game:draw()
                 viewW * 2, viewH * 2)
         end
 
+        -- Western: layered mountain bands (same ground texture, darker / dimmed) behind level art
+        if currentTheme and currentTheme._mountainSilhouette and currentRoom.width and currentRoom.height then
+            local wsh = currentTheme._waterStripH or 0
+            TileRenderer.drawWesternMountainSilhouette(
+                currentRoom.width, currentRoom.height, wsh, currentTheme)
+        end
+
         -- Rail tracks (train world — drawn behind everything else)
         if roomManager and roomManager.worldId == "train" then
             TrainRenderer.drawRails(camX, camY, viewW, viewH, currentRoom.height)
+        end
+
+        -- Water: river in floor gaps then bottom strip (desert / any theme with _waterTexture)
+        if currentTheme and currentTheme._waterTexture and currentRoom.width and currentRoom.height then
+            love.graphics.setColor(1, 1, 1)
+            if currentRoom.waterGapRects then
+                for _, wr in ipairs(currentRoom.waterGapRects) do
+                    TileRenderer.drawWaterBand(wr.x, wr.y, wr.w, wr.h, currentTheme)
+                end
+            end
+            if currentTheme._waterStripH and currentTheme._waterStripH > 0 then
+                local wsX = currentRoom.waterStripX or 0
+                local wsW = currentRoom.waterStripW or currentRoom.width
+                TileRenderer.drawWaterBand(
+                    wsX,
+                    currentRoom.height - currentTheme._waterStripH,
+                    wsW,
+                    currentTheme._waterStripH,
+                    currentTheme
+                )
+            end
         end
 
         -- Walls (left, right, ceiling)
@@ -2108,21 +2319,63 @@ function game:draw()
                     if plat.h >= 32 then
                         TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme)
                     else
-                        TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme)
+                        TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme, plat)
                     end
                 end
             end
         else
+        local waterStripH = currentTheme and currentTheme._waterStripH or 0
+        local cliffBottom = currentRoom.height - waterStripH
+        local terrainDepthOpts = { roomHeight = currentRoom.height }
+        if currentTheme and currentTheme._mountainMassSupport then
+            for _, plat in ipairs(currentRoom.platforms) do
+                if plat.h < 32 then
+                    if plat.isGapBridge then
+                        TileRenderer.drawGapBridgeMountainSupports(
+                            plat.x, plat.y, plat.w, plat.h, cliffBottom, currentTheme, plat)
+                    else
+                        TileRenderer.drawLedgeMountainSupport(
+                            plat.x, plat.y, plat.w, plat.h, cliffBottom, currentTheme, plat)
+                    end
+                end
+            end
+        end
         for _, plat in ipairs(currentRoom.platforms) do
-            if plat.h >= 32 then
-                TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme)
-            else
-                TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme)
+            if not plat.isGapBridge then
+                if plat.h >= 32 then
+                    -- Draw cliff below elevated solid platforms (mesa/butte look)
+                    TileRenderer.drawPlatformCliff(plat.x, plat.y, plat.w, plat.h, cliffBottom, currentTheme, terrainDepthOpts)
+                    TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme, terrainDepthOpts)
+                else
+                    TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme, plat, terrainDepthOpts)
+                end
+            end
+        end
+        for _, plat in ipairs(currentRoom.platforms) do
+            if plat.isGapBridge then
+                TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme, plat, terrainDepthOpts)
             end
         end
         end  -- end train/non-train platform branch
 
         RoomProps.drawDecor(currentRoom)
+
+        if player then
+            local px = player.x + player.w / 2
+            local py = player.y + player.h / 2
+            for _, shrine in ipairs(shrines) do
+                shrine:draw(shrine:isNearPlayer(px, py))
+            end
+            for _, m in ipairs(merchants) do
+                m:draw(m:isNearPlayer(px, py), player.gold)
+            end
+            for _, altar in ipairs(weaponAltars) do
+                altar:draw(altar:isNearPlayer(px, py))
+            end
+            for _, chest in ipairs(chests) do
+                chest:draw(player, chest:isNearPlayer(px, py))
+            end
+        end
 
         -- Door (saloon door sprite)
         local door = currentRoom.door
@@ -2316,6 +2569,10 @@ function game:draw()
         DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
         if roomManager then
             HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
+        end
+
+        if activeMerchant and activeMerchant.state == "browsing" then
+            activeMerchant:drawShopUI(GAME_WIDTH / 2, GAME_HEIGHT - 8, player.gold)
         end
 
         -- Transition fade

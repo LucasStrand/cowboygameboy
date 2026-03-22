@@ -127,7 +127,7 @@ function RoomProps.buildForRoom(worldId, rawRoom, loadedRoom, opts)
     local instances = {}
 
     for _, plat in ipairs(loadedRoom.platforms) do
-        if plat.w and plat.w >= marginX * 2 + 16 and plat.y then
+        if not plat.isGapBridge and plat.w and plat.w >= marginX * 2 + 16 and plat.y then
             local innerL = plat.x + marginX
             local innerR = plat.x + plat.w - marginX
             if innerR > innerL then

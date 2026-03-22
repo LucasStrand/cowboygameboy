@@ -13,7 +13,7 @@ return {
     platforms = {
         -- Slight elevation change — ramp feel
         {x = 0, y = 360, w = 160, h = 40},
-        {x = 140, y = 340, w = 120, h = 16},
+        {x = 160, y = 360, w = 80, h = 16},
         {x = 240, y = 360, w = 160, h = 40},
     },
 }
