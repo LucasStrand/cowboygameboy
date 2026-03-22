@@ -1,3 +1,5 @@
+-- Traversal 1: three cars with 35 px gaps — wind makes the jumps trickier.
+-- Straightforward left-to-right hop across boxcars.
 return {
     id = "train_traversal_01",
     world = "train",
@@ -5,14 +7,19 @@ return {
     width = 400,
     height = 400,
     edges = {
-        left = 360,
-        right = 360,
-        top = false,
+        left  = 340,
+        right = 340,
+        top   = false,
         bottom = false,
     },
     platforms = {
-        {x = 0, y = 360, w = 400, h = 40},
-        {x = 80, y = 300, w = 48, h = 12},
-        {x = 272, y = 300, w = 48, h = 12},
+        -- Car 1
+        {x = 0,   y = 340, w = 110, h = 60, trainCar = true, carType = "boxcar",   noFill = true},
+        -- 35 px gap
+        -- Car 2
+        {x = 145, y = 340, w = 110, h = 60, trainCar = true, carType = "passenger", noFill = true},
+        -- 35 px gap
+        -- Car 3
+        {x = 290, y = 340, w = 110, h = 60, trainCar = true, carType = "boxcar",   noFill = true},
     },
 }

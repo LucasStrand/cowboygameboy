@@ -353,13 +353,12 @@ local function offsetPlatforms(chunk, col, row)
     local oy = (row - 1) * CELL_H
     local platforms = {}
     for _, p in ipairs(chunk.platforms) do
-        platforms[#platforms + 1] = {
-            x = p.x + ox,
-            y = p.y + oy,
-            w = p.w,
-            h = p.h,
-            oneWay = p.oneWay,
-        }
+        -- Copy all fields so world-specific metadata (trainCar, carType, noFill…) survives assembly
+        local np = {}
+        for k, v in pairs(p) do np[k] = v end
+        np.x = p.x + ox
+        np.y = p.y + oy
+        platforms[#platforms + 1] = np
     end
     return platforms, ox, oy
 end

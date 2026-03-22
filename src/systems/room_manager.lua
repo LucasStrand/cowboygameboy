@@ -213,9 +213,18 @@ function RoomManager:loadRoom(room, world, player, opts)
 
     local floorBand = room.height - 110
     local segs = {}
+    -- Collect platform x ranges that must not be auto-bridged (train car gaps etc.)
+    local noFillEdges = {}  -- set of x2 values where bridging should be skipped
     for _, plat in ipairs(room.platforms) do
         if plat.h >= 36 and plat.y + plat.h >= floorBand - 24 then
-            table.insert(segs, {x1 = plat.x, x2 = plat.x + plat.w, top = plat.y})
+            if not plat.noFill then
+                table.insert(segs, {x1 = plat.x, x2 = plat.x + plat.w, top = plat.y})
+            else
+                -- Still record extent so jump-chain doesn't over-generate,
+                -- but mark the right edge as a no-fill boundary
+                table.insert(segs, {x1 = plat.x, x2 = plat.x + plat.w, top = plat.y, noFill = true})
+                noFillEdges[plat.x + plat.w] = true
+            end
         end
     end
     if #segs > 0 then
@@ -223,6 +232,8 @@ function RoomManager:loadRoom(room, world, player, opts)
         for i = 1, #merged - 1 do
             local left, right = merged[i], merged[i + 1]
             local gw = right.x1 - left.x2
+            -- Skip bridging if the left segment ends at a noFill boundary
+            if noFillEdges[left.x2] then goto skipBridge end
             if gw >= MIN_FLOOR_GAP_FILL and gw <= MAX_FLOOR_GAP_FILL then
                 local topY = math.min(left.top, right.top)
                 local bridge = {
@@ -236,6 +247,7 @@ function RoomManager:loadRoom(room, world, player, opts)
                 world:add(bridge, bridge.x, bridge.y, bridge.w, bridge.h)
                 table.insert(platforms, bridge)
             end
+            ::skipBridge::
         end
     end
 

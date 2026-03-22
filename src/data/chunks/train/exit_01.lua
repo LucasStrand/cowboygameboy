@@ -1,3 +1,4 @@
+-- Exit 1: standard exit on a wide boxcar — door on the right end.
 return {
     id = "train_exit_01",
     world = "train",
@@ -5,14 +6,15 @@ return {
     width = 400,
     height = 400,
     edges = {
-        left = 360,
+        left  = 340,
         right = false,
-        top = false,
+        top   = false,
         bottom = false,
     },
     platforms = {
-        {x = 0, y = 360, w = 400, h = 40},
-        {x = 200, y = 280, w = 100, h = 16},
+        {x = 0,   y = 340, w = 400, h = 60, trainCar = true, carType = "boxcar", noFill = true},
+        -- Crate ramp leading up toward door
+        {x = 260, y = 308, w = 80,  h = 32},
     },
-    exitDoor = {x = 340, y = 328, w = 32, h = 32},
+    exitDoor = {x = 352, y = 308, w = 32, h = 32},
 }

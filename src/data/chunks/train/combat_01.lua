@@ -1,3 +1,5 @@
+-- Combat 1: two boxcars side by side with a small gap between them.
+-- One crate stack mid-car for cover.
 return {
     id = "train_combat_01",
     world = "train",
@@ -5,14 +7,20 @@ return {
     width = 400,
     height = 400,
     edges = {
-        left = 360,
-        right = 360,
-        top = false,
+        left  = 340,
+        right = 340,
+        top   = false,
         bottom = false,
     },
     platforms = {
-        {x = 0, y = 360, w = 400, h = 40},
-        {x = 140, y = 320, w = 60, h = 16},
-        {x = 280, y = 240, w = 80, h = 16},
+        -- Car 1 (left boxcar)
+        {x = 0,   y = 340, w = 185, h = 60, trainCar = true, carType = "boxcar",  noFill = true},
+        -- 30 px gap
+        -- Car 2 (right boxcar)
+        {x = 215, y = 340, w = 185, h = 60, trainCar = true, carType = "boxcar",  noFill = true},
+        -- Crate cover on left car
+        {x = 90,  y = 316, w = 48,  h = 24},
+        -- Higher crate on right car — sniper perch
+        {x = 260, y = 300, w = 48,  h = 40},
     },
 }
