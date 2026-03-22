@@ -1,6 +1,7 @@
--- Tile renderer — draws walls and platforms using a tile atlas.
--- Supports multiple themes (one per world). Each theme specifies an atlas
--- image path and a tile coordinate mapping.
+-- Tile renderer — draws walls and platforms using a tile atlas or solid-fill colors.
+-- Supports multiple themes (one per world). Each theme specifies either:
+--   a) An atlas image path + tile coordinate mapping (forest / train)
+--   b) _solidFill = true + color fields (desert, or any world without a tile atlas)
 
 local TileRenderer = {}
 
@@ -64,33 +65,86 @@ local function getQuad(atlasData, tiles, name)
 end
 
 --- Resolve theme to atlas data and tile mapping.
---- theme can be nil (uses defaults) or a table from worlds.lua:
----   { grass_l = {col,row}, ..., _atlasPath = "..." }
---- Or pass the world definition directly.
+--- theme can be nil (uses defaults) or a table from worlds.lua with tile coords,
+--- or a table with _solidFill = true for color-based rendering.
 local function resolveTheme(theme)
     local atlasPath = DEFAULT_ATLAS_PATH
     local tiles = DEFAULT_TILES
+    local tint = {1, 1, 1}
 
     if theme then
-        -- If theme has an _atlasPath, use it
-        if theme._atlasPath then
-            atlasPath = theme._atlasPath
-        end
-        -- If theme has tile mappings (grass_l etc.), use them
-        if theme.grass_m then
-            tiles = theme
-        end
+        if theme._solidFill then return nil, nil, nil end  -- handled separately
+        if theme._atlasPath then atlasPath = theme._atlasPath end
+        if theme.grass_m then tiles = theme end
+        if theme._tint then tint = theme._tint end
     end
 
-    return loadAtlas(atlasPath), tiles
+    return loadAtlas(atlasPath), tiles, tint
 end
 
+-- ─── Solid-fill drawing (for worlds without a tile atlas) ──────────────────
+-- Draws a mesa/rock look: sandy top cap, layered rock face, dark base.
+
+local function drawSolidWall(x, y, w, h, theme)
+    local topColor  = theme._topColor  or {0.88, 0.76, 0.52}
+    local faceColor = theme._faceColor or {0.72, 0.50, 0.32}
+    local baseColor = theme._baseColor or {0.52, 0.34, 0.20}
+    local capH = math.min(6, h)
+    local baseH = math.min(4, h - capH)
+
+    -- Rock face fill
+    love.graphics.setColor(faceColor)
+    love.graphics.rectangle("fill", x, y, w, h)
+
+    -- Subtle horizontal rock strata lines
+    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.3)
+    local stride = 12
+    local lineY = y + capH + stride
+    while lineY < y + h - baseH - 2 do
+        love.graphics.rectangle("fill", x + 2, lineY, w - 4, 2)
+        lineY = lineY + stride
+    end
+
+    -- Sandy top cap
+    love.graphics.setColor(topColor)
+    love.graphics.rectangle("fill", x, y, w, capH)
+
+    -- Dark base
+    love.graphics.setColor(baseColor)
+    love.graphics.rectangle("fill", x, y + h - baseH, w, baseH)
+end
+
+local function drawSolidPlatform(x, y, w, h, theme)
+    local topColor  = theme._topColor  or {0.88, 0.76, 0.52}
+    local faceColor = theme._faceColor or {0.72, 0.50, 0.32}
+    local capH = math.min(4, h)
+
+    -- Rock body
+    love.graphics.setColor(faceColor)
+    love.graphics.rectangle("fill", x, y, w, h)
+
+    -- Sandy top cap
+    love.graphics.setColor(topColor)
+    love.graphics.rectangle("fill", x, y, w, capH)
+
+    -- Slight edge darkening left/right
+    love.graphics.setColor(0, 0, 0, 0.12)
+    love.graphics.rectangle("fill", x, y, 3, h)
+    love.graphics.rectangle("fill", x + w - 3, y, 3, h)
+end
+
+-- ─── Atlas-based drawing ───────────────────────────────────────────────────
+
 --- Draw a wall (solid rectangle) using tiled texture.
---- Walls get grass on top, dirt fill, and edge tiles.
 --- theme is optional — nil uses the default forest theme.
 function TileRenderer.drawWall(x, y, w, h, theme)
-    local atlasData, tiles = resolveTheme(theme)
-    love.graphics.setColor(1, 1, 1)
+    if theme and theme._solidFill then
+        drawSolidWall(x, y, w, h, theme)
+        return
+    end
+
+    local atlasData, tiles, tint = resolveTheme(theme)
+    love.graphics.setColor(tint)
 
     local tilesW = math.ceil(w / TILE)
     local tilesH = math.ceil(h / TILE)
@@ -98,26 +152,20 @@ function TileRenderer.drawWall(x, y, w, h, theme)
     for ty = 0, tilesH - 1 do
         for tx = 0, tilesW - 1 do
             local quad
-            local isTop = (ty == 0)
+            local isTop    = (ty == 0)
             local isBottom = (ty == tilesH - 1) and tilesH > 1
-            local isLeft = (tx == 0)
-            local isRight = (tx == tilesW - 1)
+            local isLeft   = (tx == 0)
+            local isRight  = (tx == tilesW - 1)
 
             if isTop then
-                if isLeft then
-                    quad = getQuad(atlasData, tiles, "grass_l")
-                elseif isRight then
-                    quad = getQuad(atlasData, tiles, "grass_r")
-                else
-                    quad = getQuad(atlasData, tiles, "grass_m")
+                if isLeft then      quad = getQuad(atlasData, tiles, "grass_l")
+                elseif isRight then quad = getQuad(atlasData, tiles, "grass_r")
+                else               quad = getQuad(atlasData, tiles, "grass_m")
                 end
             elseif isBottom then
-                if isLeft then
-                    quad = getQuad(atlasData, tiles, "dirt_bl")
-                elseif isRight then
-                    quad = getQuad(atlasData, tiles, "dirt_br")
-                else
-                    quad = getQuad(atlasData, tiles, "dirt_bm")
+                if isLeft then      quad = getQuad(atlasData, tiles, "dirt_bl")
+                elseif isRight then quad = getQuad(atlasData, tiles, "dirt_br")
+                else               quad = getQuad(atlasData, tiles, "dirt_bm")
                 end
             elseif isLeft then
                 quad = getQuad(atlasData, tiles, "dirt_l")
@@ -125,12 +173,9 @@ function TileRenderer.drawWall(x, y, w, h, theme)
                 quad = getQuad(atlasData, tiles, "dirt_r")
             else
                 local v = (tx + ty) % 3
-                if v == 0 then
-                    quad = getQuad(atlasData, tiles, "dirt")
-                elseif v == 1 then
-                    quad = getQuad(atlasData, tiles, "dirt2")
-                else
-                    quad = getQuad(atlasData, tiles, "dirt3")
+                if v == 0 then      quad = getQuad(atlasData, tiles, "dirt")
+                elseif v == 1 then  quad = getQuad(atlasData, tiles, "dirt2")
+                else               quad = getQuad(atlasData, tiles, "dirt3")
                 end
             end
 
@@ -144,8 +189,13 @@ end
 --- Draw a thin platform (one-way) using plank tiles.
 --- theme is optional — nil uses the default forest theme.
 function TileRenderer.drawPlatform(x, y, w, h, theme)
-    local atlasData, tiles = resolveTheme(theme)
-    love.graphics.setColor(1, 1, 1)
+    if theme and theme._solidFill then
+        drawSolidPlatform(x, y, w, h, theme)
+        return
+    end
+
+    local atlasData, tiles, tint = resolveTheme(theme)
+    love.graphics.setColor(tint)
 
     local tilesW = math.ceil(w / TILE)
     local tilesH = math.max(1, math.ceil(h / TILE))
@@ -156,24 +206,15 @@ function TileRenderer.drawPlatform(x, y, w, h, theme)
             local isTop = (ty == 0)
 
             if isTop then
-                if tx == 0 then
-                    quad = getQuad(atlasData, tiles, "plank_l")
-                elseif tx == tilesW - 1 then
-                    quad = getQuad(atlasData, tiles, "plank_r")
-                else
-                    quad = getQuad(atlasData, tiles, "plank_m")
+                if tx == 0 then            quad = getQuad(atlasData, tiles, "plank_l")
+                elseif tx == tilesW - 1 then quad = getQuad(atlasData, tiles, "plank_r")
+                else                       quad = getQuad(atlasData, tiles, "plank_m")
                 end
             else
-                if tx == 0 then
-                    quad = getQuad(atlasData, tiles, "dirt_l")
-                elseif tx == tilesW - 1 then
-                    quad = getQuad(atlasData, tiles, "dirt_r")
-                else
-                    if (tx + ty) % 2 == 0 then
-                        quad = getQuad(atlasData, tiles, "dirt")
-                    else
-                        quad = getQuad(atlasData, tiles, "dirt3")
-                    end
+                if tx == 0 then            quad = getQuad(atlasData, tiles, "dirt_l")
+                elseif tx == tilesW - 1 then quad = getQuad(atlasData, tiles, "dirt_r")
+                elseif (tx + ty) % 2 == 0 then quad = getQuad(atlasData, tiles, "dirt")
+                else                       quad = getQuad(atlasData, tiles, "dirt3")
                 end
             end
 
@@ -186,6 +227,7 @@ end
 
 --- Preload a theme's atlas (useful at world start to avoid mid-gameplay loads).
 function TileRenderer.preloadTheme(theme)
+    if theme and theme._solidFill then return end  -- nothing to preload
     if theme and theme._atlasPath then
         loadAtlas(theme._atlasPath)
     else
