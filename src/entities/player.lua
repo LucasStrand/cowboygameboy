@@ -739,6 +739,20 @@ function Player:shootFromSlot(slotIndex, mx, my)
         self.anim:play("shoot", true)
     end
     Sfx.play("shoot")
+    if fired.muzzle_fx_id then
+        local cx = self.x + self.w * 0.5
+        local cy = self.y + self.h * 0.5
+        local tip = fired.weapon_def and fired.weapon_def.id == "blunderbuss" and 24 or 18
+        ImpactFX.spawn(
+            cx + math.cos(fired.angle) * tip,
+            cy + math.sin(fired.angle) * tip,
+            fired.muzzle_fx_id,
+            {
+                angle = fired.angle,
+                scale_mul = fired.explosion_tier == "large" and 1.15 or 1.0,
+            }
+        )
+    end
     self:syncLegacyWeaponViews()
     return fired.bullets
 end

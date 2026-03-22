@@ -94,15 +94,15 @@
 - Status ticks/payoff hits route through canonical damage packets instead of direct HP mutation.
 - Compatibility path for legacy boons/HUD remains present through `buffs.lua`.
 - Temporary authored status hooks have been removed from player guns, enemy projectile examples, and the ultimate projectile.
+- bleed / burn tick pacing is verified in the LOVE runtime harness at the authored `0.5s` interval.
+- shock overload triggers the payoff hit, consumes `shock`, and applies stun DR / immunity as expected.
+- status HUD ordering is verified through runtime output from `Buffs.getTopStatuses`.
+- player stun gating is wired across update, jump, dash, shoot, melee, and reload entry points.
+- cleanse / purge / consume / expire behavior is verified in the LOVE runtime harness.
 
-### Still Unverified In Gameplay
+### Still Unverified In Live Visual Play
 
-- bleed / burn tick pacing
-- shock overload + stun DR
-- status HUD ordering
 - enemy badge readability
-- player stun gating
-- broader remove-op behavior in real gameplay
 
 ### Bugs / Balance Problems Found During Closeout
 
@@ -111,12 +111,16 @@
 ## Verification Status
 
 - Static repo search used to confirm no temporary authored `status_applications` remain on guns, enemy projectile examples, or the ultimate path.
-- Short LOVE boot smoke test completed without an immediate startup crash.
 - A dev-only verification harness now exists so Phase 5 can be verified without reintroducing permanent status content.
-- Manual gameplay verification is still required for:
-  - bleed / burn tick pacing
-  - shock overload + stun DR
-  - status HUD ordering
-  - enemy badge readability
-  - player stun gating
-  - cleanse / purge / consume / expire behavior in live gameplay
+- LOVE runtime harness executed the real `buffs.lua` and Phase 4 resolver paths for:
+  - bleed tick pacing
+  - burn tick pacing
+  - shock overload payoff hit
+  - stun DR / hard-CC immunity
+  - status ordering from `Buffs.getTopStatuses`
+  - cleanse / purge / consume / expire remove-op behavior
+- Harness output recorded resolver-owned `[damage_resolver]` lines plus `status_applied`, `status_stacked`, `status_refreshed`, `status_ticked`, `status_removed`, and `status_expired` events.
+- Static code review verified player stun gating at the player runtime/action seams and confirmed enemy badges render only the top two statuses with a dark backing plus hard-CC color override.
+- Harness artifacts live under `tmp/status_runtime_harness/` with output in `tmp/status_runtime_harness_output.txt`.
+- Manual live-play verification remains useful for:
+  - enemy badge readability in motion / combat clutter

@@ -153,15 +153,18 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
                 applyStatusApplications(packet, result, b.source_actor, b.hitEnemy, "enemy", world)
                 DamageNumbers.spawn(hitX, hitY, result.final_damage, "out")
                 local fxScale = b.ultBullet and 2.0 or nil
-                ImpactFX.spawn(hitX, hitY, "hit_enemy", fxScale)
+                local metadata = packet.metadata or {}
+                local explosiveHit = b.explosive or metadata.explosion_radius ~= nil
+                if explosiveHit then
+                    ImpactFX.spawn(hitX, hitY, b.impact_fx_id or metadata.impact_fx_id or "explosion_medium")
+                else
+                    ImpactFX.spawn(hitX, hitY, "hit_enemy", { scale_mul = fxScale })
+                end
                 if b.ultBullet then
-                    ImpactFX.spawn(hitX, hitY - 8, "melee", fxScale)
+                    ImpactFX.spawn(hitX, hitY - 8, "melee", { scale_mul = fxScale })
                 end
                 if not b.fromEnemy then
-                    Sfx.play("hit_enemy")
-                end
-                if #result.secondary_jobs > 0 then
-                    Sfx.play("explosion")
+                    Sfx.play(explosiveHit and (b.explosion_sfx_id or metadata.explosion_sfx_id or "explosion") or "hit_enemy")
                 end
             end
         end

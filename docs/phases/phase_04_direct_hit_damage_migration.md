@@ -97,13 +97,13 @@
 - [x] Resolver owns `OnDamageTaken`, `OnHit`, and `OnKill` emissions for migrated direct-hit paths.
 - [x] Player/enemy apply helpers are thin and no longer own mitigation math.
 
-### Still Unverified In Gameplay
+### Verified In LOVE Runtime Harness
 
-- [ ] Player projectiles hit enemies through `damage_resolver`.
-- [ ] Enemy projectiles hit player through `damage_resolver`.
-- [ ] Player melee hit damage comes from resolver output, not combat-local math.
-- [ ] Enemy contact damage comes from resolver output, not player-local armor math.
-- [ ] Explosive splash routes through delayed-secondary jobs.
+- [x] Player projectiles hit enemies through `damage_resolver`.
+- [x] Enemy projectiles hit player through `damage_resolver`.
+- [x] Player melee hit damage comes from resolver output, not combat-local math.
+- [x] Enemy contact damage comes from resolver output, not player-local armor math.
+- [x] Explosive splash routes through delayed-secondary jobs.
 
 ### Bugs / Balance Problems Found During Closeout
 
@@ -119,10 +119,13 @@
 
 - Static repo search used to confirm direct-hit event ownership moved to `damage_resolver`.
 - Static repo search used to confirm direct direct-hit call sites in combat no longer call `target:takeDamage(raw_amount)` for live paths.
-- Short LOVE boot smoke test completed without an immediate startup crash.
-- Manual gameplay verification was not completed in this environment and is still required for:
-  - revolver/blunderbuss/AK-47 behavior
-  - enemy projectile mitigation
-  - block ordering
-  - explosion splash
-  - projectile live-resolution fallback after weapon swap
+- LOVE runtime harness executed the real `combat.lua` and `damage_resolver.lua` paths for:
+  - player projectile direct hit
+  - enemy projectile direct hit
+  - player melee direct hit
+  - enemy contact direct hit
+  - explosive delayed-secondary splash
+- Harness output recorded resolver-owned debug lines and `CombatEvents` emissions for the migrated paths.
+- Repo-local `:takeDamage(` grep only found the thin wrapper definitions on `player.lua` and `enemy.lua`, with no live combat call sites bypassing the resolver.
+- Harness artifacts live under `tmp/damage_resolver_harness/` with output in `tmp/damage_resolver_harness_output.txt`.
+- Interactive F1 DevLog / hand-played verification was not performed in this environment; if desired, that remains a manual follow-up rather than a blocker for resolver wiring validation.

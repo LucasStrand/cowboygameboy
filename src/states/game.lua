@@ -2634,6 +2634,7 @@ function game:draw()
         local bulletCount = es.bulletCount or 0
         local spreadAngle = es.spreadAngle or 0
         local ricochetCount = es.ricochetCount or 0
+        local ricochetLabel = es.explosiveRounds and "0 (LOCKED)" or tostring(ricochetCount)
         local armor = es.armor or 0
         local lifestealOnKill = es.lifestealOnKill or 0
         local reloadSpeed = es.reloadSpeed or 0
@@ -2653,7 +2654,7 @@ function game:draw()
         py = py + 14
         love.graphics.print(string.format("Bullets: %d  Spread: %.2f", bulletCount, spreadAngle), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Ricochet: %d  Explosive: %s", ricochetCount, tostring(es.explosiveRounds)), panelX, py)
+        love.graphics.print(string.format("Ricochet: %s  Explosive: %s", ricochetLabel, tostring(es.explosiveRounds)), panelX, py)
         py = py + 14
         love.graphics.print(string.format("Armor: %d  Lifesteal: %d", armor, lifestealOnKill), panelX, py)
         py = py + 14

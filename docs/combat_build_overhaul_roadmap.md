@@ -30,6 +30,7 @@ Syftet är att:
 | [phases/phase_03_player_loadout_weapon_runtime.md](./phases/phase_03_player_loadout_weapon_runtime.md) | Phase 3 implementation log | `implemented + hardened` |
 | [phases/phase_04_direct_hit_damage_migration.md](./phases/phase_04_direct_hit_damage_migration.md) | Phase 4 implementation log | `implemented + verification debt` |
 | [phases/phase_05_unified_status_cc_runtime.md](./phases/phase_05_unified_status_cc_runtime.md) | Phase 5 implementation log | `implemented + verification debt` |
+| [phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md](./phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md) | Phase 6 kickoff slice log | `implemented kickoff slice` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -93,7 +94,7 @@ Just nu gäller det:
 - [x] Phase 3: Player/loadout/weapon runtime
 - [ ] Phase 4: Direct-hit damage migration `implemented + verification debt`
 - [ ] Phase 5: Status + CC subsystem `implemented + verification debt`
-- [ ] Phase 6: Proc system + rule-breaking overrides
+- [ ] Phase 6: Proc system + rule-breaking overrides `kickoff slice implemented`
 - [ ] Phase 7: Content pipeline + tooltips + presentation hooks
 - [ ] Phase 8: Economy + rewards + meta + run metadata
 - [ ] Phase 9: UX/readability pass
@@ -298,6 +299,7 @@ Delar:
 | N-slot backend model | `spec locked after Phase 1` | ersätt hårdkodade 2-slot-antaganden i runtime |
 | Resolved weapon stats | `implemented + hardened` | konsumera direkt från Phase 4 resolver-context |
 | Runtime counters | `implemented + hardened` | verifiera live behavior och bygg vidare i Phase 4 |
+| Projectile presentation metadata | `implemented` | bygg vidare med fler muzzle/impact/trail ids när Phase 6 breddas |
 
 ### Status System
 
@@ -307,6 +309,14 @@ Delar:
 | CC/DR rules | `implemented + verification debt` | verifiera live DR/boss-profiler via status harness + gameplay pass |
 | Remove operations | `implemented + verification debt` | verifiera cleanse/purge/consume/expire med dev-only status harness |
 | UI priority tiers | `implemented + verification debt` | verifiera HUD ordering och enemy badges i live gameplay |
+
+### Proc / Rule-Breaking
+
+| Del | Status | Nästa steg |
+|---|---|---|
+| Explosive bullet VFX tiers | `implemented kickoff slice` | verifiera live readability och ev. finjustera row-val/scale |
+| Explosive vs ricochet exclusivity | `implemented kickoff slice` | bygg vidare med fler explicita override-regler i Phase 6 |
+| General proc guardrails | `not started` | definiera recursion/trigger-budget och proc ownership |
 
 ### Content Validation
 

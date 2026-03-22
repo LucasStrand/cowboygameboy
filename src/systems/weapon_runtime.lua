@@ -6,6 +6,28 @@ local SourceRef = require("src.systems.source_ref")
 local StatRuntime = require("src.systems.stat_runtime")
 
 local WeaponRuntime = {}
+local computeResolvedStats
+
+local EXPLOSION_TIERS = {
+    small = {
+        impact_fx_id = "explosion_small",
+        explosion_radius = 44,
+        explosion_damage_scale = 0.45,
+        explosion_sfx_id = "explosion",
+    },
+    medium = {
+        impact_fx_id = "explosion_medium",
+        explosion_radius = 60,
+        explosion_damage_scale = 0.5,
+        explosion_sfx_id = "explosion",
+    },
+    large = {
+        impact_fx_id = "explosion_large",
+        explosion_radius = 78,
+        explosion_damage_scale = 0.6,
+        explosion_sfx_id = "ult_explosion",
+    },
+}
 
 local function cloneTable(src)
     local out = {}
@@ -75,8 +97,9 @@ local function debugDump(player, reason)
 
     debugLog(string.format("[weapon_runtime] %s active=%s", reason or "state", tostring(runtime.active_weapon_slot)))
     for _, slot in ipairs(runtime.weapon_slots or {}) do
+        local resolved = slot.mode == "weapon" and slot.weapon_def and computeResolvedStats(player, slot.weapon_def) or nil
         debugLog(string.format(
-            "[weapon_runtime] slot=%d mode=%s weapon=%s ammo=%s reload=%.3f cooldown=%.3f shots_since_reload=%d profile=%s",
+            "[weapon_runtime] slot=%d mode=%s weapon=%s ammo=%s reload=%.3f cooldown=%.3f shots_since_reload=%d profile=%s explosive=%s ricochet=%s",
             slot.slot_index,
             tostring(slot.mode),
             tostring(slot.weapon_id or "none"),
@@ -84,7 +107,9 @@ local function debugDump(player, reason)
             tonumber(slot.reload_timer or 0),
             tonumber(slot.cooldown_timer or 0),
             tonumber(slot.shots_since_reload or 0),
-            tostring(slot.attack_profile_id or "none")
+            tostring(slot.attack_profile_id or "none"),
+            tostring(resolved and resolved.explosiveRounds or false),
+            tostring(resolved and resolved.ricochetCount or 0)
         ))
     end
 end
@@ -110,14 +135,18 @@ local function currentSlot(player)
     return runtime.weapon_slots[runtime.active_weapon_slot]
 end
 
-local function computeResolvedStats(player, gun_def)
+computeResolvedStats = function(player, gun_def)
     if not gun_def then
         return nil
     end
 
     local ctx = StatRuntime.build_player_context(player, gun_def, player.baseGunStats)
     local normalized = StatRuntime.compute_actor_stats(ctx)
-    return StatRuntime.export_legacy_stats(normalized)
+    local resolved = StatRuntime.export_legacy_stats(normalized)
+    if resolved.explosiveRounds then
+        resolved.ricochetCount = 0
+    end
+    return resolved
 end
 
 local function computeNormalizedStats(player, gun_def)
@@ -127,6 +156,33 @@ local function computeNormalizedStats(player, gun_def)
 
     local ctx = StatRuntime.build_player_context(player, gun_def, player.baseGunStats)
     return StatRuntime.compute_actor_stats(ctx)
+end
+
+local function getExplosionTier(ctx)
+    if not (ctx.stats and ctx.stats.explosiveRounds) then
+        return nil
+    end
+    if ctx.gun and ctx.gun.id == "blunderbuss" then
+        return "large"
+    end
+    if ctx.gun and ctx.gun.id == "ak47" then
+        return "medium"
+    end
+    return "small"
+end
+
+local function getExplosionSpec(tier)
+    return EXPLOSION_TIERS[tier or "small"] or EXPLOSION_TIERS.small
+end
+
+local function getMuzzleFxId(ctx)
+    if not (ctx.stats and ctx.stats.explosiveRounds) then
+        return nil
+    end
+    if ctx.gun and ctx.gun.id == "blunderbuss" then
+        return "muzzle_explosive_shotgun"
+    end
+    return nil
 end
 
 local function snapshotSourceContext(base_damage, normalized)
@@ -156,6 +212,8 @@ local function buildProjectilePacket(ctx)
     local base_scale = ctx.base_scale or 1
     local base_damage = math.max(0, (ctx.normalized_stats.projectile_damage or 0) * base_scale)
     local family = ctx.gun.damageFamily or "physical"
+    local explosion_tier = getExplosionTier(ctx)
+    local explosion_spec = explosion_tier and getExplosionSpec(explosion_tier) or nil
     return DamagePacket.new({
         kind = "direct_hit",
         family = family,
@@ -178,8 +236,12 @@ local function buildProjectilePacket(ctx)
             source_weapon_id = ctx.gun.id,
             source_attack_profile_id = ctx.slot.attack_profile_id,
             base_scale = base_scale,
-            explosion_radius = ctx.stats.explosiveRounds and 60 or nil,
-            explosion_damage_scale = ctx.stats.explosiveRounds and 0.5 or nil,
+            explosion_tier = explosion_tier,
+            impact_fx_id = explosion_spec and explosion_spec.impact_fx_id or nil,
+            muzzle_fx_id = getMuzzleFxId(ctx),
+            explosion_sfx_id = explosion_spec and explosion_spec.explosion_sfx_id or nil,
+            explosion_radius = explosion_spec and explosion_spec.explosion_radius or nil,
+            explosion_damage_scale = explosion_spec and explosion_spec.explosion_damage_scale or nil,
         },
     })
 end
@@ -193,7 +255,7 @@ local ATTACK_PROFILES = {
             angle = ctx.angle,
             speed = ctx.stats.bulletSpeed,
             damage = math.floor((ctx.normalized_stats.projectile_damage or 0) * (ctx.base_scale or 1)),
-            ricochet = ctx.stats.ricochetCount,
+            ricochet = ctx.stats.explosiveRounds and 0 or ctx.stats.ricochetCount,
             explosive = ctx.stats.explosiveRounds,
             packet = buildProjectilePacket(ctx),
             source_actor = ctx.player,
@@ -201,6 +263,10 @@ local ATTACK_PROFILES = {
             packet_kind = "direct_hit",
             damage_family = ctx.gun.damageFamily or "physical",
             damage_tags = { "projectile", ctx.gun.id or "gun" },
+            impact_fx_id = getExplosionTier(ctx) and getExplosionSpec(getExplosionTier(ctx)).impact_fx_id or nil,
+            muzzle_fx_id = getMuzzleFxId(ctx),
+            explosion_tier = getExplosionTier(ctx),
+            explosion_sfx_id = getExplosionTier(ctx) and getExplosionSpec(getExplosionTier(ctx)).explosion_sfx_id or nil,
         })
         return bullets
     end,
@@ -219,7 +285,7 @@ local ATTACK_PROFILES = {
                 angle = bullet_angle,
                 speed = ctx.stats.bulletSpeed,
                 damage = math.floor((ctx.normalized_stats.projectile_damage or 0) * (ctx.base_scale or 1)),
-                ricochet = ctx.stats.ricochetCount,
+                ricochet = ctx.stats.explosiveRounds and 0 or ctx.stats.ricochetCount,
                 explosive = ctx.stats.explosiveRounds,
                 packet = buildProjectilePacket(ctx),
                 source_actor = ctx.player,
@@ -227,6 +293,10 @@ local ATTACK_PROFILES = {
                 packet_kind = "direct_hit",
                 damage_family = ctx.gun.damageFamily or "physical",
                 damage_tags = { "projectile", ctx.gun.id or "gun" },
+                impact_fx_id = getExplosionTier(ctx) and getExplosionSpec(getExplosionTier(ctx)).impact_fx_id or nil,
+                muzzle_fx_id = getMuzzleFxId(ctx),
+                explosion_tier = getExplosionTier(ctx),
+                explosion_sfx_id = getExplosionTier(ctx) and getExplosionSpec(getExplosionTier(ctx)).explosion_sfx_id or nil,
             })
         end
         return bullets
@@ -554,6 +624,8 @@ function WeaponRuntime.fireSlot(player, slot_index, aim_x, aim_y)
         angle = angle,
         weapon_def = gun,
         resolved_stats = resolved,
+        muzzle_fx_id = bullets[1] and bullets[1].muzzle_fx_id or nil,
+        explosion_tier = bullets[1] and bullets[1].explosion_tier or nil,
     }
 end
 
