@@ -867,7 +867,7 @@ function Player:meleeAttack(aimX, aimY)
     self.meleeHitEnemies = {}
     self.anim:play("melee", true)
     Sfx.play("melee_swing")
-    -- Row 1 of Retro Impact Effect Pack 1 A (see impact_fx.lua ANIM.melee)
+-- Row 1 of RetroImpactEffectPack1A (see impact_fx.lua ANIM.melee)
     do
         local tip = 22
         local a = self.meleeAimAngle

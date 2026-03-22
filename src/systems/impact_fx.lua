@@ -11,12 +11,12 @@ local DEFAULT_ALPHA_MODE = "alphamultiply"
 
 local SHEETS = {
     pack1a = {
-        path = "assets/Retro Impact Effect Pack ALL/Retro Impact Effect Pack 1 A.png",
+        path = "assets/Retro Impact Effect Pack ALL/RetroImpactEffectPack1A.png",
         frame_size = DEFAULT_FRAME_SIZE,
         cols = DEFAULT_COLS,
     },
     pack3a = {
-        path = "assets/Retro Impact Effect Pack ALL/Retro Impact Effect Pack 3A.png",
+        path = "assets/Retro Impact Effect Pack ALL/RetroImpactEffectPack3A.png",
         frame_size = DEFAULT_FRAME_SIZE,
         cols = DEFAULT_COLS,
     },

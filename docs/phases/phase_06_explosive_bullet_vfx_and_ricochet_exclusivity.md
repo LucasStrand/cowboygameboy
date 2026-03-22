@@ -103,7 +103,7 @@
 - Ricochet is suppressed in resolved weapon stats when explosive rounds are active.
 - Blunderbuss gets a dedicated explosive muzzle effect instead of looking like a normal pellet hit.
 - `ImpactFX` now loads the Phase 6 explosive sheet from the real asset path:
-  - `assets/Retro Impact Effect Pack ALL/Retro Impact Effect Pack 3A.png`
+  - `assets/Retro Impact Effect Pack ALL/RetroImpactEffectPack3A.png`
 - A LOVE smoke run of the Phase 6 preview harness launches cleanly after the asset-path fix and no longer crashes on `pack3a` load.
 
 ### Still Unverified In Live Visual Play
@@ -117,7 +117,8 @@
 ### Bugs / Balance Problems Found During Closeout
 
 - Confirmed and fixed:
-  - `ImpactFX` referenced `Retro Impact Effect Pack 3 A.png`, but the real asset on disk is `Retro Impact Effect Pack 3A.png`.
+  - `ImpactFX` referenced the wrong `pack3a` filename during closeout verification.
+  - The real asset on disk is `RetroImpactEffectPack3A.png`.
   - This caused an immediate runtime crash during draw/load for Phase 6 explosive effects.
 - No balance problems confirmed in this pass.
 
