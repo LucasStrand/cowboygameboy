@@ -792,7 +792,10 @@ function Roulette:startSpin(player)
         return self:buildResult(nil, "Not enough gold to wager", 2)
     end
 
-    player.gold = player.gold - total
+    local ok = player:spendGold(total, "roulette_wager")
+    if not ok then
+        return self:buildResult(nil, "Not enough gold to wager", 2)
+    end
     self.reserved = total
     self.chipsAtSpin = copyBetMap(self.chips)
     self.lastRepeatSnapshot = copyBetMap(self.chips)

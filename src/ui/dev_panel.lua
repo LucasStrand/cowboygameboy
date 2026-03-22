@@ -156,9 +156,17 @@ function DevPanel.buildRows(args)
     if addSection("rewards", "Rewards / Tooltips") then
         rows[#rows + 1] = rowInfo("Test current reward-facing tooltip surfaces directly in dev arena.")
         rows[#rows + 1] = rowInfo("Build profile: " .. tostring(args.rewardLab and args.rewardLab.profileSummary or "none"))
+        rows[#rows + 1] = rowInfo(string.format(
+            "Gold: $%d | level-up reroll: $%d | shop reroll: $%d",
+            tonumber(args.rewardLab and args.rewardLab.gold or 0) or 0,
+            tonumber(args.rewardLab and args.rewardLab.levelupRerollCost or 0) or 0,
+            tonumber(args.rewardLab and args.rewardLab.shopRerollCost or 0) or 0
+        ))
         rows[#rows + 1] = rowAction("reward_dump_profile", "Dump reward profile to DevLog")
+        rows[#rows + 1] = rowAction("reward_dump_pressure", "Dump gold pressure to DevLog")
         rows[#rows + 1] = rowAction("force_levelup", "Open level-up choice")
         rows[#rows + 1] = rowAction("reward_refresh_shop", "Refresh dev shop offers")
+        rows[#rows + 1] = rowAction("reward_reroll_shop", "Spend gold and reroll dev shop")
         local offers = args.rewardLab and args.rewardLab.offers or {}
         if #offers == 0 then
             rows[#rows + 1] = rowInfo("No dev shop offers available.")

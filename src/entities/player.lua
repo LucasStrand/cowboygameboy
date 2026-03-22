@@ -11,6 +11,7 @@ local Buffs = require("src.systems.buffs")
 local DamagePacket = require("src.systems.damage_packet")
 local DamageResolver = require("src.systems.damage_resolver")
 local GameRng = require("src.systems.game_rng")
+local RunMetadata = require("src.systems.run_metadata")
 local SourceRef = require("src.systems.source_ref")
 local StatRuntime = require("src.systems.stat_runtime")
 local WeaponRuntime = require("src.systems.weapon_runtime")
@@ -1063,8 +1064,31 @@ function Player:addXP(amount)
     return false
 end
 
-function Player:addGold(amount)
+function Player:addGold(amount, reason)
+    amount = math.floor(tonumber(amount) or 0)
+    if amount == 0 then
+        return 0
+    end
     self.gold = self.gold + amount
+    if self.runMetadata then
+        RunMetadata.recordEconomy(self.runMetadata, "earned", amount, reason or "gold_gain")
+    end
+    return amount
+end
+
+function Player:spendGold(amount, reason)
+    amount = math.max(0, math.floor(tonumber(amount) or 0))
+    if amount <= 0 then
+        return true, 0
+    end
+    if self.gold < amount then
+        return false, amount
+    end
+    self.gold = self.gold - amount
+    if self.runMetadata then
+        RunMetadata.recordEconomy(self.runMetadata, "spent", amount, reason or "gold_spend")
+    end
+    return true, amount
 end
 
 function Player:equipGear(gear)

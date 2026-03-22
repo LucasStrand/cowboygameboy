@@ -286,7 +286,7 @@ local function resolveReward(self, player, dealAgain)
     if self.payoutGoldApplied then
         add = 0
     end
-    player.gold = player.gold + add
+    player:addGold(add, "blackjack_reward")
     if reward.perkRarity == "rare" or reward.anyWin then
         self.returnToBlackjack = dealAgain and true or false
         return buildResult("perk_selection", nil, nil, Progression.rollLevelUpPerks(player, {
@@ -1302,7 +1302,10 @@ function Blackjack:handleAction(action, player)
             sfxRandom("chips_handle", 6)
         elseif action == "deal" then
             if self.wager >= self.minBet and player.gold >= self.wager then
-                player.gold = player.gold - self.wager
+                local ok = player:spendGold(self.wager, "blackjack_wager")
+                if not ok then
+                    return buildResult(nil, "Not enough gold to bet that much!", 2)
+                end
                 self:deal(self.wager)
             else
                 return buildResult(nil, "Not enough gold to bet that much!", 2)
@@ -1318,14 +1321,20 @@ function Blackjack:handleAction(action, player)
         elseif action == "double" then
             local cost = self:doubleDown(player.gold)
             if cost then
-                player.gold = player.gold - cost
+                local ok = player:spendGold(cost, "blackjack_double")
+                if not ok then
+                    return buildResult(nil, "Cannot double.", 1.2)
+                end
             else
                 return buildResult(nil, "Cannot double.", 1.2)
             end
         elseif action == "split" then
             local cost = self:split(player.gold)
             if cost then
-                player.gold = player.gold - cost
+                local ok = player:spendGold(cost, "blackjack_split")
+                if not ok then
+                    return buildResult(nil, "Cannot split.", 1.2)
+                end
             else
                 return buildResult(nil, "Cannot split.", 1.2)
             end

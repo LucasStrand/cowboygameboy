@@ -575,7 +575,7 @@ function Combat.checkPickups(pickups, player, world)
                 DamageNumbers.spawnPickup(cx, cy, p.value, "xp")
                 Sfx.play("pickup_xp")
             elseif p.pickupType == "gold" then
-                player:addGold(p.value)
+                player:addGold(p.value, p.casinoPayout and "casino_payout_pickup" or "combat_gold_pickup")
                 DamageNumbers.spawnPickup(cx, cy, p.value, "gold")
                 Sfx.play("pickup_gold")
             elseif p.pickupType == "health" then

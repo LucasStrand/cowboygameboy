@@ -435,6 +435,26 @@ local function apply(id, ctx)
         Gamestate.push(levelup, player, function() end)
     elseif id == "reward_dump_profile" then
         logRewardProfile(player, "dev_reward_dump")
+    elseif id == "reward_dump_pressure" then
+        local profile = logRewardProfile(player, "dev_reward_pressure")
+        local shop = ensureDevShop(ctx)
+        DevLog.push("sys", string.format(
+            "[reward] pressure: gold=$%d levelup_reroll=$%d shop_reroll=$%d",
+            player.gold or 0,
+            RewardRuntime.getRerollCost("levelup", player and player.runMetadata or nil),
+            shop and shop.getRerollCost and shop:getRerollCost() or 0
+        ))
+        for i, item in ipairs((shop and shop.items) or {}) do
+            DevLog.push("sys", string.format(
+                "[reward] offer %d: %s $%s [%s/%s]",
+                i,
+                tostring(item.name),
+                tostring(item.price),
+                tostring(item.reward_bucket or "unknown"),
+                tostring(item.reward_role or item.type or "unknown")
+            ))
+        end
+        ctx.devRewardLab.profileSummary = RewardRuntime.describeProfile(profile)
     elseif id == "reward_refresh_shop" then
         local Shop = require("src.systems.shop")
         local difficulty = (ctx.roomManager and ctx.roomManager.difficulty) or 1
@@ -460,6 +480,19 @@ local function apply(id, ctx)
                 tostring(item.reward_role or item.type or "unknown"),
                 tostring(item.reward_reason or "no reason")
             ))
+        end
+    elseif id == "reward_reroll_shop" then
+        local shop = ensureDevShop(ctx)
+        local success, msg, cost = shop:reroll(player)
+        ctx.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
+            source = "dev_reward_reroll_shop",
+        }))
+        devRebuildPanelRows()
+        devClampScroll()
+        if success then
+            DevLog.push("sys", string.format("[dev] rerolled shop for $%d", cost or 0))
+        else
+            DevLog.push("sys", "[dev] shop reroll failed: " .. tostring(msg))
         end
     elseif id:sub(1, 24) == "reward_apply_shop_offer:" then
         local index = tonumber(id:sub(25))

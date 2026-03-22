@@ -29,15 +29,28 @@ function RunMetadata.new(seed, context)
         rewards = {
             offered = {},
             chosen = {},
+            rerolls = {
+                count = 0,
+                history = {},
+            },
         },
         shops = {
             generated = {},
             purchased = {},
+            rerolls = {
+                count = 0,
+                history = {},
+            },
+            visits = {},
         },
         economy = {
             gold_earned = 0,
             gold_spent = 0,
             events = {},
+            reroll_counts = {
+                levelup = 0,
+                shop = 0,
+            },
         },
         build_snapshots = {},
     }
@@ -104,6 +117,7 @@ function RunMetadata.recordRewardOffered(meta, source, offers, build_snapshot)
         source = source,
         offers = cloneList(offers),
         build_snapshot = build_snapshot,
+        gold_before = build_snapshot and build_snapshot.gold or nil,
     }
 end
 
@@ -116,6 +130,7 @@ function RunMetadata.recordRewardChosen(meta, source, chosen, offers, build_snap
         chosen = chosen,
         offers = cloneList(offers),
         build_snapshot = build_snapshot,
+        gold_after = build_snapshot and build_snapshot.gold or nil,
     }
     if build_snapshot then
         meta.build_snapshots[#meta.build_snapshots + 1] = build_snapshot
@@ -132,6 +147,7 @@ function RunMetadata.recordShopGenerated(meta, offers, build_snapshot, extra)
         source = extra.source or "shop",
         offers = cloneList(offers),
         build_snapshot = build_snapshot,
+        gold_before = build_snapshot and build_snapshot.gold or nil,
     }
 end
 
@@ -148,6 +164,7 @@ function RunMetadata.recordShopPurchased(meta, item, build_snapshot, extra)
         reward_bucket = item and item.reward_bucket or nil,
         reward_role = item and item.reward_role or nil,
         build_snapshot = build_snapshot,
+        gold_after = build_snapshot and build_snapshot.gold or nil,
     }
     if build_snapshot then
         meta.build_snapshots[#meta.build_snapshots + 1] = build_snapshot
@@ -168,6 +185,46 @@ function RunMetadata.recordEconomy(meta, kind, amount, reason)
     elseif kind == "spent" then
         meta.economy.gold_spent = meta.economy.gold_spent + amount
     end
+end
+
+function RunMetadata.recordShopVisit(meta, info)
+    if not meta then
+        return
+    end
+    info = info or {}
+    meta.shops.visits[#meta.shops.visits + 1] = {
+        source = info.source or "shop_visit",
+        difficulty = info.difficulty,
+        gold_before = info.gold_before,
+        gold_after = info.gold_after,
+    }
+end
+
+function RunMetadata.getRerollCount(meta, surface)
+    if not meta then
+        return 0
+    end
+    if surface == "shop" then
+        return meta.shops and meta.shops.rerolls and meta.shops.rerolls.count or 0
+    end
+    return meta.rewards and meta.rewards.rerolls and meta.rewards.rerolls.count or 0
+end
+
+function RunMetadata.recordReroll(meta, surface, cost, before_offers, after_offers, build_snapshot)
+    if not meta then
+        return
+    end
+    local bucket = surface == "shop" and meta.shops.rerolls or meta.rewards.rerolls
+    bucket.count = (bucket.count or 0) + 1
+    bucket.history[#bucket.history + 1] = {
+        cost = cost,
+        before = cloneList(before_offers),
+        after = cloneList(after_offers),
+        build_snapshot = build_snapshot,
+        gold_after = build_snapshot and build_snapshot.gold or nil,
+    }
+    meta.economy.reroll_counts[surface == "shop" and "shop" or "levelup"] =
+        (meta.economy.reroll_counts[surface == "shop" and "shop" or "levelup"] or 0) + 1
 end
 
 return RunMetadata

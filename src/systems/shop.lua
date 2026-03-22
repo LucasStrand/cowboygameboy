@@ -39,11 +39,18 @@ function Shop.new(difficulty, player, context)
 end
 
 function Shop:generateItems()
+    local build_snapshot = nil
+    if self.player then
+        local profile = RewardRuntime.buildProfile(self.player, { source = self.context.source or "shop" })
+        build_snapshot = RunMetadata.snapshotBuild(self.player, profile)
+        self.context.build_snapshot = build_snapshot
+    end
     self.items = RewardRuntime.rollShopOffers(self.player, {
         difficulty = self.difficulty,
         run_metadata = self.context.run_metadata,
         source = self.context.source or "shop",
         room_manager = self.context.room_manager,
+        build_snapshot = build_snapshot,
     })
 
     for _, item in ipairs(self.items or {}) do
@@ -53,6 +60,36 @@ function Shop:generateItems()
             item.description = ContentTooltips.getJoinedText("offer", item)
         end
     end
+end
+
+function Shop:getRerollCost()
+    return RewardRuntime.getRerollCost("shop", self.context and self.context.run_metadata or nil, {
+        difficulty = self.difficulty,
+    })
+end
+
+function Shop:reroll(player)
+    player = player or self.player
+    local offers, cost, err, profile = RewardRuntime.reroll("shop", player, {
+        difficulty = self.difficulty,
+        run_metadata = self.context.run_metadata,
+        source = self.context.source or "shop",
+        room_manager = self.context.room_manager,
+        current_offers = self.items,
+    })
+    if not offers then
+        return false, err or "Reroll failed", cost
+    end
+    self.items = offers
+    self.context.build_snapshot = RunMetadata.snapshotBuild(player, profile)
+    for _, item in ipairs(self.items or {}) do
+        if item.type == "gear" and item.gearData then
+            item.description = ContentTooltips.getJoinedText("gear", item.gearData)
+        elseif item.tooltip_key or item.tooltip_override then
+            item.description = ContentTooltips.getJoinedText("offer", item)
+        end
+    end
+    return true, "Rerolled!", cost
 end
 
 function Shop.applyOfferItem(item, player)
@@ -92,7 +129,8 @@ function Shop:buyItem(index, player)
     if not item or item.sold then return false, "Already sold" end
     if player.gold < item.price then return false, "Not enough gold" end
 
-    player.gold = player.gold - item.price
+    local success = player:spendGold(item.price, self.context.source or "shop_purchase")
+    if not success then return false, "Not enough gold" end
     item.sold = true
     Sfx.play("shop_buy")
 

@@ -294,7 +294,7 @@ local function saloonSettingsDebugAction(action)
         spawnSaloonGoldDrops(10)
         DevLog.push("sys", "Debug: +10 gold (drops)")
     elseif action == "debug_sub_gold" then
-        player.gold = math.max(0, player.gold - 10)
+        player:spendGold(10, "dev_sub_gold")
         DevLog.push("sys", "Debug: -10 gold")
     elseif action == "fake_session" then
         DevLog.push("sys", "Fake session: use from main menu.")
@@ -1026,6 +1026,14 @@ function saloon:keypressed(key)
                 if nearbyNPC.type == "dealer" then
                     mode = "casino_menu"
                 elseif nearbyNPC.type == "bartender" then
+                    if player and player.runMetadata then
+                        local RunMetadata = require("src.systems.run_metadata")
+                        RunMetadata.recordShopVisit(player.runMetadata, {
+                            source = "saloon_shop_enter",
+                            difficulty = difficulty,
+                            gold_before = player.gold,
+                        })
+                    end
                     mode = "shop"
                 end
                 return
@@ -1088,7 +1096,23 @@ function saloon:keypressed(key)
             local success, msg = shop:buyItem(num, player)
             message = msg
             messageTimer = 2
+        elseif key == "r" then
+            local success, msg, cost = shop:reroll(player)
+            if success then
+                message = string.format("%s (-$%d)", msg or "Rerolled!", cost or 0)
+            else
+                message = msg or "Not enough gold"
+            end
+            messageTimer = 2
         elseif key == "escape" or key == "backspace" then
+            if player and player.runMetadata then
+                local RunMetadata = require("src.systems.run_metadata")
+                RunMetadata.recordShopVisit(player.runMetadata, {
+                    source = "saloon_shop_leave",
+                    difficulty = difficulty,
+                    gold_after = player.gold,
+                })
+            end
             mode = "walking"
         end
 
@@ -1945,7 +1969,12 @@ function handleBlackjackAction(action)
             blackjackGame:adjustWager(blackjackGame.betStep, player.gold)
         elseif action == "deal" then
             if blackjackGame.wager >= blackjackGame.minBet and player.gold >= blackjackGame.wager then
-                player.gold = player.gold - blackjackGame.wager
+                local ok = player:spendGold(blackjackGame.wager, "blackjack_wager")
+                if not ok then
+                    message = "Not enough gold to bet that much!"
+                    messageTimer = 2
+                    return
+                end
                 blackjackGame:deal(blackjackGame.wager)
             else
                 message = "Not enough gold to bet that much!"
@@ -1962,7 +1991,12 @@ function handleBlackjackAction(action)
         elseif action == "double" then
             local cost = blackjackGame:doubleDown(player.gold)
             if cost then
-                player.gold = player.gold - cost
+                local ok = player:spendGold(cost, "blackjack_double")
+                if not ok then
+                    message = "Cannot double."
+                    messageTimer = 1.2
+                    return
+                end
             else
                 message = "Cannot double."
                 messageTimer = 1.2
@@ -1970,7 +2004,12 @@ function handleBlackjackAction(action)
         elseif action == "split" then
             local cost = blackjackGame:split(player.gold)
             if cost then
-                player.gold = player.gold - cost
+                local ok = player:spendGold(cost, "blackjack_split")
+                if not ok then
+                    message = "Cannot split."
+                    messageTimer = 1.2
+                    return
+                end
             else
                 message = "Cannot split."
                 messageTimer = 1.2
@@ -1979,7 +2018,7 @@ function handleBlackjackAction(action)
     elseif blackjackGame.state == "result" then
         if action == "continue" then
             local reward = blackjackGame:getReward()
-            player.gold = player.gold + reward.gold
+            player:addGold(reward.gold, "blackjack_reward")
             if reward.perkRarity == "rare" or reward.anyWin then
                 perkOptions = Progression.rollLevelUpPerks(player, {
                     run_metadata = player and player.runMetadata or nil,
@@ -2029,7 +2068,7 @@ function drawShop(screenW, screenH)
 
     y = y + 20
     love.graphics.setColor(0.7, 0.7, 0.7)
-    love.graphics.printf("[ESC] Back", 0, y, screenW, "center")
+    love.graphics.printf(string.format("[R] Reroll  $%d   |   [ESC] Back", shop:getRerollCost()), 0, y, screenW, "center")
 end
 
 return saloon

@@ -6,6 +6,14 @@ local GearData = require("src.data.gear")
 local Guns = require("src.data.guns")
 
 local RewardRuntime = {}
+local REROLL_BASE_COST = {
+    levelup = 18,
+    shop = 32,
+}
+local REROLL_STEP_COST = {
+    levelup = 12,
+    shop = 18,
+}
 
 local FEATURE_HINTS = {
     damage_up = { "theme:damage" },
@@ -235,6 +243,13 @@ local function buildGenerationIndex(context, source)
     return meta and (#meta.shops.generated + 1) or 1
 end
 
+local function normalizeSurface(surface)
+    if surface == "shop" or surface == "saloon_shop" or surface == "dev_arena_shop" then
+        return "shop"
+    end
+    return "levelup"
+end
+
 local function pickWithoutDuplicates(prefix, all_candidates, wanted_bucket, picked_ids, generation_index)
     local bucket_pool = {}
     local fallback_pool = {}
@@ -300,6 +315,19 @@ function RewardRuntime.describeProfile(profile)
         tostring(profile and profile.status_theme or "none"),
         (#tags > 0) and table.concat(tags, ", ") or "none"
     )
+end
+
+function RewardRuntime.getRerollCost(surface, run_meta, context)
+    local normalized = normalizeSurface(surface)
+    local reroll_count = RunMetadata.getRerollCount(run_meta, normalized)
+    local base = REROLL_BASE_COST[normalized] or 20
+    local step = REROLL_STEP_COST[normalized] or 10
+    local cost = base + reroll_count * step
+    if normalized == "shop" then
+        local difficulty = context and context.difficulty or 1
+        cost = cost + math.max(0, math.floor((difficulty - 1) * 4))
+    end
+    return cost
 end
 
 local function buildPerkCandidates(player, profile)
@@ -386,16 +414,31 @@ function RewardRuntime.rollShopOffers(player, context)
     local profile = RewardRuntime.buildProfile(player, { source = "shop" })
     local difficulty = context.difficulty or 1
     local max_tier = math.min(3, math.floor(difficulty / 2) + 1)
-    local price_multiplier = 1 + (difficulty - 1) * 0.2
+    local price_multiplier = 1 + (difficulty - 1) * 0.18
+
+    local function priceForOffer(item)
+        local role = item.reward_role or item.type or "utility"
+        local bucket = item.reward_bucket or "neutral"
+        if role == "sustain" or item.type == "heal" then
+            return math.floor(46 * price_multiplier)
+        elseif role == "utility" or item.type == "ammo" then
+            return math.floor(28 * price_multiplier)
+        end
+        local tier = item.gearData and item.gearData.tier or 1
+        if bucket == "pivot" then
+            return math.floor((42 + tier * 14) * price_multiplier)
+        end
+        return math.floor((54 + tier * 18) * price_multiplier)
+    end
 
     local Shop = require("src.systems.shop")
     local heal = buildOfferCandidate(profile, Shop.offer_templates.heal, "sustain")
-    heal.price = math.floor(30 * price_multiplier)
+    heal.price = priceForOffer(heal)
     heal.type = "heal"
     heal.sold = false
 
     local ammo = buildOfferCandidate(profile, Shop.offer_templates.ammo_upgrade, "utility")
-    ammo.price = math.floor(50 * price_multiplier)
+    ammo.price = priceForOffer(ammo)
     ammo.type = "ammo"
     ammo.sold = false
 
@@ -408,7 +451,7 @@ function RewardRuntime.rollShopOffers(player, context)
     if support_gear then
         support_gear.name = support_gear.gearData.name
         support_gear.id = "gear_" .. support_gear.gearData.id
-        support_gear.price = math.floor((20 + support_gear.gearData.tier * 15) * price_multiplier)
+        support_gear.price = priceForOffer(support_gear)
         support_gear.sold = false
         offers[#offers + 1] = support_gear
     end
@@ -416,7 +459,7 @@ function RewardRuntime.rollShopOffers(player, context)
     if pivot_gear then
         pivot_gear.name = pivot_gear.gearData.name
         pivot_gear.id = "gear_" .. pivot_gear.gearData.id
-        pivot_gear.price = math.floor((20 + pivot_gear.gearData.tier * 15) * price_multiplier)
+        pivot_gear.price = priceForOffer(pivot_gear)
         pivot_gear.sold = false
         offers[#offers + 1] = pivot_gear
     else
@@ -434,6 +477,33 @@ function RewardRuntime.rollShopOffers(player, context)
     return offers, profile
 end
 
+function RewardRuntime.reroll(surface, player, context)
+    context = context or {}
+    local normalized = normalizeSurface(surface)
+    local run_meta = context.run_metadata
+    local cost = RewardRuntime.getRerollCost(normalized, run_meta, context)
+    if not player then
+        return nil, cost, "Missing player"
+    end
+    local spent = player:spendGold(cost, normalized == "shop" and "shop_reroll" or "levelup_reroll")
+    if not spent then
+        return nil, cost, "Not enough gold"
+    end
+
+    local before_offers = context.current_offers or {}
+    local offers, profile
+    if normalized == "shop" then
+        offers, profile = RewardRuntime.rollShopOffers(player, context)
+    else
+        offers, profile = RewardRuntime.rollLevelUpChoices(player, context)
+    end
+
+    if run_meta then
+        RunMetadata.recordReroll(run_meta, normalized, cost, before_offers, offers, RunMetadata.snapshotBuild(player, profile))
+    end
+    return offers, cost, nil, profile
+end
+
 function RewardRuntime.recordChoice(run_meta, event)
     if not run_meta or type(event) ~= "table" then
         return
@@ -442,7 +512,6 @@ function RewardRuntime.recordChoice(run_meta, event)
         RunMetadata.recordRewardChosen(run_meta, event.source or "levelup", event.chosen, event.offers, event.build_snapshot)
     elseif event.kind == "shop_purchase" then
         RunMetadata.recordShopPurchased(run_meta, event.item, event.build_snapshot, { price = event.price })
-        RunMetadata.recordEconomy(run_meta, "spent", event.price or 0, event.source or "shop_purchase")
     end
 end
 

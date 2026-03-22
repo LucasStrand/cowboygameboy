@@ -145,7 +145,7 @@ local function handleDebugAction(action)
         spawnCheatGoldDrops(10)
         DevLog.push("sys", "Debug: +10 gold (drops)")
     elseif action == "debug_sub_gold" then
-        player.gold = math.max(0, player.gold - 10)
+        player:spendGold(10, "dev_sub_gold")
         DevLog.push("sys", "Debug: -10 gold")
     end
 end
@@ -1154,6 +1154,9 @@ devRebuildPanelRows = function()
         rewardLab = {
             offers = (game._runtime.devRewardLab and game._runtime.devRewardLab.shop and game._runtime.devRewardLab.shop.items) or {},
             profileSummary = (game._runtime.devRewardLab and game._runtime.devRewardLab.profileSummary) or "none",
+            gold = player and player.gold or 0,
+            shopRerollCost = (game._runtime.devRewardLab and game._runtime.devRewardLab.shop and game._runtime.devRewardLab.shop.getRerollCost and game._runtime.devRewardLab.shop:getRerollCost()) or 0,
+            levelupRerollCost = RewardRuntime.getRerollCost("levelup", game._runtime and game._runtime.runMetadata or nil),
         },
     })
 end

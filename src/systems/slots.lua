@@ -128,7 +128,10 @@ function Slots:startSpin(player)
         return self:buildResult(nil, "Not enough gold.", 2)
     end
 
-    player.gold = player.gold - w
+    local ok = player:spendGold(w, "slots_wager")
+    if not ok then
+        return self:buildResult(nil, "Not enough gold.", 2)
+    end
 
     local function rollSymbol()
         local r = GameRng.random("slots.roll_symbol", 1, 100)
