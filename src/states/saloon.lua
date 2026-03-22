@@ -1533,6 +1533,17 @@ function saloon:draw()
 
     if DEBUG and player then
         local es = player:getEffectiveStats()
+        local bulletDamage = es.bulletDamage or 0
+        local damageMultiplier = es.damageMultiplier or 1
+        local moveSpeed = es.moveSpeed or 0
+        local bulletCount = es.bulletCount or 0
+        local spreadAngle = es.spreadAngle or 0
+        local ricochetCount = es.ricochetCount or 0
+        local armor = es.armor or 0
+        local lifestealOnKill = es.lifestealOnKill or 0
+        local reloadSpeed = es.reloadSpeed or 0
+        local cylinderSize = es.cylinderSize or 0
+        local luck = es.luck or 0
         if not saloon.debugFont then
             saloon.debugFont = Font.new(11)
         end
@@ -1546,17 +1557,17 @@ function saloon:draw()
         love.graphics.print("-- EFFECTIVE STATS --", panelX, py)
         py = py + 16
         love.graphics.setColor(0.8, 1, 0.8)
-        love.graphics.print(string.format("DMG: %.0f x%.2f  SPD: %.0f", es.bulletDamage, es.damageMultiplier, es.moveSpeed), panelX, py)
+        love.graphics.print(string.format("DMG: %.0f x%.2f  SPD: %.0f", bulletDamage, damageMultiplier, moveSpeed), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Bullets: %d  Spread: %.2f", es.bulletCount, es.spreadAngle), panelX, py)
+        love.graphics.print(string.format("Bullets: %d  Spread: %.2f", bulletCount, spreadAngle), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Ricochet: %d  Explosive: %s", es.ricochetCount, tostring(es.explosiveRounds)), panelX, py)
+        love.graphics.print(string.format("Ricochet: %d  Explosive: %s", ricochetCount, tostring(es.explosiveRounds)), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Armor: %d  Lifesteal: %d", es.armor, es.lifestealOnKill), panelX, py)
+        love.graphics.print(string.format("Armor: %d  Lifesteal: %d", armor, lifestealOnKill), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Reload: %.2fs  Cylinder: %d", es.reloadSpeed, es.cylinderSize), panelX, py)
+        love.graphics.print(string.format("Reload: %.2fs  Cylinder: %d", reloadSpeed, cylinderSize), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("DeadEye: %s  Luck: %.2f", tostring(es.deadEye), es.luck), panelX, py)
+        love.graphics.print(string.format("DeadEye: %s  Luck: %.2f", tostring(es.deadEye), luck), panelX, py)
         py = py + 20
 
         love.graphics.setColor(0, 1, 0)

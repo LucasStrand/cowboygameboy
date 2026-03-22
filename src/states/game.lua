@@ -213,7 +213,8 @@ local function nearestLivingEnemyLabel()
         return "none"
     end
 
-    return string.format("%s [%s]", bestEnemy.name or bestEnemy.typeId or "enemy", bestEnemy.actorId or "?")
+    local dist = math.sqrt(bestDistSq)
+    return string.format("%s  %.0fpx", bestEnemy.name or bestEnemy.typeId or "enemy", dist)
 end
 
 local function getDevSpawnLabel(typeId)
@@ -511,9 +512,6 @@ local function drawDevPanelOverlay()
         title = game.devPanelTitleFont,
         row = game.devPanelRowFont,
     })
-    love.graphics.setFont(game.devPanelRowFont)
-    love.graphics.setColor(0.55, 0.55, 0.58)
-    love.graphics.printf(DEV_PANEL_HINT or DEV_PANEL_HELP, px, math.min(py + ph + 6, GAME_HEIGHT - 20), pw, "center")
 end
 
 local function emitEnemyNoise(x, y, radius, kind)
@@ -1017,8 +1015,11 @@ devClampScroll = function()
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Font.new(16)
     end
-    local _, _, _, ph = getDevPanelLayout()
-    local maxS = DevPanel.maxScroll(devPanelState.rows, game.devPanelTitleFont, ph)
+    if not game.devPanelRowFont then
+        game.devPanelRowFont = Font.new(13)
+    end
+    local _, _, pw, ph = getDevPanelLayout()
+    local maxS = DevPanel.maxScroll(devPanelState.rows, game.devPanelTitleFont, game.devPanelRowFont, pw, ph)
     devPanelState.scroll = math.max(0, math.min(maxS, devPanelState.scroll))
 end
 
@@ -1078,17 +1079,22 @@ devRebuildPanelRows = function()
 end
 
 do
-    local r = game._runtime
-    r.devRebuildPanelRows = devRebuildPanelRows
-    r.devClampScroll = devClampScroll
-    r.syncCurrentRoomNightMode = syncCurrentRoomNightMode
-    r.clearDevNpcPlacement = clearDevNpcPlacement
-    r.startDevNpcPlacement = startDevNpcPlacement
-    r.getMouseWorldPosition = getMouseWorldPosition
-    r.updateDevSpawnPreview = updateDevSpawnPreview
-    r.currentDevSpawnCount = currentDevSpawnCount
-    r.pendingEnemiesIncoming = pendingEnemiesIncoming
-    r.spawnCheatGoldDrops = spawnCheatGoldDrops
+    local function bindRuntimeHelpers()
+        local r = game._runtime
+        r.devRebuildPanelRows = devRebuildPanelRows
+        r.devClampScroll = devClampScroll
+        r.syncCurrentRoomNightMode = syncCurrentRoomNightMode
+        r.clearDevNpcPlacement = clearDevNpcPlacement
+        r.startDevNpcPlacement = startDevNpcPlacement
+        r.getMouseWorldPosition = getMouseWorldPosition
+        r.updateDevSpawnPreview = updateDevSpawnPreview
+        r.currentDevSpawnCount = currentDevSpawnCount
+        r.pendingEnemiesIncoming = pendingEnemiesIncoming
+        r.spawnCheatGoldDrops = spawnCheatGoldDrops
+    end
+
+    bindRuntimeHelpers()
+    game._bindRuntimeHelpers = bindRuntimeHelpers
 end
 
 local function openDevPanel()
@@ -1131,6 +1137,9 @@ end
 
 function game:enter(_, opts)
     game._runtime = {}
+    if game._bindRuntimeHelpers then
+        game._bindRuntimeHelpers()
+    end
     game._runtime.runSeed = (opts and opts.runSeed) or GameRng.seedFromTime()
     game._runtime.rng = GameRng.new(game._runtime.runSeed)
     GameRng.setCurrent(game._runtime.rng)
@@ -1935,7 +1944,7 @@ function game:mousemoved(x, y, dx, dy)
         end
         local px, py, pw, ph = getDevPanelLayout()
         if pointInRect(gx, gy, px, py, pw, ph) then
-            devPanelState.hover = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont)
+        devPanelState.hover = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
         else
             devPanelState.hover = nil
         end
@@ -2006,7 +2015,7 @@ function game:mousepressed(x, y, button)
         local insidePanel = pointInRect(gx, gy, px, py, pw, ph)
         if insidePanel then
             if button == 1 then
-                local hit = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont)
+                local hit = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
                 if hit then
                     devApplyAction(hit)
                 end
@@ -2557,6 +2566,17 @@ function game:draw()
             game.debugFont = Font.new(11)
         end
         love.graphics.setFont(game.debugFont)
+        local bulletDamage = es.bulletDamage or 0
+        local damageMultiplier = es.damageMultiplier or 1
+        local moveSpeed = es.moveSpeed or 0
+        local bulletCount = es.bulletCount or 0
+        local spreadAngle = es.spreadAngle or 0
+        local ricochetCount = es.ricochetCount or 0
+        local armor = es.armor or 0
+        local lifestealOnKill = es.lifestealOnKill or 0
+        local reloadSpeed = es.reloadSpeed or 0
+        local cylinderSize = es.cylinderSize or 0
+        local luck = es.luck or 0
 
         -- Stats panel (right side)
         local panelX = GAME_WIDTH - 260
@@ -2567,17 +2587,17 @@ function game:draw()
         love.graphics.print("-- EFFECTIVE STATS --", panelX, py)
         py = py + 16
         love.graphics.setColor(0.8, 1, 0.8)
-        love.graphics.print(string.format("DMG: %.0f x%.2f  SPD: %.0f", es.bulletDamage, es.damageMultiplier, es.moveSpeed), panelX, py)
+        love.graphics.print(string.format("DMG: %.0f x%.2f  SPD: %.0f", bulletDamage, damageMultiplier, moveSpeed), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Bullets: %d  Spread: %.2f", es.bulletCount, es.spreadAngle), panelX, py)
+        love.graphics.print(string.format("Bullets: %d  Spread: %.2f", bulletCount, spreadAngle), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Ricochet: %d  Explosive: %s", es.ricochetCount, tostring(es.explosiveRounds)), panelX, py)
+        love.graphics.print(string.format("Ricochet: %d  Explosive: %s", ricochetCount, tostring(es.explosiveRounds)), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Armor: %d  Lifesteal: %d", es.armor, es.lifestealOnKill), panelX, py)
+        love.graphics.print(string.format("Armor: %d  Lifesteal: %d", armor, lifestealOnKill), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Reload: %.2fs  Cylinder: %d", es.reloadSpeed, es.cylinderSize), panelX, py)
+        love.graphics.print(string.format("Reload: %.2fs  Cylinder: %d", reloadSpeed, cylinderSize), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("DeadEye: %s  Luck: %.2f", tostring(es.deadEye), es.luck), panelX, py)
+        love.graphics.print(string.format("DeadEye: %s  Luck: %.2f", tostring(es.deadEye), luck), panelX, py)
         py = py + 20
 
         -- Perks list

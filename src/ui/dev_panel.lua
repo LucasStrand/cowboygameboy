@@ -8,7 +8,8 @@ local INFO_H = 34
 local SECTION_H = 24
 local GAP = 4
 local PANEL_PAD = 14
-local PANEL_W = 430
+local PANEL_W = 468
+local FOOTER_H = 20
 
 local function rowSection(id, label, open)
     return { kind = "section", id = id, label = label, open = open ~= false }
@@ -24,7 +25,7 @@ end
 
 function DevPanel.panelRect(screenW, screenH)
     local pw = math.min(PANEL_W, screenW - 24)
-    local ph = math.min(664, screenH - 56)
+    local ph = math.min(680, screenH - 56)
     return 12, 44, pw, ph
 end
 
@@ -142,47 +143,54 @@ function DevPanel.buildRows(args)
 
     if addSection("statuses", "Status Lab") then
         local nearestEnemyLabel = args.statusLab and args.statusLab.nearestEnemyLabel or "none"
-        rows[#rows + 1] = rowInfo("Dev-only status verification. Applies statuses to the player or the nearest living enemy without changing live content hooks.")
-        rows[#rows + 1] = rowInfo("Nearest enemy target: " .. nearestEnemyLabel)
-        rows[#rows + 1] = rowAction("status_dump_player", "Dump player statuses")
-        rows[#rows + 1] = rowAction("status_dump_enemy", "Dump nearest enemy statuses")
-        rows[#rows + 1] = rowAction("status_clear_player", "Clear player statuses")
-        rows[#rows + 1] = rowAction("status_clear_enemy", "Clear nearest enemy statuses")
-        rows[#rows + 1] = rowAction("status_cleanse_player", "Cleanse player negatives")
-        rows[#rows + 1] = rowAction("status_purge_enemy", "Purge nearest enemy positives")
-        rows[#rows + 1] = rowAction("status_consume_enemy_shock", "Consume nearest enemy shock")
-        rows[#rows + 1] = rowAction("status_player:bleed", "Apply bleed to player")
-        rows[#rows + 1] = rowAction("status_player:burn", "Apply burn to player")
-        rows[#rows + 1] = rowAction("status_player:shock", "Apply shock to player")
-        rows[#rows + 1] = rowAction("status_player:wet", "Apply wet to player")
-        rows[#rows + 1] = rowAction("status_player:stun", "Apply stun to player")
-        rows[#rows + 1] = rowAction("status_player:slow", "Apply slow to player")
-        rows[#rows + 1] = rowAction("status_enemy:bleed", "Apply bleed to nearest enemy")
-        rows[#rows + 1] = rowAction("status_enemy:burn", "Apply burn to nearest enemy")
-        rows[#rows + 1] = rowAction("status_enemy:shock", "Apply shock to nearest enemy")
-        rows[#rows + 1] = rowAction("status_enemy:wet", "Apply wet to nearest enemy")
-        rows[#rows + 1] = rowAction("status_enemy:stun", "Apply stun to nearest enemy")
-        rows[#rows + 1] = rowAction("status_enemy:slow", "Apply slow to nearest enemy")
-        rows[#rows + 1] = rowAction("status_player:speed_boost", "Apply speed boost to player")
-        rows[#rows + 1] = rowAction("status_enemy:speed_boost", "Apply speed boost to nearest enemy")
+        rows[#rows + 1] = rowInfo("Dev-only status verification. No live weapon or ultimate hooks.")
+        rows[#rows + 1] = rowInfo("Target enemy: " .. nearestEnemyLabel)
+        rows[#rows + 1] = rowAction("status_dump_player", "Player: dump")
+        rows[#rows + 1] = rowAction("status_clear_player", "Player: clear all")
+        rows[#rows + 1] = rowAction("status_cleanse_player", "Player: cleanse negatives")
+        rows[#rows + 1] = rowAction("status_player:bleed", "Player: bleed")
+        rows[#rows + 1] = rowAction("status_player:burn", "Player: burn")
+        rows[#rows + 1] = rowAction("status_player:shock", "Player: shock")
+        rows[#rows + 1] = rowAction("status_player:wet", "Player: wet")
+        rows[#rows + 1] = rowAction("status_player:stun", "Player: stun")
+        rows[#rows + 1] = rowAction("status_player:slow", "Player: slow")
+        rows[#rows + 1] = rowAction("status_player:speed_boost", "Player: speed boost")
+        rows[#rows + 1] = rowAction("status_dump_enemy", "Enemy: dump nearest")
+        rows[#rows + 1] = rowAction("status_clear_enemy", "Enemy: clear nearest")
+        rows[#rows + 1] = rowAction("status_purge_enemy", "Enemy: purge positives")
+        rows[#rows + 1] = rowAction("status_consume_enemy_shock", "Enemy: consume shock")
+        rows[#rows + 1] = rowAction("status_enemy:bleed", "Enemy: bleed")
+        rows[#rows + 1] = rowAction("status_enemy:burn", "Enemy: burn")
+        rows[#rows + 1] = rowAction("status_enemy:shock", "Enemy: shock")
+        rows[#rows + 1] = rowAction("status_enemy:wet", "Enemy: wet")
+        rows[#rows + 1] = rowAction("status_enemy:stun", "Enemy: stun")
+        rows[#rows + 1] = rowAction("status_enemy:slow", "Enemy: slow")
+        rows[#rows + 1] = rowAction("status_enemy:speed_boost", "Enemy: speed boost")
     end
 
     return rows
 end
 
-local function rowHeight(row)
+local function rowHeight(row, rowFont, innerW)
     if row.kind == "section" then
         return SECTION_H + GAP
     elseif row.kind == "info" then
+        if rowFont and innerW then
+            local _, wrapped = rowFont:getWrap(row.label or "", math.max(32, innerW))
+            local lines = math.max(1, #wrapped)
+            local textH = lines * rowFont:getHeight()
+            return math.max(INFO_H, textH + 10) + GAP
+        end
         return INFO_H + GAP
     end
     return ROW_H + GAP
 end
 
-function DevPanel.rowsHeight(rows)
+function DevPanel.rowsHeight(rows, rowFont, panelW)
     local h = 0
+    local innerW = panelW and (panelW - 2 * PANEL_PAD) or nil
     for _, row in ipairs(rows) do
-        h = h + rowHeight(row)
+        h = h + rowHeight(row, rowFont, innerW)
     end
     return h
 end
@@ -191,15 +199,15 @@ function DevPanel.titleBlockHeight(titleFont)
     return PANEL_PAD + titleFont:getHeight() + 12
 end
 
-function DevPanel.maxScroll(rows, titleFont, panelH)
-    local rowsH = DevPanel.rowsHeight(rows)
+function DevPanel.maxScroll(rows, titleFont, rowFont, panelW, panelH)
+    local rowsH = DevPanel.rowsHeight(rows, rowFont, panelW)
     local titleH = DevPanel.titleBlockHeight(titleFont)
-    local viewH = panelH - titleH - PANEL_PAD
+    local viewH = panelH - titleH - PANEL_PAD - FOOTER_H - 8
     if viewH < 40 then return 0 end
     return math.max(0, rowsH - viewH)
 end
 
-function DevPanel.hitTest(rows, mx, my, scrollY, px, py, pw, ph, titleFont)
+function DevPanel.hitTest(rows, mx, my, scrollY, px, py, pw, ph, titleFont, rowFont)
     if mx < px or my < py or mx > px + pw or my > py + ph then
         return nil
     end
@@ -207,18 +215,20 @@ function DevPanel.hitTest(rows, mx, my, scrollY, px, py, pw, ph, titleFont)
     local y = py + DevPanel.titleBlockHeight(titleFont) - scrollY
     local x0 = px + PANEL_PAD
     local innerW = pw - 2 * PANEL_PAD
+    local contentBottom = py + ph - PANEL_PAD - FOOTER_H
 
     for _, row in ipairs(rows) do
+        local h = rowHeight(row, rowFont, innerW)
         if row.kind == "section" then
-            if my >= y and my <= y + SECTION_H and mx >= x0 and mx <= x0 + innerW then
+            if my >= y and my <= y + SECTION_H and mx >= x0 and mx <= x0 + innerW and my < contentBottom then
                 return "section:" .. row.id
             end
         elseif row.kind == "action" then
-            if my >= y and my <= y + ROW_H and mx >= x0 and mx <= x0 + innerW then
+            if my >= y and my <= y + ROW_H and mx >= x0 and mx <= x0 + innerW and my < contentBottom then
                 return row.id
             end
         end
-        y = y + rowHeight(row)
+        y = y + h
     end
 
     return nil
@@ -243,9 +253,12 @@ function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
     local innerY = py + DevPanel.titleBlockHeight(titleFont) - scrollY
     local x0 = px + PANEL_PAD
     local innerW = pw - 2 * PANEL_PAD
+    local contentBottom = py + ph - PANEL_PAD - FOOTER_H
 
+    love.graphics.setScissor(px, py, pw, math.max(0, contentBottom - py))
     love.graphics.setFont(rowFont)
     for _, row in ipairs(rows) do
+        local h = rowHeight(row, rowFont, innerW)
         if row.kind == "section" then
             local hovered = hoverId == ("section:" .. row.id)
             love.graphics.setColor(hovered and 0.16 or 0.11, hovered and 0.13 or 0.1, hovered and 0.08 or 0.07, 0.92)
@@ -253,10 +266,10 @@ function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
             love.graphics.setColor(0.72, 0.63, 0.5, 0.95)
             love.graphics.print((row.open and "v " or "> ") .. row.label, x0, innerY + 2)
         elseif row.kind == "info" then
-            love.graphics.setColor(0.18, 0.18, 0.22, 0.62)
-            love.graphics.rectangle("fill", x0 - 4, innerY - 2, innerW + 8, INFO_H, 4, 4)
+            love.graphics.setColor(0.18, 0.18, 0.22, 0.72)
+            love.graphics.rectangle("fill", x0 - 4, innerY - 2, innerW + 8, h - GAP, 4, 4)
             love.graphics.setColor(0.72, 0.74, 0.78, 0.95)
-            love.graphics.printf(row.label, x0, innerY + 3, innerW, "left")
+            love.graphics.printf(row.label, x0, innerY + 4, innerW, "left")
         else
             local hovered = hoverId == row.id
             if hovered then
@@ -266,10 +279,17 @@ function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
             love.graphics.setColor(hovered and 1 or 0.82, hovered and 0.95 or 0.8, hovered and 0.7 or 0.68)
             love.graphics.print(row.label, x0, innerY + 3)
         end
-        innerY = innerY + rowHeight(row)
+        innerY = innerY + h
     end
 
     love.graphics.setScissor()
+
+    local footerY = py + ph - PANEL_PAD - FOOTER_H + 2
+    love.graphics.setColor(0.1, 0.09, 0.12, 0.95)
+    love.graphics.rectangle("fill", px + 1, footerY - 4, pw - 2, FOOTER_H + PANEL_PAD - 1, 0, 0)
+    love.graphics.setFont(rowFont)
+    love.graphics.setColor(0.55, 0.55, 0.58)
+    love.graphics.printf("F2 close  |  ESC/right click cancel  |  wheel scroll", x0, footerY, innerW, "center")
 end
 
 return DevPanel
