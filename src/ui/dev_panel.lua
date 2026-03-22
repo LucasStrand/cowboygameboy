@@ -140,6 +140,33 @@ function DevPanel.buildRows(args)
         end
     end
 
+    if addSection("statuses", "Status Lab") then
+        local nearestEnemyLabel = args.statusLab and args.statusLab.nearestEnemyLabel or "none"
+        rows[#rows + 1] = rowInfo("Dev-only status verification. Applies statuses to the player or the nearest living enemy without changing live content hooks.")
+        rows[#rows + 1] = rowInfo("Nearest enemy target: " .. nearestEnemyLabel)
+        rows[#rows + 1] = rowAction("status_dump_player", "Dump player statuses")
+        rows[#rows + 1] = rowAction("status_dump_enemy", "Dump nearest enemy statuses")
+        rows[#rows + 1] = rowAction("status_clear_player", "Clear player statuses")
+        rows[#rows + 1] = rowAction("status_clear_enemy", "Clear nearest enemy statuses")
+        rows[#rows + 1] = rowAction("status_cleanse_player", "Cleanse player negatives")
+        rows[#rows + 1] = rowAction("status_purge_enemy", "Purge nearest enemy positives")
+        rows[#rows + 1] = rowAction("status_consume_enemy_shock", "Consume nearest enemy shock")
+        rows[#rows + 1] = rowAction("status_player:bleed", "Apply bleed to player")
+        rows[#rows + 1] = rowAction("status_player:burn", "Apply burn to player")
+        rows[#rows + 1] = rowAction("status_player:shock", "Apply shock to player")
+        rows[#rows + 1] = rowAction("status_player:wet", "Apply wet to player")
+        rows[#rows + 1] = rowAction("status_player:stun", "Apply stun to player")
+        rows[#rows + 1] = rowAction("status_player:slow", "Apply slow to player")
+        rows[#rows + 1] = rowAction("status_enemy:bleed", "Apply bleed to nearest enemy")
+        rows[#rows + 1] = rowAction("status_enemy:burn", "Apply burn to nearest enemy")
+        rows[#rows + 1] = rowAction("status_enemy:shock", "Apply shock to nearest enemy")
+        rows[#rows + 1] = rowAction("status_enemy:wet", "Apply wet to nearest enemy")
+        rows[#rows + 1] = rowAction("status_enemy:stun", "Apply stun to nearest enemy")
+        rows[#rows + 1] = rowAction("status_enemy:slow", "Apply slow to nearest enemy")
+        rows[#rows + 1] = rowAction("status_player:speed_boost", "Apply speed boost to player")
+        rows[#rows + 1] = rowAction("status_enemy:speed_boost", "Apply speed boost to nearest enemy")
+    end
+
     return rows
 end
 

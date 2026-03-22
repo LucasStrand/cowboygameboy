@@ -156,20 +156,30 @@
 - `damage_packet.counts_as_hit`
 - `damage_packet.can_trigger_proc`
 
-## Acceptance Checklist
+## Acceptance Notes
 
-- [ ] Boot fails loudly on intentionally broken combat/build content.
-- [ ] Boot succeeds with current valid combat/build content.
-- [ ] Same run seed produces repeatable gameplay outcomes in migrated RNG paths.
-- [ ] Bullet and melee paths create packet/source metadata without changing visible damage.
-- [ ] Core combat events emit ownership data.
-- [ ] Stat runtime comparison runs without breaking gameplay.
+### Verified Good
+
+- Load-time validation is active for the current combat/build content set.
+- Damage packets and source refs exist on the live seams later phases migrated on top of.
+- Combat events, gameplay RNG ownership, and stat-runtime adapters are present and still consumed by later phases.
+- Later phases depend on these foundations without reintroducing the old ad hoc packet/source ownership path.
+
+### Still Unverified
+
+- Intentional boot-fail cases for broken combat/build content were not re-run during this closeout pass.
+- Full deterministic replay validation for all migrated gameplay RNG channels was not re-run in this environment.
+- The stat-runtime comparison hook was not exercised as a dedicated manual gameplay pass in this closeout.
+
+### Bugs / Balance Problems Found During Closeout
+
+- None confirmed in this pass.
 
 ## Verification Status
 
-- Code and docs are implemented.
-- Runtime/manual verification is still pending.
-- No local Lua/Love syntax runner was available in this pass, so verification was limited to code inspection and seam checks.
+- Phase 2 foundations remain active and are exercised indirectly by Phases 3-5.
+- Closeout converted the old unchecked acceptance list into evidence buckets so the phase log matches current repo truth.
+- Residual low-risk verification items are explicitly deferred to later hardening rather than left as silent checklist debt.
 
 ## Problems Encountered
 

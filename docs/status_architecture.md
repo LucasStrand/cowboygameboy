@@ -681,11 +681,17 @@ För att undvika att v1 sticker iväg direkt:
 - bleed 5-stack bör inte out-dpsa burn tydligt utan tydlig build-investering
 - critbara DoTs ska inte få trigga full on-hit/proc-kedja i baseline
 
-## Open Decisions
+## Landed V1 Decisions
 
-Det viktigaste att låsa härnäst:
+Nuvarande runtime har redan låst följande V1-beslut:
 
-1. Ska bleed använda flat tick damage eller relativ damage från applicerande träff?
-2. Ska overload damage skala från senaste elträffen, vapnets base damage eller separat shock_damage?
-3. Ska elites ha reducerad stun duration från shock overload redan i v1?
-4. Ska fire staffs burn scaling använda player level exakt, eller ett separat combat power value senare?
+1. `bleed` använder snapshotad tick-skada härledd från applicerande träffs resolved damage path, inte en fri flat basmodell.
+2. `shock` overload-payoff använder snapshotad payoff-data från applicationen i stället för att läsa om live damage state vid payoff-tillfället.
+3. `burn` använder source level direkt när effect-data uttryckligen authorar level-skalning i v1.
+4. Elite-specifik stun-reduktion utöver bossprofilen är fortfarande deferred tills en riktig elite/CC-profil behöver låsas.
+
+## Current Content Boundary
+
+- Statusruntime och `status_applications`-stöd finns i koden.
+- Repon skickar däremot inte med några default-authored gun-, enemy projectile- eller ultimate-hooks för statusapplicering just nu.
+- Dokumenterade weapon/status-exempel i denna fil ska därför läsas som framtida authored content patterns, inte som nuvarande live defaults.

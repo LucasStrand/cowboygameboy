@@ -104,17 +104,25 @@ These fields are still populated so HUD, game loop, and other legacy call sites 
 - `slot_mode`
 - `attack_profile_id`
 
-## Acceptance Checklist
+## Acceptance Notes
 
-- [ ] Boot succeeds with existing gun content and no schema rewrite requirement.
-- [ ] Revolver behavior still matches pre-refactor baseline.
-- [ ] Blunderbuss recoil hop still works through attack-profile bridge.
-- [ ] AK-47 still respects rapid fire and inaccuracy.
-- [ ] Slot 2 melee stance exists as explicit runtime state, not missing backend data.
-- [ ] Reload persists on a slot while the player switches to another slot.
-- [ ] Akimbo slots tick cooldown and reload independently.
-- [ ] Ammo perk and ammo shop upgrade hit authoritative runtime state instead of writing to compatibility mirrors.
-- [ ] HUD ammo capacity can read resolved slot stats.
+### Verified Good
+
+- Weapon runtime is the authoritative owner for slot state, active slot, ammo, reload, cooldown, and resolved weapon stats.
+- Runtime-first player seams no longer contain dead legacy fallback bodies.
+- Ammo mutations in perks and shop now route through runtime accessors instead of compatibility mirrors.
+- Auto-fire and melee-mode truth read runtime state instead of player mirror state.
+- Later direct-hit/status work now consumes weapon runtime as the outgoing player source seam.
+
+### Still Unverified In Gameplay
+
+- Exact feel parity for revolver, blunderbuss, and AK-47 still needs a dedicated manual pass.
+- Reload persistence across active slot switching still needs a dedicated manual gameplay confirmation.
+- Akimbo live behavior and HUD ammo readout still need a dedicated manual gameplay confirmation.
+
+### Bugs / Balance Problems Found During Closeout
+
+- None confirmed in this pass.
 
 ## Hardening Acceptance
 
@@ -137,4 +145,4 @@ These fields are still populated so HUD, game loop, and other legacy call sites 
 
 - Phase 3 implementation and hardening pass completed.
 - Static repo-search verification confirms that remaining mirror reads are limited to approved UI/glue paths.
-- Manual gameplay verification is still required for reload persistence, akimbo, HUD ammo readout, and weapon swapping in live Love runtime.
+- Residual live-feel parity checks are explicit in this log instead of hidden in the old checkbox list.

@@ -158,6 +158,7 @@ local function defaultDevPanelSections()
         npc = true,
         weapons = false,
         perks = false,
+        statuses = false,
     }
 end
 
@@ -182,6 +183,37 @@ end
 local function currentDevSpawnCount()
     local idx = devNpcSpawn and devNpcSpawn.countIndex or 1
     return DEV_SPAWN_COUNTS[idx] or 1
+end
+
+local function nearestLivingEnemyLabel()
+    if not player or not enemies then
+        return "none"
+    end
+
+    local px = player.x + player.w * 0.5
+    local py = player.y + player.h * 0.5
+    local bestEnemy = nil
+    local bestDistSq = math.huge
+
+    for _, enemy in ipairs(enemies) do
+        if enemy and enemy.alive then
+            local ex = enemy.x + enemy.w * 0.5
+            local ey = enemy.y + enemy.h * 0.5
+            local dx = ex - px
+            local dy = ey - py
+            local distSq = dx * dx + dy * dy
+            if distSq < bestDistSq then
+                bestDistSq = distSq
+                bestEnemy = enemy
+            end
+        end
+    end
+
+    if not bestEnemy then
+        return "none"
+    end
+
+    return string.format("%s [%s]", bestEnemy.name or bestEnemy.typeId or "enemy", bestEnemy.actorId or "?")
 end
 
 local function getDevSpawnLabel(typeId)
@@ -1038,6 +1070,9 @@ devRebuildPanelRows = function()
             count = currentDevSpawnCount(),
             placement = devNpcSpawn and devNpcSpawn.placement,
             preview = devNpcSpawn and devNpcSpawn.preview,
+        },
+        statusLab = {
+            nearestEnemyLabel = nearestLivingEnemyLabel(),
         },
     })
 end

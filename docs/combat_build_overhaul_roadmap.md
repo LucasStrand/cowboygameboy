@@ -277,19 +277,19 @@ Delar:
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Stat runtime | `not started` | bygg central registry-driven compute pipeline |
-| Damage packet model | `not started` | definiera runtime shape och ownership |
-| Gameplay events | `not started` | lås minimala combat events |
-| Gameplay RNG wrapper | `not started` | separera gameplay-RNG från presentation |
+| Stat runtime | `implemented` | använd fortsatt som canonical statseam för senare proc/tooltips/meta |
+| Damage packet model | `implemented + expanded` | bygg Phase 6 proc/override-regler ovanpå canonical packet shape |
+| Gameplay events | `implemented` | bredda mot proc/presentation/recap utan att bryta ägarskap |
+| Gameplay RNG wrapper | `implemented` | verifiera vidare i större gameplay/hardening-pass |
 
 ### Damage Pipeline
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Damage resolution order | `spec locked after Phase 1` | implementera resolver och debug print |
-| Mitigation model | `spec locked after Phase 1` | route bullet/melee genom ny modell |
-| Pen/shred | `spec locked after Phase 1` | implementera target defense state + source pen |
-| Direct-hit migration | `implemented` | verifiera live behavior och bygg Phase 5 ovanpå resolver/events |
+| Damage resolution order | `implemented + verification debt` | slutför gameplay-closeout innan Phase 6 bygger vidare på proc-regler |
+| Mitigation model | `implemented + verification debt` | verifiera live behavior för projectile/melee/contact/explosion |
+| Pen/shred | `implemented + verification debt` | fortsätt verifiera via resolver-paths och framtida content |
+| Direct-hit migration | `implemented + verification debt` | stäng live verifiering och använd sedan resolver/events som Phase 6-bas |
 
 ### Weapon Runtime
 
@@ -303,16 +303,16 @@ Delar:
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Status definitions | `foundation exists` | migrera till riktiga runtime instances |
-| CC/DR rules | `spec locked after Phase 1` | implementera enemy/boss-profiler |
-| Remove operations | `not started` | cleanse/purge/expire/consume |
-| UI priority tiers | `not started` | exponera top-statuses i UI |
+| Status definitions | `implemented + verification debt` | authora framtida content ovanpå content-neutral runtime |
+| CC/DR rules | `implemented + verification debt` | verifiera live DR/boss-profiler via status harness + gameplay pass |
+| Remove operations | `implemented + verification debt` | verifiera cleanse/purge/consume/expire med dev-only status harness |
+| UI priority tiers | `implemented + verification debt` | verifiera HUD ordering och enemy badges i live gameplay |
 
 ### Content Validation
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Load-time validation | `not started` | validera ids, tags, triggers, hooks |
+| Load-time validation | `implemented` | bredda senare mot tooltips/localization/content breadth |
 | Tooltip model | `not started` | hybrid generated + override |
 | Localization templates | `not started` | tokens i fulla meningar |
 

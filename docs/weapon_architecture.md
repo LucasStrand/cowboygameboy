@@ -620,6 +620,11 @@ Det betyder att staff-familjen redan i v1 kräver att attack profiles kan läsa:
 - level-skalning
 - secondary hit behavior
 
+Implementation note:
+
+- Dessa staff-identiteter är fortfarande framtida authored content direction.
+- Nuvarande repo har runtime-stöd för `status_applications`, men skickar inte med default-statushooks på live guns ännu.
+
 ### 4. Heavy melee
 
 Långsamma men identitetsstarka melee-vapen.
@@ -679,6 +684,11 @@ Låst riktning:
 - den ska fortfarande kännas usel i raw damage
 - dess range ska vara extremt kort
 - även med wet-synergi ska den inte automatiskt bli ett starkt standardval
+
+Implementation note:
+
+- Detta är fortfarande en designriktning för framtida authored weapon content.
+- Repon skickar inte med en live supersoaker-hook som applicerar `wet` som default i nuläget.
 
 ## 17. Armor Content Direction
 

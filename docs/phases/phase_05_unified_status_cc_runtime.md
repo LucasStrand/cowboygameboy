@@ -61,6 +61,25 @@
   - ultimate projectile
 - Phase 5 now leaves the status runtime content-neutral until future authored content adds explicit hooks.
 
+## Debug Hooks
+
+- Phase 5 now has a dev-only `Status Lab` in the F2 dev panel.
+- Trigger method:
+  - open F2
+  - expand `Status Lab`
+  - apply `bleed`, `burn`, `shock`, `wet`, `stun`, or `slow` to the player or the nearest living enemy
+  - use `Dump`, `Cleanse`, `Purge`, `Consume`, and `Clear` actions to verify runtime state transitions
+- The harness is intentionally content-neutral:
+  - it does not add default gun status hooks
+  - it does not add default enemy projectile status hooks
+  - it does not add default ultimate status hooks
+- DevLog output is the authoritative trace for:
+  - applied status ids
+  - stacks
+  - remaining duration
+  - control-state and CC timers
+  - remove-op results
+
 ## Closeout Notes
 
 - Phase 5 lands the shared runtime in code.
@@ -93,9 +112,11 @@
 
 - Static repo search used to confirm no temporary authored `status_applications` remain on guns, enemy projectile examples, or the ultimate path.
 - Short LOVE boot smoke test completed without an immediate startup crash.
-- Manual gameplay verification was not completed in this environment and is still required for:
+- A dev-only verification harness now exists so Phase 5 can be verified without reintroducing permanent status content.
+- Manual gameplay verification is still required for:
   - bleed / burn tick pacing
   - shock overload + stun DR
   - status HUD ordering
   - enemy badge readability
   - player stun gating
+  - cleanse / purge / consume / expire behavior in live gameplay

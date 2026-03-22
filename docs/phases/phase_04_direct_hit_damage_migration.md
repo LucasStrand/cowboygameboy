@@ -81,6 +81,12 @@
   - `target_killed`
   - `applied_minimum_damage`
 
+## Debug Hooks
+
+- F1 debug overlay + DevLog receive resolver-owned hit lines from `damage_resolver`.
+- Weapon runtime slot dumps remain available through the existing runtime debug hooks and are still the right companion tool when checking projectile live-source fallback.
+- Phase 4 does not add a separate new panel flow; direct-hit closeout still requires live combat verification in the Love runtime.
+
 ## Acceptance Checklist
 
 ### Verified Good
