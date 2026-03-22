@@ -78,6 +78,14 @@ function DevPanel.buildRows(args)
         rows[#rows + 1] = rowAction("force_levelup", "Open level-up choice")
     end
 
+    if addSection("quick", "Quick Setups") then
+        rows[#rows + 1] = rowInfo("One-click Phase 6 presets for rapid perk/weapon testing.")
+        rows[#rows + 1] = rowAction("preset_phase6_revolver_explosive", "Phase 6: revolver + explosive")
+        rows[#rows + 1] = rowAction("preset_phase6_ak_explosive", "Phase 6: AK-47 + explosive")
+        rows[#rows + 1] = rowAction("preset_phase6_blunderbuss_explosive", "Phase 6: blunderbuss + explosive")
+        rows[#rows + 1] = rowAction("preset_phase6_proc_revolver", "Phase 6: revolver + Phantom Third")
+    end
+
     if addSection("world", "World / Room") then
         rows[#rows + 1] = rowAction("time_auto", timeLabel("time_auto", "Auto (room `night` flag)"))
         rows[#rows + 1] = rowAction("time_day", timeLabel("time_day", "Force day (full bright)"))
@@ -145,6 +153,32 @@ function DevPanel.buildRows(args)
         end
     end
 
+    if addSection("rewards", "Rewards / Tooltips") then
+        rows[#rows + 1] = rowInfo("Test current reward-facing tooltip surfaces directly in dev arena.")
+        rows[#rows + 1] = rowInfo("Build profile: " .. tostring(args.rewardLab and args.rewardLab.profileSummary or "none"))
+        rows[#rows + 1] = rowAction("reward_dump_profile", "Dump reward profile to DevLog")
+        rows[#rows + 1] = rowAction("force_levelup", "Open level-up choice")
+        rows[#rows + 1] = rowAction("reward_refresh_shop", "Refresh dev shop offers")
+        local offers = args.rewardLab and args.rewardLab.offers or {}
+        if #offers == 0 then
+            rows[#rows + 1] = rowInfo("No dev shop offers available.")
+        else
+            for i, offer in ipairs(offers) do
+                local price = offer.price and (" $" .. tostring(offer.price)) or ""
+                local sold = offer.sold and " [APPLIED]" or ""
+                local bucket = offer.reward_bucket and (" [" .. tostring(offer.reward_bucket) .. "]") or ""
+                local role = offer.reward_role and (" {" .. tostring(offer.reward_role) .. "}") or ""
+                rows[#rows + 1] = rowAction("reward_apply_shop_offer:" .. tostring(i), string.format("Offer %d: %s%s%s%s%s", i, offer.name or "Offer", bucket, role, price, sold))
+                if offer.description and offer.description ~= "" then
+                    rows[#rows + 1] = rowInfo(offer.description)
+                end
+                if offer.reward_reason and offer.reward_reason ~= "" then
+                    rows[#rows + 1] = rowInfo("Reason: " .. offer.reward_reason)
+                end
+            end
+        end
+    end
+
     if addSection("statuses", "Status Lab") then
         local nearestEnemyLabel = args.statusLab and args.statusLab.nearestEnemyLabel or "none"
         rows[#rows + 1] = rowInfo("Dev-only status verification. No live weapon or ultimate hooks.")
@@ -152,6 +186,8 @@ function DevPanel.buildRows(args)
         rows[#rows + 1] = rowAction("status_dump_player", "Player: dump")
         rows[#rows + 1] = rowAction("status_clear_player", "Player: clear all")
         rows[#rows + 1] = rowAction("status_cleanse_player", "Player: cleanse negatives")
+        rows[#rows + 1] = rowAction("status_step_player_1s", "Player: advance statuses 1s")
+        rows[#rows + 1] = rowAction("status_step_player_5s", "Player: advance statuses 5s")
         rows[#rows + 1] = rowAction("status_player:bleed", "Player: bleed")
         rows[#rows + 1] = rowAction("status_player:burn", "Player: burn")
         rows[#rows + 1] = rowAction("status_player:shock", "Player: shock")
@@ -163,6 +199,8 @@ function DevPanel.buildRows(args)
         rows[#rows + 1] = rowAction("status_clear_enemy", "Enemy: clear nearest")
         rows[#rows + 1] = rowAction("status_purge_enemy", "Enemy: purge positives")
         rows[#rows + 1] = rowAction("status_consume_enemy_shock", "Enemy: consume shock")
+        rows[#rows + 1] = rowAction("status_step_enemy_1s", "Enemy: advance statuses 1s")
+        rows[#rows + 1] = rowAction("status_step_enemy_5s", "Enemy: advance statuses 5s")
         rows[#rows + 1] = rowAction("status_enemy:bleed", "Enemy: bleed")
         rows[#rows + 1] = rowAction("status_enemy:burn", "Enemy: burn")
         rows[#rows + 1] = rowAction("status_enemy:shock", "Enemy: shock")
@@ -295,7 +333,7 @@ function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
     love.graphics.line(x0 - 4, footerY - 6, x0 + innerW + 4, footerY - 6)
     love.graphics.setFont(rowFont)
     love.graphics.setColor(0.55, 0.55, 0.58)
-    love.graphics.printf("F2 close  |  ESC/right click cancel  |  wheel scroll", x0, footerY, innerW, "center")
+    love.graphics.printf("F1 close  |  gameplay stays live  |  wheel scroll", x0, footerY, innerW, "center")
 end
 
 return DevPanel

@@ -1,4 +1,4 @@
-local Perks = require("src.data.perks")
+local Progression = require("src.systems.progression")
 local Sfx = require("src.systems.sfx")
 local Timer = require("lib.hump.timer")
 local CasinoFx = require("src.ui.casino_fx")
@@ -289,7 +289,10 @@ local function resolveReward(self, player, dealAgain)
     player.gold = player.gold + add
     if reward.perkRarity == "rare" or reward.anyWin then
         self.returnToBlackjack = dealAgain and true or false
-        return buildResult("perk_selection", nil, nil, Perks.rollPerks(3, player.stats.luck))
+        return buildResult("perk_selection", nil, nil, Progression.rollLevelUpPerks(player, {
+            run_metadata = player and player.runMetadata or nil,
+            source = "blackjack_reward",
+        }))
     end
     self.returnToBlackjack = false
     if dealAgain then

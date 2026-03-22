@@ -4,6 +4,13 @@ local Progression = require("src.systems.progression")
 local Buffs = require("src.systems.buffs")
 local SourceRef = require("src.systems.source_ref")
 local DevLog = require("src.ui.devlog")
+local ContentTooltips = require("src.systems.content_tooltips")
+local RewardRuntime = require("src.systems.reward_runtime")
+local RunMetadata = require("src.systems.run_metadata")
+
+local function adminToolsEnabled()
+    return DEBUG or DEV_TOOLS_ENABLED
+end
 
 local function devPerkById(pid)
     local Perks = require("src.data.perks")
@@ -16,6 +23,18 @@ local function devPlayerHasPerk(player, pid)
     if not player then return true end
     for _, id in ipairs(player.perks) do
         if id == pid then return true end
+    end
+    return false
+end
+
+local function ensurePerk(player, pid)
+    if devPlayerHasPerk(player, pid) then
+        return false
+    end
+    local perk = devPerkById(pid)
+    if perk then
+        Progression.applyPerk(player, perk)
+        return true
     end
     return false
 end
@@ -208,9 +227,56 @@ local function applyDebugStatus(player, target_actor, target_kind, status_id, wo
     return ok == true
 end
 
+local function advanceStatusTime(player, target_actor, target_kind, world, seconds)
+    if not target_actor or not target_actor.statuses then
+        return false
+    end
+    local remaining = math.max(0, tonumber(seconds) or 0)
+    while remaining > 0 do
+        local step = math.min(0.25, remaining)
+        Buffs.update(target_actor.statuses, step, {
+            owner_actor = target_actor,
+            target_kind = target_kind,
+            world = world,
+            source_actor = player,
+        })
+        remaining = remaining - step
+    end
+    return true
+end
+
+local function ensureDevShop(ctx)
+    local Shop = require("src.systems.shop")
+    ctx.devRewardLab = ctx.devRewardLab or {}
+    if not ctx.devRewardLab.shop then
+        ctx.devRewardLab.shop = Shop.new((ctx.roomManager and ctx.roomManager.difficulty) or 1, ctx.player, {
+            run_metadata = ctx.player and ctx.player.runMetadata or nil,
+            source = "dev_arena_shop",
+            room_manager = ctx.roomManager,
+        })
+    end
+    return ctx.devRewardLab.shop
+end
+
+local function rebuildDevShopDescriptions(shop)
+    for _, item in ipairs((shop and shop.items) or {}) do
+        if item.type == "gear" and item.gearData then
+            item.description = ContentTooltips.getJoinedText("gear", item.gearData)
+        elseif item.tooltip_key or item.tooltip_override then
+            item.description = ContentTooltips.getJoinedText("offer", item)
+        end
+    end
+end
+
+local function logRewardProfile(player, source)
+    local profile = RewardRuntime.buildProfile(player, { source = source or "dev_reward_lab" })
+    DevLog.push("sys", "[reward] profile: " .. RewardRuntime.describeProfile(profile))
+    return profile
+end
+
 --- ctx is game._runtime filled by game.lua before each call.
 local function apply(id, ctx)
-    if not DEBUG or not ctx.player or not id then return end
+    if not adminToolsEnabled() or not ctx.player or not id then return end
     local player = ctx.player
     local devPanelState = ctx.devPanelState
     local devRebuildPanelRows = ctx.devRebuildPanelRows
@@ -230,6 +296,7 @@ local function apply(id, ctx)
     local syncCurrentRoomNightMode = ctx.syncCurrentRoomNightMode
     local spawnCheatGoldDrops = ctx.spawnCheatGoldDrops
     local gameRef = ctx.gameRef
+    local devRewardLab = ctx.devRewardLab
     local nearestEnemy = nearestLivingEnemy(player, enemies)
 
     if id:sub(1, 8) == "section:" then
@@ -337,12 +404,93 @@ local function apply(id, ctx)
             local levelup = require("src.states.levelup")
             Gamestate.push(levelup, player, function() end)
         end
+    elseif id == "preset_phase6_revolver_explosive" or id == "preset_phase6_ak_explosive"
+        or id == "preset_phase6_blunderbuss_explosive" or id == "preset_phase6_proc_revolver" then
+        local Guns = require("src.data.guns")
+        local gunId = (id == "preset_phase6_revolver_explosive" and "revolver")
+            or (id == "preset_phase6_ak_explosive" and "ak47")
+            or (id == "preset_phase6_blunderbuss_explosive" and "blunderbuss")
+            or "revolver"
+        local gunDef = Guns.getById(gunId)
+        if gunDef then
+            player:equipWeapon(gunDef, player.activeWeaponSlot)
+        end
+        if id == "preset_phase6_proc_revolver" then
+            ensurePerk(player, "phantom_third")
+            DevLog.push("sys", "[dev] preset: phase6 proc revolver")
+        else
+            ensurePerk(player, "explosive_rounds")
+            DevLog.push("sys", "[dev] preset: " .. gunId .. " + explosive rounds")
+        end
+        player.hp = player:getEffectiveStats().maxHP
+        player.ultCharge = 1
+        devRebuildPanelRows()
+        devClampScroll()
     elseif id == "force_levelup" then
         devPanelState.open = false
         ctx.characterSheetOpen = false
         clearDevNpcPlacement(false)
+        logRewardProfile(player, "dev_force_levelup")
         local levelup = require("src.states.levelup")
         Gamestate.push(levelup, player, function() end)
+    elseif id == "reward_dump_profile" then
+        logRewardProfile(player, "dev_reward_dump")
+    elseif id == "reward_refresh_shop" then
+        local Shop = require("src.systems.shop")
+        local difficulty = (ctx.roomManager and ctx.roomManager.difficulty) or 1
+        ctx.devRewardLab = ctx.devRewardLab or {}
+        local profile = logRewardProfile(player, "dev_reward_refresh_shop")
+        ctx.devRewardLab.profileSummary = RewardRuntime.describeProfile(profile)
+        ctx.devRewardLab.shop = Shop.new(difficulty, player, {
+            run_metadata = player and player.runMetadata or nil,
+            source = "dev_arena_shop",
+            room_manager = ctx.roomManager,
+            build_snapshot = RunMetadata.snapshotBuild(player, profile),
+        })
+        rebuildDevShopDescriptions(ctx.devRewardLab.shop)
+        devRebuildPanelRows()
+        devClampScroll()
+        DevLog.push("sys", "[dev] refreshed dev shop offers")
+        for i, item in ipairs(ctx.devRewardLab.shop.items or {}) do
+            DevLog.push("sys", string.format(
+                "[reward] shop %d: %s [%s/%s] %s",
+                i,
+                tostring(item.name),
+                tostring(item.reward_bucket or "unknown"),
+                tostring(item.reward_role or item.type or "unknown"),
+                tostring(item.reward_reason or "no reason")
+            ))
+        end
+    elseif id:sub(1, 24) == "reward_apply_shop_offer:" then
+        local index = tonumber(id:sub(25))
+        local shop = ensureDevShop(ctx)
+        rebuildDevShopDescriptions(shop)
+        local item = shop.items[index or 0]
+        if not item then
+            DevLog.push("sys", "[dev] missing shop offer " .. tostring(index))
+            return
+        end
+        if item.sold then
+            DevLog.push("sys", "[dev] offer already applied: " .. tostring(item.name))
+            return
+        end
+        local Shop = require("src.systems.shop")
+        if Shop.applyOfferItem(item, player) then
+            item.sold = true
+            if player and player.runMetadata then
+                local profile = RewardRuntime.buildProfile(player, { source = "dev_reward_apply_shop" })
+                RewardRuntime.recordChoice(player.runMetadata, {
+                    kind = "shop_purchase",
+                    source = "dev_arena_shop",
+                    item = item,
+                    price = item.price,
+                    build_snapshot = RunMetadata.snapshotBuild(player, profile),
+                })
+            end
+            devRebuildPanelRows()
+            devClampScroll()
+            DevLog.push("sys", "[dev] applied shop offer: " .. tostring(item.name))
+        end
     elseif id == "open_door" then
         ctx.doorOpen = true
         if currentRoom and currentRoom.door then
@@ -411,6 +559,11 @@ local function apply(id, ctx)
     elseif id == "status_cleanse_player" then
         local removed = Buffs.cleanse(player.statuses, { negative = true })
         DevLog.push("sys", "[dev] cleansed player negatives: " .. tostring(removed))
+    elseif id == "status_step_player_1s" or id == "status_step_player_5s" then
+        local seconds = id == "status_step_player_1s" and 1 or 5
+        if advanceStatusTime(player, player, "player", world, seconds) then
+            DevLog.push("sys", "[dev] advanced player statuses " .. tostring(seconds) .. "s")
+        end
     elseif id == "status_purge_enemy" then
         if not nearestEnemy then
             DevLog.push("sys", "[dev] no living enemy to purge")
@@ -429,6 +582,15 @@ local function apply(id, ctx)
             world = world,
         })
         DevLog.push("sys", "[dev] consumed nearest enemy shock: " .. tostring(removed))
+    elseif id == "status_step_enemy_1s" or id == "status_step_enemy_5s" then
+        local seconds = id == "status_step_enemy_1s" and 1 or 5
+        if not nearestEnemy then
+            DevLog.push("sys", "[dev] no living enemy to advance statuses on")
+            return
+        end
+        if advanceStatusTime(player, nearestEnemy, "enemy", world, seconds) then
+            DevLog.push("sys", "[dev] advanced enemy statuses " .. tostring(seconds) .. "s")
+        end
     elseif id:sub(1, 14) == "status_player:" then
         local status_id = id:sub(15)
         if applyDebugStatus(player, player, "player", status_id, world) then

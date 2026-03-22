@@ -1,5 +1,7 @@
 local StatRegistry = require("src.data.stat_registry")
 local Statuses = require("src.data.statuses")
+local PresentationHooks = require("src.data.presentation_hooks")
+local TooltipTemplates = require("src.data.tooltip_templates")
 
 local ContentValidator = {}
 
@@ -43,6 +45,9 @@ local KNOWN_TAG_PREFIXES = {
     boon = true,
     setup = true,
     cc = true,
+    theme = true,
+    reward = true,
+    role = true,
 }
 
 local function fail(content_type, content_id, field, reason)
@@ -94,6 +99,12 @@ local function validateOptionalTags(content_type, content_id, field, tags)
     end
 end
 
+local function validateOptionalString(content_type, content_id, field, value)
+    if value ~= nil and type(value) ~= "string" then
+        fail(content_type, content_id, field, "expected string")
+    end
+end
+
 local function validateStatusApplications(content_type, content_id, field, applications)
     if not applications then
         return
@@ -138,6 +149,79 @@ local function validateProcRules(content_type, content_id, field, rules)
     end
 end
 
+local function validateTooltipSpec(content_type, content_id, item, require_tooltip)
+    local tooltip_key = item.tooltip_key
+    local tooltip_override = item.tooltip_override
+    local tooltip_tokens = item.tooltip_tokens
+    local keywords = item.keywords
+
+    if require_tooltip and type(tooltip_key) ~= "string" and type(tooltip_override) ~= "string" then
+        fail(content_type, content_id, "tooltip", "missing tooltip_key or tooltip_override")
+    end
+    if tooltip_key ~= nil then
+        if type(tooltip_key) ~= "string" then
+            fail(content_type, content_id, "tooltip_key", "expected string")
+        end
+        if not TooltipTemplates.has(tooltip_key) then
+            fail(content_type, content_id, "tooltip_key", "unknown tooltip template '" .. tostring(tooltip_key) .. "'")
+        end
+    end
+    validateOptionalString(content_type, content_id, "tooltip_override", tooltip_override)
+    if tooltip_tokens ~= nil and type(tooltip_tokens) ~= "table" then
+        fail(content_type, content_id, "tooltip_tokens", "expected table")
+    end
+    if keywords ~= nil then
+        if type(keywords) ~= "table" then
+            fail(content_type, content_id, "keywords", "expected table")
+        end
+        for _, keyword in ipairs(keywords) do
+            if type(keyword) ~= "string" then
+                fail(content_type, content_id, "keywords", "expected string entry")
+            end
+        end
+    end
+end
+
+local function validatePresentationHooks(content_type, content_id, item)
+    local hooks = item.presentation_hooks
+    if hooks == nil then
+        return
+    end
+    if type(hooks) ~= "table" then
+        fail(content_type, content_id, "presentation_hooks", "expected table")
+    end
+    if hooks.on_proc ~= nil then
+        if type(hooks.on_proc) ~= "string" then
+            fail(content_type, content_id, "presentation_hooks.on_proc", "expected string")
+        end
+        if not PresentationHooks.has(hooks.on_proc) then
+            fail(content_type, content_id, "presentation_hooks.on_proc", "unknown hook id '" .. tostring(hooks.on_proc) .. "'")
+        end
+        if type(item.proc_rules) ~= "table" or #item.proc_rules == 0 then
+            fail(content_type, content_id, "presentation_hooks.on_proc", "requires proc_rules")
+        end
+    end
+    for _, field in ipairs({ "on_applied", "on_refreshed", "on_expired", "on_cleanse", "on_purge" }) do
+        if hooks[field] ~= nil then
+            if type(hooks[field]) ~= "string" then
+                fail(content_type, content_id, "presentation_hooks." .. field, "expected string")
+            end
+            if not PresentationHooks.has(hooks[field]) then
+                fail(content_type, content_id, "presentation_hooks." .. field, "unknown hook id '" .. tostring(hooks[field]) .. "'")
+            end
+        end
+    end
+end
+
+local function validateShopOffers()
+    local Shop = require("src.systems.shop")
+    Shop.validateOfferSpecs()
+    for _, item in pairs(Shop.offer_templates or {}) do
+        validateTooltipSpec("shop_offer", item.id or "<missing>", item, true)
+        validateOptionalTags("shop_offer", item.id or "<missing>", "tags", item.tags)
+    end
+end
+
 local function validateGuns()
     local Guns = require("src.data.guns")
     for _, gun in ipairs(Guns.pool or {}) do
@@ -157,6 +241,8 @@ local function validateGuns()
         validateOptionalFileRef("gun", id, "sprite", gun.sprite and ("assets/weapons/Weapons/" .. gun.sprite) or nil)
         validateOptionalTags("gun", id, "tags", gun.tags)
         validateStatusApplications("gun", id, "status_applications", gun.status_applications)
+        validateTooltipSpec("gun", id, gun, true)
+        validatePresentationHooks("gun", id, gun)
     end
 end
 
@@ -180,6 +266,8 @@ local function validatePerks()
         end
         validateOptionalTags("perk", id, "tags", perk.tags)
         validateProcRules("perk", id, "proc_rules", perk.proc_rules)
+        validateTooltipSpec("perk", id, perk, true)
+        validatePresentationHooks("perk", id, perk)
     end
 end
 
@@ -196,8 +284,9 @@ local function validateGear()
             fail("gear", id, "tier", "expected number")
         end
         validateStatMap("gear", id, "stats", gear.stats)
-        validateOptionalFileRef("gear", id, "tooltip_key", gear.tooltipKey)
+        validateTooltipSpec("gear", id, gear, true)
         validateOptionalTags("gear", id, "tags", gear.tags)
+        validatePresentationHooks("gear", id, gear)
     end
 end
 
@@ -240,6 +329,8 @@ local function validateStatuses()
             validateStatMap("status", id, "statMods", def.statMods)
         end
         validateOptionalTags("status", id, "tags", def.tags)
+        validateTooltipSpec("status", id, def, true)
+        validatePresentationHooks("status", id, def)
     end
 end
 
@@ -250,6 +341,7 @@ function ContentValidator.validate_combat_content()
     validateWeapons()
     validateBuffs()
     validateStatuses()
+    validateShopOffers()
     return true
 end
 

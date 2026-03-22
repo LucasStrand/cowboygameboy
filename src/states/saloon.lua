@@ -10,6 +10,7 @@ local Shop = require("src.systems.shop")
 local PerkCard = require("src.ui.perk_card")
 local Cursor = require("src.ui.cursor")
 local Keybinds = require("src.systems.keybinds")
+local ContentTooltips = require("src.systems.content_tooltips")
 local NPC = require("src.entities.npc")
 local Pickup = require("src.entities.pickup")
 local Combat = require("src.systems.combat")
@@ -392,7 +393,7 @@ end
 local function drawCharacterSheet()
     if not player then return end
     local pad = 14
-    local w, h = 300, 292
+    local w, h = 332, 452
     local x, y = 18, 56
     love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
     love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -425,27 +426,60 @@ local function drawCharacterSheet()
         py = py + 20
     else
         love.graphics.setColor(0.78, 0.85, 0.72)
-        local ptext = table.concat(player.perks, ", ")
+        local ptext = table.concat(ContentTooltips.getPerkNames(player), ", ")
         local tw = w - 2 * pad
         local _, lines = saloon.charSheetBodyFont:getWrap(ptext, tw)
         love.graphics.printf(ptext, x + pad, py, tw, "left")
         py = py + #lines * saloon.charSheetBodyFont:getHeight() + 8
     end
-    love.graphics.setColor(0.88, 0.82, 0.72)
-    local function gearLine(slot, label)
-        local g = player.gear[slot]
-        local name = g and g.name or "—"
-        return string.format("%s: %s", label, name)
+    local tw = w - 2 * pad
+    local function drawWrappedBulletLines(lines, color)
+        love.graphics.setColor(color[1], color[2], color[3], color[4] or 1)
+        for _, line in ipairs(lines or {}) do
+            local text = "• " .. line
+            local _, wrapped = saloon.charSheetBodyFont:getWrap(text, tw)
+            love.graphics.printf(text, x + pad + 4, py, tw - 4, "left")
+            py = py + math.max(1, #wrapped) * saloon.charSheetBodyFont:getHeight() + 2
+        end
     end
-    love.graphics.print(gearLine("hat", "Hat"), x + pad, py)
+    local function drawWrappedSectionLines(lines, color)
+        drawWrappedBulletLines(lines, color)
+        py = py + 4
+    end
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    love.graphics.print("Weapons:", x + pad, py)
     py = py + 18
-    love.graphics.print(gearLine("vest", "Vest"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("boots", "Boots"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("melee", "Melee"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("shield", "Shield"), x + pad, py)
+    for slotIndex = 1, 2 do
+        local slot = player.weapons and player.weapons[slotIndex] or nil
+        local gun = slot and slot.gun or nil
+        local slotLabel = string.format("Slot %d%s: %s",
+            slotIndex,
+            player.activeWeaponSlot == slotIndex and " [active]" or "",
+            gun and gun.name or "Empty"
+        )
+        love.graphics.setColor(0.88, 0.82, 0.72)
+        love.graphics.print(slotLabel, x + pad, py)
+        py = py + 18
+        if gun then
+            drawWrappedSectionLines(ContentTooltips.getLines("gun", gun), { 0.72, 0.8, 0.88, 1 })
+        else
+            py = py + 4
+        end
+    end
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    local function drawGearBlock(slot, label)
+        local g = player.gear[slot]
+        love.graphics.print(string.format("%s: %s", label, g and g.name or "—"), x + pad, py)
+        py = py + 18
+        if g then
+            drawWrappedSectionLines(ContentTooltips.getLines("gear", g), { 0.75, 0.84, 0.74, 1 })
+        end
+    end
+    drawGearBlock("hat", "Hat")
+    drawGearBlock("vest", "Vest")
+    drawGearBlock("boots", "Boots")
+    drawGearBlock("melee", "Melee")
+    drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
     local ck = Keybinds.formatActionKey("character")
@@ -687,7 +721,11 @@ function saloon:enter(_, _player, _roomManager)
     blackjackGame = Blackjack.new()
     rouletteGame = Roulette.new()
     slotsGame = Slots.new()
-    shop = Shop.new(difficulty)
+    shop = Shop.new(difficulty, player, {
+        run_metadata = player and player.runMetadata or nil,
+        source = "saloon_shop",
+        room_manager = roomManager,
+    })
     pickups = {}
     DamageNumbers.clear()
 
@@ -1057,7 +1095,7 @@ function saloon:keypressed(key)
     elseif mode == "perk_selection" then
         local num = tonumber(key)
         if num and num >= 1 and num <= #perkOptions then
-            player:applyPerk(perkOptions[num])
+            Progression.applyPerk(player, perkOptions[num])
             local nextMode = blackjackGame:completePerkSelection()
             mode = (nextMode == "main") and "walking" or nextMode
             perkOptions = nil
@@ -1195,7 +1233,7 @@ function saloon:mousepressed(x, y, button)
     end
 
     if mode == "perk_selection" and button == 1 and hoveredPerk then
-        player:applyPerk(perkOptions[hoveredPerk])
+        Progression.applyPerk(player, perkOptions[hoveredPerk])
         local nextMode = blackjackGame:completePerkSelection()
         mode = (nextMode == "main") and "walking" or nextMode
         perkOptions = nil
@@ -1943,7 +1981,10 @@ function handleBlackjackAction(action)
             local reward = blackjackGame:getReward()
             player.gold = player.gold + reward.gold
             if reward.perkRarity == "rare" or reward.anyWin then
-                perkOptions = Perks.rollPerks(3, player.stats.luck)
+                perkOptions = Progression.rollLevelUpPerks(player, {
+                    run_metadata = player and player.runMetadata or nil,
+                    source = "blackjack_reward",
+                })
                 mode = "perk_selection"
             else
                 mode = "main"
@@ -1975,7 +2016,13 @@ function drawShop(screenW, screenH)
             love.graphics.printf("[" .. i .. "] " .. item.name .. "  $" .. item.price, 0, y, screenW, "center")
             y = y + 22
             love.graphics.setColor(0.6, 0.6, 0.6)
-            love.graphics.printf("    " .. item.description, 0, y, screenW, "center")
+            local desc = item.description
+            if item.type == "gear" and item.gearData then
+                desc = ContentTooltips.getJoinedText("gear", item.gearData)
+            elseif item.tooltip_key or item.tooltip_override then
+                desc = ContentTooltips.getJoinedText("offer", item)
+            end
+            love.graphics.printf("    " .. tostring(desc or ""), 0, y, screenW, "center")
         end
         y = y + 35
     end

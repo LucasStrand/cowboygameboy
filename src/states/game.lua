@@ -17,9 +17,13 @@ local DamageNumbers = require("src.ui.damage_numbers")
 local Font = require("src.ui.font")
 local Cursor = require("src.ui.cursor")
 local TextLayout = require("src.ui.text_layout")
+local ContentTooltips = require("src.systems.content_tooltips")
+local RewardRuntime = require("src.systems.reward_runtime")
+local RunMetadata = require("src.systems.run_metadata")
 local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
+local Shop = require("src.systems.shop")
 local TileRenderer = require("src.systems.tile_renderer")
 local RoomProps = require("src.systems.room_props")
 local Wind = require("src.systems.wind")
@@ -35,6 +39,8 @@ local CombatEvents = require("src.systems.combat_events")
 local DamagePacket = require("src.systems.damage_packet")
 local GameRng = require("src.systems.game_rng")
 local ProcRuntime = require("src.systems.proc_runtime")
+local DevEventEcho = require("src.systems.dev_event_echo")
+local PresentationRuntime = require("src.systems.presentation_runtime")
 local SourceRef = require("src.systems.source_ref")
 
 local game = {}
@@ -97,8 +103,8 @@ local PLAYER_RELOAD_NOISE_RADIUS = 170
 local PLAYER_MELEE_NOISE_RADIUS = 135
 local DEV_SPAWN_COUNTS = { 1, 5, 10 }
 local DEV_GROUND_SUPPORT_DEPTH = 6
-local DEV_PANEL_HINT = "F2 close | ESC/right click cancel | left click world spawn | wheel scroll"
-local DEV_PANEL_HELP = "F2 / ESC close  ·  click section headers  ·  wheel scroll"
+local DEV_PANEL_HINT = "F1 close | ESC/right click cancel | left click world spawn | wheel scroll"
+local DEV_PANEL_HELP = "F1 / ESC close  ·  click section headers  ·  wheel scroll"
 
 local function devToolsEnabled()
     return DEBUG or DEV_TOOLS_ENABLED
@@ -160,11 +166,25 @@ local function defaultDevPanelSections()
     return {
         debug = true,
         player = true,
+        quick = false,
         world = true,
         npc = true,
         weapons = false,
         perks = false,
         statuses = false,
+    }
+end
+
+local function devBootPanelSections()
+    return {
+        debug = true,
+        player = true,
+        quick = true,
+        world = true,
+        npc = false,
+        weapons = true,
+        perks = true,
+        statuses = true,
     }
 end
 
@@ -513,8 +533,6 @@ local function drawDevPanelOverlay()
         return
     end
 
-    love.graphics.setColor(0, 0, 0, 0.38)
-    love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Font.new(16)
     end
@@ -969,7 +987,7 @@ end
 local function drawCharacterSheet()
     if not player then return end
     local pad = 14
-    local w, h = 300, 292
+    local w, h = 332, 452
     local x, y = 18, 56
     love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
     love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -1002,27 +1020,60 @@ local function drawCharacterSheet()
         py = py + 20
     else
         love.graphics.setColor(0.78, 0.85, 0.72)
-        local ptext = table.concat(player.perks, ", ")
+        local ptext = table.concat(ContentTooltips.getPerkNames(player), ", ")
         local tw = w - 2 * pad
         local _, lines = game.charSheetBodyFont:getWrap(ptext, tw)
         love.graphics.printf(ptext, x + pad, py, tw, "left")
         py = py + #lines * game.charSheetBodyFont:getHeight() + 8
     end
-    love.graphics.setColor(0.88, 0.82, 0.72)
-    local function gearLine(slot, label)
-        local g = player.gear[slot]
-        local name = g and g.name or "—"
-        return string.format("%s: %s", label, name)
+    local tw = w - 2 * pad
+    local function drawWrappedBulletLines(lines, color)
+        love.graphics.setColor(color[1], color[2], color[3], color[4] or 1)
+        for _, line in ipairs(lines or {}) do
+            local text = "• " .. line
+            local _, wrapped = game.charSheetBodyFont:getWrap(text, tw)
+            love.graphics.printf(text, x + pad + 4, py, tw - 4, "left")
+            py = py + math.max(1, #wrapped) * game.charSheetBodyFont:getHeight() + 2
+        end
     end
-    love.graphics.print(gearLine("hat", "Hat"), x + pad, py)
+    local function drawWrappedSectionLines(lines, color)
+        drawWrappedBulletLines(lines, color)
+        py = py + 4
+    end
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    love.graphics.print("Weapons:", x + pad, py)
     py = py + 18
-    love.graphics.print(gearLine("vest", "Vest"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("boots", "Boots"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("melee", "Melee"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("shield", "Shield"), x + pad, py)
+    for slotIndex = 1, 2 do
+        local slot = player.weapons and player.weapons[slotIndex] or nil
+        local gun = slot and slot.gun or nil
+        local slotLabel = string.format("Slot %d%s: %s",
+            slotIndex,
+            player.activeWeaponSlot == slotIndex and " [active]" or "",
+            gun and gun.name or "Empty"
+        )
+        love.graphics.setColor(0.88, 0.82, 0.72)
+        love.graphics.print(slotLabel, x + pad, py)
+        py = py + 18
+        if gun then
+            drawWrappedSectionLines(ContentTooltips.getLines("gun", gun), { 0.72, 0.8, 0.88, 1 })
+        else
+            py = py + 4
+        end
+    end
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    local function drawGearBlock(slot, label)
+        local g = player.gear[slot]
+        love.graphics.print(string.format("%s: %s", label, g and g.name or "—"), x + pad, py)
+        py = py + 18
+        if g then
+            drawWrappedSectionLines(ContentTooltips.getLines("gear", g), { 0.75, 0.84, 0.74, 1 })
+        end
+    end
+    drawGearBlock("hat", "Hat")
+    drawGearBlock("vest", "Vest")
+    drawGearBlock("boots", "Boots")
+    drawGearBlock("melee", "Melee")
+    drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
     local ck = Keybinds.formatActionKey("character")
@@ -1078,6 +1129,11 @@ local function syncCurrentRoomNightMode()
 end
 
 devRebuildPanelRows = function()
+    if game._runtime and game._runtime.devRewardLab then
+        game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
+            source = "dev_panel",
+        }))
+    end
     devPanelState.rows = DevPanel.buildRows({
         gameplayPaused = devPanelState.pauseGameplay,
         showHitboxes = devShowHitboxes,
@@ -1094,6 +1150,10 @@ devRebuildPanelRows = function()
         },
         statusLab = {
             nearestEnemyLabel = nearestLivingEnemyLabel(),
+        },
+        rewardLab = {
+            offers = (game._runtime.devRewardLab and game._runtime.devRewardLab.shop and game._runtime.devRewardLab.shop.items) or {},
+            profileSummary = (game._runtime.devRewardLab and game._runtime.devRewardLab.profileSummary) or "none",
         },
     })
 end
@@ -1126,7 +1186,7 @@ local function openDevPanel()
         devNpcSpawn = defaultDevNpcSpawn()
     end
     devPanelState.open = true
-    devPanelState.pauseGameplay = true
+    devPanelState.pauseGameplay = false
     characterSheetOpen = false
     devPanelState.scroll = 0
     devPanelState.hover = nil
@@ -1151,46 +1211,22 @@ local function devApplyAction(id)
     r.characterSheetOpen = characterSheetOpen
     r.devShowHitboxes = devShowHitboxes
     r.gameRef = game
+    r.devRewardLab = game._runtime.devRewardLab
     GameDevApply.apply(id, r)
     doorOpen = r.doorOpen
     characterSheetOpen = r.characterSheetOpen
     devShowHitboxes = r.devShowHitboxes
+    game._runtime.devRewardLab = r.devRewardLab
 end
 
-function game:enter(_, opts)
-    game._runtime = {}
-    if game._bindRuntimeHelpers then
-        game._bindRuntimeHelpers()
-    end
-    game._runtime.runSeed = (opts and opts.runSeed) or GameRng.seedFromTime()
-    game._runtime.rng = GameRng.new(game._runtime.runSeed)
-    GameRng.setCurrent(game._runtime.rng)
+local function initGameplaySessionState(opts)
     CombatEvents.clear()
     introCD.active = false
     introCD.n = 0
     introCD.segT = 0
     introCD.overlayFade = 0
-
-    world = bump.newWorld(32)
-    camera = Camera(400, 200)
-    camera.scale = CAM_ZOOM
-    camCurrentX, camCurrentY = 400, 200
-    camTargetX, camTargetY = 400, 200
-    player = Player.new(50, 300)
-    player.autoGun = Settings.getDefaultAutoGun()
-    game._runtime.procRuntime = ProcRuntime.init(player)
-    world:add(player, player.x, player.y, player.w, player.h)
-    player.isPlayer = true
-
-    bullets = {}
-    enemies = {}
-    pickups = {}
-    enemyNoiseEvents = {}
-    shakeTimer = 0
-    shakeIntensity = 0
-    gameTimer = 0
     devPanelState.open = false
-    devPanelState.pauseGameplay = true
+    devPanelState.pauseGameplay = false
     devPanelState.scroll = 0
     devPanelState.hover = nil
     doorOpen = false
@@ -1210,17 +1246,55 @@ function game:enter(_, opts)
     devPanelState.open = false
     devPanelState.scroll = 0
     devPanelState.hover = nil
-    devPanelState.sections = defaultDevPanelSections()
+    devPanelState.sections = (opts and opts.devBoot) and devBootPanelSections() or defaultDevPanelSections()
     devNpcSpawn = defaultDevNpcSpawn()
     devShowHitboxes = true
+end
 
-    devArenaMode = opts and opts.devArena == true
+local function initGameplayRuntime(opts)
+    game._runtime = {}
+    if game._bindRuntimeHelpers then
+        game._bindRuntimeHelpers()
+    end
+    game._runtime.runSeed = (opts and opts.runSeed) or GameRng.seedFromTime()
+    game._runtime.rng = GameRng.new(game._runtime.runSeed)
+    GameRng.setCurrent(game._runtime.rng)
+    game._runtime.devRewardLab = {
+        shop = Shop.new(1),
+        profileSummary = "uninitialized",
+    }
+end
+
+local function initGameplayWorld()
+    world = bump.newWorld(32)
+    camera = Camera(400, 200)
+    camera.scale = CAM_ZOOM
+    camCurrentX, camCurrentY = 400, 200
+    camTargetX, camTargetY = 400, 200
+    player = Player.new(50, 300)
+    player.runMetadata = game._runtime.runMetadata
+    player.autoGun = Settings.getDefaultAutoGun()
+    game._runtime.procRuntime = ProcRuntime.init(player)
+    game._runtime.presentationRuntime = PresentationRuntime.init()
+    world:add(player, player.x, player.y, player.w, player.h)
+    player.isPlayer = true
+
+    bullets = {}
+    enemies = {}
+    pickups = {}
+    enemyNoiseEvents = {}
+    shakeTimer = 0
+    shakeIntensity = 0
+    gameTimer = 0
+end
+
+local function configureGameplayRun(opts)
     local worldId = (opts and opts.worldId) or Worlds.order[1]
+    devArenaMode = opts and opts.devArena == true
     roomManager = RoomManager.new(worldId)
     roomManager.devArenaMode = devArenaMode
     currentTheme = roomManager:getTheme()
 
-    -- Activate world-specific atmosphere systems
     if worldId == "train" then
         Wind.activate()
         TrainRenderer.preload()
@@ -1229,10 +1303,27 @@ function game:enter(_, opts)
     end
 
     local worldDef = Worlds.get(worldId)
+    game._runtime.runMetadata = RunMetadata.new(game._runtime.runSeed, {
+        world_id = worldId,
+        world_name = worldDef and worldDef.name or worldId,
+        dev_arena = opts and opts.devArena == true,
+    })
+    player.runMetadata = game._runtime.runMetadata
+    game._runtime.devRewardLab.shop = Shop.new(roomManager.difficulty or 1, player, {
+        run_metadata = game._runtime.runMetadata,
+        source = "dev_arena_shop",
+        room_manager = roomManager,
+    })
+    game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
+        source = "dev_arena",
+    }))
     local bgPath = worldDef and worldDef.background or Worlds.get(Worlds.order[1]).background
     bgImage = love.graphics.newImage(bgPath)
     bgImage:setWrap("repeat", "clampzero")
+    return worldId, worldDef
+end
 
+local function enterInitialGameplayState(opts, worldId, worldDef)
     local editorRoom = opts and opts.editorRoom
     editorTestMode = (editorRoom ~= nil)
     if editorRoom then
@@ -1248,6 +1339,10 @@ function game:enter(_, opts)
         DevLog.init()
         DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
         if devArenaMode then
+            DevEventEcho.init()
+            if opts and opts.devBoot then
+                DevLog.push("sys", "CLI dev boot active")
+            end
             DevLog.push("sys", "Dev arena started")
             loadNextRoom()
         else
@@ -1256,7 +1351,13 @@ function game:enter(_, opts)
             Gamestate.push(saloonState, player, roomManager)
         end
     end
+end
+
+local function finalizeGameplayEnter(opts)
     devRebuildPanelRows()
+    if opts and opts.openDevPanel and devToolsEnabled() then
+        openDevPanel()
+    end
 
     if opts and opts.introCountdown and Gamestate.current() == game then
         introCD.active = true
@@ -1273,6 +1374,15 @@ function game:enter(_, opts)
         Cursor.setGameplay()
         MusicDirector.onEnterGameplay()
     end
+end
+
+function game:enter(_, opts)
+    initGameplayRuntime(opts)
+    initGameplaySessionState(opts)
+    initGameplayWorld()
+    local worldId, worldDef = configureGameplayRun(opts)
+    enterInitialGameplayState(opts, worldId, worldDef)
+    finalizeGameplayEnter(opts)
 end
 
 function game:leave()
@@ -1319,6 +1429,16 @@ function loadNextRoom()
 
     currentRoom = roomManager:loadRoom(roomData, world, player)
     enemies = currentRoom.enemies
+    RunMetadata.recordRoom(game._runtime.runMetadata, currentRoom, {
+        world_id = roomManager and roomManager.worldId or nil,
+        room_index = roomManager.currentRoomIndex,
+        total_cleared = roomManager.totalRoomsCleared,
+        difficulty = roomManager.difficulty or 1,
+        dev_arena = roomManager.devArenaMode == true,
+    })
+    game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
+        source = "room_load",
+    }))
     -- Snap camera to player on room load (no lerp lag)
     updateCamera(0, true)
     if roomManager.devArenaMode then
@@ -1784,6 +1904,7 @@ function game:update(dt)
                 roomsCleared = roomManager.totalRoomsCleared,
                 gold = player.gold,
                 perksCount = #player.perks,
+                runMetadata = game._runtime.runMetadata,
             }
         end
         return
@@ -1795,7 +1916,7 @@ end
 
 function game:keypressed(key)
     if introCD.active then
-        if key == "f2" and devToolsEnabled() then
+        if key == "f1" and devToolsEnabled() then
             openDevPanel()
             return
         end
@@ -1833,15 +1954,16 @@ function game:keypressed(key)
                 devPanelState.open = false
                 devPanelState.hover = nil
             end
-        elseif key == "f2" then
+            return
+        elseif key == "f1" then
             devPanelState.open = false
             devPanelState.hover = nil
             clearDevNpcPlacement(false)
+            return
         end
-        return
     end
 
-    if key == "f2" and devToolsEnabled() then
+    if key == "f1" and devToolsEnabled() then
         openDevPanel()
         return
     end
@@ -2469,6 +2591,7 @@ function game:draw()
             roomsCleared = pendingGameOver.roomsCleared,
             gold = pendingGameOver.gold,
             perksCount = pendingGameOver.perksCount,
+            runMetadata = pendingGameOver.runMetadata,
             backgroundImage = snapshot,
         }
         pendingGameOver = nil

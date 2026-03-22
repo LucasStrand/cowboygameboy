@@ -31,6 +31,8 @@ Syftet är att:
 | [phases/phase_04_direct_hit_damage_migration.md](./phases/phase_04_direct_hit_damage_migration.md) | Phase 4 implementation log | `implemented + verified` |
 | [phases/phase_05_unified_status_cc_runtime.md](./phases/phase_05_unified_status_cc_runtime.md) | Phase 5 implementation log | `implemented + verified` |
 | [phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md](./phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md) | Phase 6 implementation log | `implemented + live visual closeout pending` |
+| [phases/phase_07_content_tooltips_and_presentation_hooks.md](./phases/phase_07_content_tooltips_and_presentation_hooks.md) | Phase 7 implementation log | `implemented + verified` |
+| [phases/phase_08_reward_weighting_economy_and_run_metadata.md](./phases/phase_08_reward_weighting_economy_and_run_metadata.md) | Phase 8 implementation log | `implemented kickoff slice` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -95,8 +97,8 @@ Just nu gäller det:
 - [x] Phase 4: Direct-hit damage migration `implemented + verified`
 - [x] Phase 5: Status + CC subsystem `implemented + verified`
 - [x] Phase 6: Proc system + rule-breaking overrides `implemented + live visual closeout pending`
-- [ ] Phase 7: Content pipeline + tooltips + presentation hooks
-- [ ] Phase 8: Economy + rewards + meta + run metadata
+- [x] Phase 7: Content pipeline + tooltips + presentation hooks `implemented + verified`
+- [ ] Phase 8: Economy + rewards + meta + run metadata `implemented kickoff slice`
 - [ ] Phase 9: UX/readability pass
 - [ ] Phase 10: Hardening
 
@@ -197,7 +199,7 @@ Delar:
 - override flags
 - första showcase rule-breakers
 
-### [ ] Phase 7: Content pipeline + tooltips + presentation hooks
+### [x] Phase 7: Content pipeline + tooltips + presentation hooks
 
 Mål:
 
@@ -323,15 +325,15 @@ Delar:
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Load-time validation | `implemented` | bredda senare mot tooltips/localization/content breadth |
-| Tooltip model | `not started` | hybrid generated + override |
-| Localization templates | `not started` | tokens i fulla meningar |
+| Load-time validation | `implemented + verified` | bredda senare mot fler content-typer och localization breadth |
+| Tooltip model | `implemented + verified` | använd som canonical content-language seam för rewards/meta och senare UI-bredd |
+| Localization templates | `implemented + verified` | fortsätt med fler template keys och språk senare |
 
 ### UI / Readability
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Ownership feedback | `not started` | setup/trigger/result-signaler |
+| Ownership feedback | `implemented + verified` | bredda vidare från proc/status hooks till fler event-owned feedback paths |
 | HUD tiers | `not started` | gruppera A/B/C-info |
 | Recap/post-run summary | `not started` | använd source ownership + metadata |
 
@@ -339,10 +341,10 @@ Delar:
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Reward weighting | `not started` | stöd reward / neutral / pivot-modell |
-| Economy roles | `not started` | separera shop, rerolls, refills, cursed |
+| Reward weighting | `implemented kickoff slice` | verifiera live behavior och bredda pool/tag-authoring senare |
+| Economy roles | `implemented kickoff slice` | separera senare rerolls, refills och cursed kring samma role-seam |
 | Meta breadth-first | `not started` | lås unlock-typer före implementation |
-| Run metadata | `not started` | definiera save/log/recap fields |
+| Run metadata | `implemented kickoff slice` | bredda senare mot save/load, recap och telemetry/export |
 
 ## Dokumentationskrav när utveckling börjar
 

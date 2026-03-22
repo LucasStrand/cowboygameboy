@@ -112,6 +112,18 @@ local function emitStatusEvent(name, payload)
     CombatEvents.emit(name, payload or {})
 end
 
+local CANONICAL_STATUS_EVENTS = {
+    status_applied = "OnStatusApplied",
+    status_refreshed = "OnStatusRefreshed",
+    status_stacked = "OnStatusRefreshed",
+    status_expired = "OnStatusExpired",
+}
+
+local REMOVAL_REASON_EVENTS = {
+    cleanse = "OnCleanse",
+    purge = "OnPurge",
+}
+
 local function isNegative(def)
     if def.polarity then
         return def.polarity == "negative"
@@ -242,10 +254,14 @@ end
 local function buildRemovalPayload(tracker, instance, reason, opts)
     return {
         status_id = instance.id,
+        status_name = instance.name,
         category = instance.category,
         source = cloneValue(instance.source),
         owner_actor_id = tracker.owner_actor_id,
         target_id = tracker.owner_actor_id,
+        target_actor = tracker.owner_actor,
+        target_kind = tracker.owner_kind,
+        presentation_hooks = cloneValue(instance.def.presentation_hooks),
         reason = reason,
         remaining_duration = instance.remaining_duration,
         stacks = instance.stacks,
@@ -266,8 +282,13 @@ local function removeInstanceByKey(tracker, key, reason, opts)
     tracker.instances[key] = nil
     tracker._dirty = true
 
+    local payload = buildRemovalPayload(tracker, instance, reason, opts)
     local event_name = reason == "expire" and "status_expired" or "status_removed"
-    emitStatusEvent(event_name, buildRemovalPayload(tracker, instance, reason, opts))
+    emitStatusEvent(event_name, payload)
+    local canonical = reason == "expire" and "OnStatusExpired" or REMOVAL_REASON_EVENTS[reason]
+    if canonical then
+        emitStatusEvent(canonical, payload)
+    end
     return true, instance
 end
 
@@ -569,15 +590,37 @@ function Buffs.applyStatus(tracker, application_spec)
     tracker._dirty = true
     emitStatusEvent(event_name, {
         status_id = id,
+        status_name = existing.name,
         category = existing.category,
         source = cloneValue(existing.source),
         owner_actor_id = tracker.owner_actor_id,
         target_id = tracker.owner_actor_id,
+        target_actor = tracker.owner_actor,
+        target_kind = tracker.owner_kind,
         stacks = existing.stacks,
         remaining_duration = existing.remaining_duration,
         visual_priority = existing.visual_priority,
+        presentation_hooks = cloneValue(def.presentation_hooks),
         metadata = cloneValue(existing.metadata),
     })
+    local canonical_event = CANONICAL_STATUS_EVENTS[event_name]
+    if canonical_event then
+        emitStatusEvent(canonical_event, {
+            status_id = id,
+            status_name = existing.name,
+            category = existing.category,
+            source = cloneValue(existing.source),
+            owner_actor_id = tracker.owner_actor_id,
+            target_id = tracker.owner_actor_id,
+            target_actor = tracker.owner_actor,
+            target_kind = tracker.owner_kind,
+            stacks = existing.stacks,
+            remaining_duration = existing.remaining_duration,
+            visual_priority = existing.visual_priority,
+            presentation_hooks = cloneValue(def.presentation_hooks),
+            metadata = cloneValue(existing.metadata),
+        })
+    end
 
     if id == "shock" and existing.stacks >= (def.max_stacks or 3) and not application_spec.skip_specials then
         triggerShockOverload(tracker, existing, application_spec)

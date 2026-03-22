@@ -1,6 +1,7 @@
 local Gamestate = require("lib.hump.gamestate")
 local Settings = require("src.systems.settings")
 local ContentValidator = require("src.systems.content_validator")
+local Worlds = require("src.data.worlds")
 
 local boot_intro = require("src.states.boot_intro")
 local game = require("src.states.game")
@@ -14,6 +15,21 @@ GAME_WIDTH = 1280
 GAME_HEIGHT = 720
 DEBUG = false
 DEV_TOOLS_ENABLED = true
+
+local function hasCliFlag(...)
+    local wanted = {}
+    for i = 1, select("#", ...) do
+        wanted[select(i, ...)] = true
+    end
+    for _, value in ipairs(arg or {}) do
+        if wanted[value] then
+            return true
+        end
+    end
+    return false
+end
+
+local CLI_DEV_BOOT = hasCliFlag("dev", "--dev", "--debug", "--dev-arena")
 
 local gameCanvas
 local canvasScale = 1
@@ -71,7 +87,17 @@ function love.load()
         callbacks[#callbacks+1] = k
     end
     Gamestate.registerEvents(callbacks)
-    Gamestate.switch(boot_intro)
+    if CLI_DEV_BOOT then
+        Gamestate.switch(game, {
+            devArena = true,
+            introCountdown = false,
+            openDevPanel = true,
+            devBoot = true,
+            worldId = Worlds.order[1],
+        })
+    else
+        Gamestate.switch(boot_intro)
+    end
 end
 
 function love.resize(w, h)
