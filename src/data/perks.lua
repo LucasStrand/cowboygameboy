@@ -121,16 +121,6 @@ Perks.pool = {
         end
     },
     {
-        id = "dead_eye",
-        name = "Dead Eye",
-        description = "Slow-mo for 3s after reload",
-        rarity = "rare",
-        weight = 2,
-        apply = function(player)
-            player.stats.deadEye = true
-        end
-    },
-    {
         id = "akimbo",
         name = "Akimbo",
         description = "Dual-wield: fire both guns at once",
