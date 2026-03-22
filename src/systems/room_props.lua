@@ -166,6 +166,7 @@ function RoomProps.buildForRoom(worldId, rawRoom, loadedRoom, opts)
                                     sink = sink,
                                     scale = sc,
                                     flip = rng() < 0.5,
+                                    vegetation = def.vegetation == true,
                                 }
                                 placed[#placed + 1] = { x = x, footY = footY }
                             end
@@ -177,6 +178,20 @@ function RoomProps.buildForRoom(worldId, rawRoom, loadedRoom, opts)
     end
 
     return instances
+end
+
+--- World AABB for a decor instance (for melee vs vegetation). Returns left, top, width, height or nil.
+function RoomProps.getDecorBounds(p)
+    local img = getImage(p.path)
+    if not img then return nil end
+    local iw, ih = img:getDimensions()
+    local sc = p.scale or 1
+    local w = iw * sc
+    local h = ih * sc
+    local sink = p.sink or 0
+    local left = p.x - w * 0.5
+    local top = p.footY + sink - h
+    return left, top, w, h
 end
 
 --- Draw props (world space). Call after platforms, before door if sprites should sit on geometry.
@@ -191,7 +206,22 @@ function RoomProps.drawDecor(loadedRoom)
             local sx = sc * (p.flip and -1 or 1)
             love.graphics.setColor(1, 1, 1)
             local sink = p.sink or 0
-            love.graphics.draw(img, p.x, p.footY + sink, 0, sx, sc, iw * 0.5, ih)
+            if p.cut then
+                if not p._quadBot then
+                    p._quadBot = love.graphics.newQuad(0, ih / 2, iw, ih / 2, iw, ih)
+                    p._quadTop = love.graphics.newQuad(0, 0, iw, ih / 2, iw, ih)
+                end
+                love.graphics.draw(img, p._quadBot, p.x, p.footY + sink, 0, sx, sc, iw * 0.5, ih / 2)
+                local dx = p.cutFallDx or 0
+                local ang = p.cutFallAngle or 0.35
+                love.graphics.draw(
+                    img, p._quadTop,
+                    p.x + dx, p.footY + sink - sc * (ih / 2), ang,
+                    sx, sc, iw * 0.5, ih / 2
+                )
+            else
+                love.graphics.draw(img, p.x, p.footY + sink, 0, sx, sc, iw * 0.5, ih)
+            end
         end
     end
 end

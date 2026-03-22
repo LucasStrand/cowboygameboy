@@ -1680,6 +1680,7 @@ function game:update(dt)
         emitPlayerNoise(PLAYER_MELEE_NOISE_RADIUS, "melee")
     end
     Combat.checkPlayerMelee(player, enemies)
+    Combat.checkPlayerMeleeVegetation(player, currentRoom and currentRoom.decorProps)
 
     -- Enemies update
     local enemyContext = {

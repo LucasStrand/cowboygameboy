@@ -4,6 +4,7 @@ local Guns   = require("src.data.guns")
 local Vision = require("src.data.vision")
 local DamageNumbers = require("src.ui.damage_numbers")
 local ImpactFX = require("src.systems.impact_fx")
+local RoomProps = require("src.systems.room_props")
 local Sfx = require("src.systems.sfx")
 
 local Combat = {}
@@ -294,6 +295,32 @@ function Combat.checkPlayerMelee(player, enemies)
                 if debugLog then
                     debugLog("Melee hit " .. (e.name or "enemy") .. " for " .. dmg)
                 end
+            end
+        end
+    end
+end
+
+--- Melee cuts vegetation decor (see `WorldProps.pathLooksVegetation` / `vegetation` on decor entries).
+function Combat.checkPlayerMeleeVegetation(player, decorProps)
+    if not decorProps or player.meleeSwingTimer <= 0 then return end
+
+    local hx, hy, hw, hh = player:getMeleeHitbox()
+
+    for _, prop in ipairs(decorProps) do
+        if prop.vegetation and not prop.cut and not player.meleeHitDecor[prop] then
+            local left, top, w, h = RoomProps.getDecorBounds(prop)
+            if left and hx < left + w and hx + hw > left and hy < top + h and hy + hh > top then
+                prop.cut = true
+                local sc = prop.scale or 1
+                local sign = (prop.flip and -1 or 1)
+                prop.cutFallDx = sign * (26 + math.random() * 22) * sc
+                prop.cutFallAngle = (0.2 + math.random() * 0.45) * (prop.cutFallDx >= 0 and 1 or -1)
+                player.meleeHitDecor[prop] = true
+                player.meleeHitFlashTimer = 0.12
+                Sfx.play("melee_hit", { volume = 0.22 })
+                local cx = prop.x
+                local cy = (prop.footY or 0) + (prop.sink or 0) - 40 * sc
+                ImpactFX.spawn(cx, cy, "melee", nil, player.meleeAimAngle)
             end
         end
     end

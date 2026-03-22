@@ -185,6 +185,7 @@ function Player.new(x, y)
     self.meleeCooldown    = 0        -- time until next swing is allowed
     self.meleeSwingTimer  = 0        -- > 0 while the hit-window is active
     self.meleeHitEnemies  = {}       -- enemies already hit in the current swing
+    self.meleeHitDecor    = {}       -- decor props already hit in the current swing
     self.meleeHitFlashTimer = 0      -- HUD / strike feedback after a connecting hit
     self.meleeAimAngle = 0           -- radians, set when a swing starts (same basis as :shoot)
 
@@ -466,6 +467,7 @@ function Player:update(dt, world, enemies)
         self.meleeSwingTimer = math.max(0, self.meleeSwingTimer - dt)
         if self.meleeSwingTimer <= 0 then
             self.meleeHitEnemies = {}
+            self.meleeHitDecor = {}
         end
     end
 
@@ -698,6 +700,7 @@ function Player:tryDash()
         self.meleeSwingTimer = DASH_MELEE_SWING_DURATION
         self.meleeCooldown   = 0           -- dash resets cooldown so it always fires
         self.meleeHitEnemies = {}
+        self.meleeHitDecor = {}
         local cx = self.x + self.w * 0.5
         local cy = self.y + self.h * 0.5
         local a = self.meleeAimAngle
@@ -886,6 +889,7 @@ function Player:meleeAttack(aimX, aimY)
     self.meleeCooldown   = s.meleeCooldown
     self.meleeSwingTimer = MELEE_SWING_DURATION
     self.meleeHitEnemies = {}
+    self.meleeHitDecor = {}
     self.anim:play("melee", true)
     Sfx.play("melee_swing")
     -- Row 1 of Retro Impact Effect Pack 1 A (see impact_fx.lua ANIM.melee)
