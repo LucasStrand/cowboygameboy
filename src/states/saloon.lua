@@ -1085,8 +1085,10 @@ function saloon:mousepressed(x, y, button)
                 if r.setTab then pauseSettingsTab = r.setTab end
                 if r.goBack then
                     pauseMenuView = "main"
+                    pauseSettingsBindCapture = nil
                     pauseSettingsSliderDragKey = nil
                 end
+                if r.startBind then pauseSettingsBindCapture = r.startBind end
                 if r.action then saloonSettingsDebugAction(r.action) end
             end
         end
