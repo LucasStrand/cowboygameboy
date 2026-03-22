@@ -28,9 +28,9 @@ Syftet är att:
 | [runtime_rules_spec.md](./runtime_rules_spec.md) | Hit-regler, overrides, slot/runtime-model och proc-defaults | `phase 1 spec` |
 | [phases/phase_02_shared_foundations.md](./phases/phase_02_shared_foundations.md) | Phase 2 implementation log | `implemented` |
 | [phases/phase_03_player_loadout_weapon_runtime.md](./phases/phase_03_player_loadout_weapon_runtime.md) | Phase 3 implementation log | `implemented + hardened` |
-| [phases/phase_04_direct_hit_damage_migration.md](./phases/phase_04_direct_hit_damage_migration.md) | Phase 4 implementation log | `implemented + verification debt` |
-| [phases/phase_05_unified_status_cc_runtime.md](./phases/phase_05_unified_status_cc_runtime.md) | Phase 5 implementation log | `implemented + verification debt` |
-| [phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md](./phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md) | Phase 6 kickoff slice log | `implemented kickoff slice` |
+| [phases/phase_04_direct_hit_damage_migration.md](./phases/phase_04_direct_hit_damage_migration.md) | Phase 4 implementation log | `implemented + verified` |
+| [phases/phase_05_unified_status_cc_runtime.md](./phases/phase_05_unified_status_cc_runtime.md) | Phase 5 implementation log | `implemented + verified` |
+| [phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md](./phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md) | Phase 6 implementation log | `implemented + live visual closeout pending` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -92,9 +92,9 @@ Just nu gäller det:
 - [x] Phase 1: Lock runtime specs
 - [x] Phase 2: Shared foundations
 - [x] Phase 3: Player/loadout/weapon runtime
-- [x] Phase 4: Direct-hit damage migration `implemented + verification debt`
-- [x] Phase 5: Status + CC subsystem `implemented + verification debt`
-- [ ] Phase 6: Proc system + rule-breaking overrides `kickoff slice implemented`
+- [x] Phase 4: Direct-hit damage migration `implemented + verified`
+- [x] Phase 5: Status + CC subsystem `implemented + verified`
+- [x] Phase 6: Proc system + rule-breaking overrides `implemented + live visual closeout pending`
 - [ ] Phase 7: Content pipeline + tooltips + presentation hooks
 - [ ] Phase 8: Economy + rewards + meta + run metadata
 - [ ] Phase 9: UX/readability pass
@@ -287,10 +287,10 @@ Delar:
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Damage resolution order | `implemented + verification debt` | slutför gameplay-closeout innan Phase 6 bygger vidare på proc-regler |
-| Mitigation model | `implemented + verification debt` | verifiera live behavior för projectile/melee/contact/explosion |
-| Pen/shred | `implemented + verification debt` | fortsätt verifiera via resolver-paths och framtida content |
-| Direct-hit migration | `implemented + verification debt` | stäng live verifiering och använd sedan resolver/events som Phase 6-bas |
+| Damage resolution order | `implemented + verified` | använd som stabil bas för kommande proc-regler i Phase 6 |
+| Mitigation model | `implemented + verified` | fortsätt bara med framtida tuning/content ovanpå resolvern |
+| Pen/shred | `implemented + verified` | bredda senare via nytt content och fler resolver-paths |
+| Direct-hit migration | `implemented + verified` | använd resolver/events som Phase 6-bas |
 
 ### Weapon Runtime
 
@@ -305,18 +305,19 @@ Delar:
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Status definitions | `implemented + verification debt` | authora framtida content ovanpå content-neutral runtime |
-| CC/DR rules | `implemented + verification debt` | verifiera live DR/boss-profiler via status harness + gameplay pass |
-| Remove operations | `implemented + verification debt` | verifiera cleanse/purge/consume/expire med dev-only status harness |
-| UI priority tiers | `implemented + verification debt` | verifiera HUD ordering och enemy badges i live gameplay |
+| Status definitions | `implemented + verified` | authora framtida content ovanpå content-neutral runtime |
+| CC/DR rules | `implemented + verified` | bredda senare med boss-/elite-profiler när sådant content kräver det |
+| Remove operations | `implemented + verified` | använd som stabil status-bas för framtida authored remove effects |
+| UI priority tiers | `implemented + verified` | bygg vidare i senare readability-pass vid behov |
 
 ### Proc / Rule-Breaking
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Explosive bullet VFX tiers | `implemented kickoff slice` | verifiera live readability och ev. finjustera row-val/scale |
-| Explosive vs ricochet exclusivity | `implemented kickoff slice` | bygg vidare med fler explicita override-regler i Phase 6 |
-| General proc guardrails | `not started` | definiera recursion/trigger-budget och proc ownership |
+| Explosive bullet VFX tiers | `implemented + live visual closeout pending` | verifiera live readability och ev. finjustera row-val/scale |
+| Explosive vs ricochet exclusivity | `implemented + live visual closeout pending` | håll kvar som explicit override-regel i framtida content |
+| General proc guardrails | `implemented` | återanvänd proc runtime för fler authored passives och overrides |
+| Showcase rule-breaker: third-hit true ping | `implemented` | använd som referensmönster för senare proc-content |
 
 ### Content Validation
 

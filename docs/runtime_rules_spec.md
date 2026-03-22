@@ -82,12 +82,14 @@ Viktiga flaggor:
 - `can_trigger_proc`
 - `can_lifesteal`
 - `allow_zero_damage`
+- `proc_depth`
 
 Exempel:
 
 - `Bleed can Crit` -> `can_crit = true`
 - `Burn is now dynamic` -> `snapshots = false`
 - `Beam ticks count as hits` -> `counts_as_hit = true`
+- `Proc-generated delayed ping cannot recurse` -> `proc_depth = 1`, `can_trigger_proc = false`
 
 ## 5. Source Ownership
 
@@ -199,6 +201,7 @@ Standardregler:
 - DoTs får inte trigga full on-hit
 - proc damage får inte trigga ny proc damage
 - reflected damage är separat och triggarlös
+- proc-generated packets med `proc_depth >= 1` recursar inte vidare som default
 
 Rule-breaking perks får öppna bakdörrar till detta, men bara uttryckligen.
 

@@ -18,6 +18,13 @@ local function targetId(target)
     return target.actorId or target.typeId or target.name or "unknown_target"
 end
 
+local function actorCenter(target)
+    if not target then
+        return 0, 0
+    end
+    return (target.x or 0) + (target.w or 0) * 0.5, (target.y or 0) + (target.h or 0) * 0.5
+end
+
 local function debugResolvedHit(result)
     if not DEBUG or not debugLog then
         return
@@ -276,6 +283,7 @@ local function createSecondaryJobs(packet, result, target_actor)
         can_trigger_on_hit = false,
         can_trigger_proc = false,
         can_lifesteal = false,
+        proc_depth = packet.proc_depth or 0,
         source = secondary_source,
         tags = { "explosion", "secondary" },
         snapshot_data = {
@@ -449,6 +457,16 @@ function DamageResolver.resolve_packet(spec)
         was_crit = result.was_crit,
         target_killed = result.target_killed,
         applied_minimum_damage = result.applied_minimum_damage,
+        packet = packet,
+        metadata = packet.metadata,
+        source_actor = source_actor,
+        source_actor_kind = source_actor and ((source_actor.isPlayer and "player") or (source_actor.isEnemy and "enemy") or "actor") or nil,
+        target_actor = target_actor,
+        target_kind = target_kind,
+        proc_depth = packet.proc_depth or 0,
+        can_trigger_on_hit = packet.can_trigger_on_hit,
+        can_trigger_proc = packet.can_trigger_proc,
+        counts_as_hit = packet.counts_as_hit,
     })
 
     if packet.counts_as_hit then
@@ -465,6 +483,16 @@ function DamageResolver.resolve_packet(spec)
             was_crit = result.was_crit,
             target_killed = result.target_killed,
             applied_minimum_damage = result.applied_minimum_damage,
+            packet = packet,
+            metadata = packet.metadata,
+            source_actor = source_actor,
+            source_actor_kind = source_actor and ((source_actor.isPlayer and "player") or (source_actor.isEnemy and "enemy") or "actor") or nil,
+            target_actor = target_actor,
+            target_kind = target_kind,
+            proc_depth = packet.proc_depth or 0,
+            can_trigger_on_hit = packet.can_trigger_on_hit,
+            can_trigger_proc = packet.can_trigger_proc,
+            counts_as_hit = packet.counts_as_hit,
         })
     end
 
@@ -482,6 +510,16 @@ function DamageResolver.resolve_packet(spec)
             was_crit = result.was_crit,
             target_killed = true,
             applied_minimum_damage = result.applied_minimum_damage,
+            packet = packet,
+            metadata = packet.metadata,
+            source_actor = source_actor,
+            source_actor_kind = source_actor and ((source_actor.isPlayer and "player") or (source_actor.isEnemy and "enemy") or "actor") or nil,
+            target_actor = target_actor,
+            target_kind = target_kind,
+            proc_depth = packet.proc_depth or 0,
+            can_trigger_on_hit = packet.can_trigger_on_hit,
+            can_trigger_proc = packet.can_trigger_proc,
+            counts_as_hit = packet.counts_as_hit,
         })
     end
 
@@ -531,6 +569,36 @@ function DamageResolver.processSecondaryJobs(ctx)
                             })
                         end
                     end
+                end
+            end
+        elseif job.target_selector == "actor_id" then
+            local target_actor = nil
+            if job.target_kind == "player" and ctx.player and targetId(ctx.player) == job.target_id then
+                target_actor = ctx.player
+            elseif job.target_kind == "enemy" then
+                for _, enemy in ipairs(ctx.enemies or {}) do
+                    if enemy.alive and targetId(enemy) == job.target_id then
+                        target_actor = enemy
+                        break
+                    end
+                end
+            end
+            if target_actor then
+                local tx, ty = actorCenter(target_actor)
+                local result = DamageResolver.resolve_packet({
+                    packet = job.packet,
+                    source_actor = job.source_actor,
+                    target_actor = target_actor,
+                    target_kind = job.target_kind,
+                    world = ctx.world,
+                })
+                if result.applied then
+                    table.insert(executed, {
+                        result = result,
+                        target_actor = target_actor,
+                        x = tx,
+                        y = ty,
+                    })
                 end
             end
         end

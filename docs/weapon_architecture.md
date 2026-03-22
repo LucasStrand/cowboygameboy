@@ -275,6 +275,11 @@ Exempel:
 
 ### Exempel: third-hit true damage passive
 
+Implementation note:
+
+- Phase 6 now lands this pattern as the first live showcase rule-breaker.
+- The current runtime implementation uses a perk-authored proc rule that listens to resolver-owned `OnHit` events, counts hits per source + target, and schedules a delayed canonical `true`-family packet on every third hit.
+
 Det här är ett bra exempel på varför vapenarkitekturen behöver både resolved stats och runtime state.
 
 Scenario:

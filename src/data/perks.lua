@@ -131,6 +131,42 @@ Perks.pool = {
             player.stats.akimbo = true
         end
     },
+    {
+        id = "phantom_third",
+        name = "Phantom Third",
+        description = "Every 3rd hit on the same target triggers a delayed true-damage ping",
+        rarity = "rare",
+        weight = 2,
+        tags = { "damage:true", "setup:proc" },
+        proc_rules = {
+            {
+                id = "third_hit_true_ping",
+                trigger = "OnHit",
+                source_owner_type = "weapon_slot",
+                source_actor_kind = "player",
+                packet_kind = "direct_hit",
+                counter = {
+                    mode = "source_target_hits",
+                    every_n = 3,
+                },
+                effect = {
+                    type = "delayed_damage",
+                    delay = 0.08,
+                    family = "true",
+                    damage_scale = 0.35,
+                    min_damage = 4,
+                    can_crit = false,
+                    counts_as_hit = false,
+                    can_trigger_on_hit = false,
+                    can_trigger_proc = false,
+                    can_lifesteal = false,
+                },
+            },
+        },
+        apply = function(player)
+            local _ = player
+        end
+    },
 }
 
 function Perks.rollPerks(count, luck)
@@ -185,5 +221,14 @@ Perks.rarityColors = {
     uncommon = {0.2, 0.8, 0.2},
     rare = {0.9, 0.7, 0.1},
 }
+
+Perks.byId = {}
+for _, perk in ipairs(Perks.pool) do
+    Perks.byId[perk.id] = perk
+end
+
+function Perks.getById(id)
+    return Perks.byId[id]
+end
 
 return Perks

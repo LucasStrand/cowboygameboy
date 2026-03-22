@@ -34,4 +34,5 @@ Specifika perks, augments, relics eller states får bryta dem uttryckligen.
 - `Burn no longer snapshots`
 - `Beam ticks count as hits`
 - `Secondary proc damage can trigger other procs at reduced chance`
+- `Every 3rd hit on the same target triggers a delayed true-damage ping`
 

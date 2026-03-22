@@ -1,11 +1,12 @@
-# Phase 06 Verified Kickoff Slice: Explosive Bullet VFX + Ricochet Exclusivity
+# Phase 06: Proc Runtime + Rule-Breaking Framework
 
 ## Goals
 
-- Start Phase 6 with a narrow, runtime-safe slice instead of the full proc/rule-breaking system.
-- Give explosive bullets distinct presentation tiers and a stronger identity on existing guns.
-- Upgrade `ImpactFX` to named effect definitions so later Phase 6 work can request VFX by id instead of sheet rows.
-- Hard-lock `explosiveRounds` and `ricochetCount` as mutually exclusive in live runtime.
+- Finish the Phase 6 runtime layer on top of the Phase 4 resolver and Phase 5 status foundations.
+- Preserve the already-landed explosive bullet kickoff slice.
+- Add one real generic proc/runtime seam driven by canonical packets and resolver-owned events.
+- Ship one showcase rule-breaker through that seam:
+  - every third weapon hit on the same target schedules a delayed true-damage ping
 
 ## Modules Touched
 
@@ -46,6 +47,38 @@
   - revolver / pistol-style weapons: `small`
   - AK / rifle-style weapons: `medium`
   - blunderbuss / 2-gauge feel: `large`
+
+### `src/systems/proc_runtime.lua`
+
+- New Phase 6 runtime owner for generic proc evaluation.
+- Subscribes to resolver-owned `CombatEvents`.
+- Evaluates authored proc rules instead of hardcoding proc behavior in combat-local code.
+- Owns:
+  - per-source + per-target hit counters
+  - proc-depth guardrails
+  - delayed proc-packet scheduling through `DamageResolver.enqueueSecondaryJob`
+
+### `src/systems/damage_packet.lua`
+
+- Packet shape now carries `proc_depth`.
+- Direct hits default to `0`.
+- Proc-generated delayed packets increment depth and are blocked from further recursion by default.
+
+### `src/data/perks.lua`
+
+- Adds the first real Phase 6 showcase perk:
+  - `phantom_third`
+- The perk is authored with `proc_rules` rather than direct combat-side branching.
+- Current authored showcase behavior:
+  - `OnHit`
+  - weapon-slot direct hits only
+  - counter ownership by source + target
+  - every third hit queues a delayed `true`-family ping
+
+### `src/systems/damage_resolver.lua`
+
+- Resolver-owned event payloads now carry the original packet and proc-policy fields needed by Phase 6 runtime consumers.
+- Secondary-job processing now supports actor-id targeting so proc-generated delayed hits can strike one explicit target instead of only radius splash.
 
 ### `src/entities/player.lua`
 
@@ -88,6 +121,26 @@
 - Runtime suppresses bounce count instead of leaving a hidden collision-order rule.
 - F1 readouts now surface the lock with `Ricochet: 0 (LOCKED)` when explosive is active.
 
+### First real rule-breaker ships through runtime, not combat-local code
+
+- The first official Phase 6 showcase is not baked into bullets, combat, or resolver special cases.
+- Instead:
+  - resolver emits canonical `OnHit`
+  - proc runtime evaluates authored perk rules
+  - proc runtime schedules a canonical delayed packet
+  - resolver owns the delayed hit when it lands
+
+### Proc recursion is explicitly guarded
+
+- Direct hits may open proc evaluation.
+- Proc-generated delayed packets carry `proc_depth = 1`.
+- Proc-generated delayed packets do not recurse further by default.
+- The showcase ping does not:
+  - count as hit
+  - trigger on-hit
+  - trigger more procs
+  - lifesteal
+
 ## Debug / Verification Hooks
 
 - F1 effective stats panel now reflects the explosive-vs-ricochet lock.
@@ -105,6 +158,11 @@
 - `ImpactFX` now loads the Phase 6 explosive sheet from the real asset path:
   - `assets/Retro Impact Effect Pack ALL/RetroImpactEffectPack3A.png`
 - A LOVE smoke run of the Phase 6 preview harness launches cleanly after the asset-path fix and no longer crashes on `pack3a` load.
+- A generic Phase 6 proc runtime now exists and subscribes to resolver-owned `CombatEvents`.
+- Packet/effect proc flags are now consumed by runtime policy instead of existing only as passive packet metadata.
+- The first real authored showcase rule-breaker now exists as perk data:
+  - `phantom_third`
+  - `third_hit_true_ping`
 
 ### Still Unverified In Live Visual Play
 
@@ -129,12 +187,26 @@
   - bullet wall-hit behavior uses explosive VFX/SFX before ricochet logic
   - explosive hits in `combat` use tiered impact FX
   - F1 debug stats reflect ricochet suppression
+- Static code inspection also confirms:
+  - a dedicated `proc_runtime` now subscribes to resolver-owned combat events
+  - `DamagePacket` carries `proc_depth`
+  - resolver payloads expose packet/proc fields to runtime subscribers
+  - proc-generated delayed hits re-enter combat through canonical packets and secondary jobs
 - LOVE smoke verification confirms:
   - `explosion_small`
   - `explosion_medium`
   - `explosion_large`
   - `muzzle_explosive_shotgun`
   - all load through the definition-driven `ImpactFX.spawn(cx, cy, effect_id, opts, legacy_angle)` path without a missing-asset crash
+- LOVE runtime harness verifies the real Phase 6 proc path for:
+  - hit 1 on target: counter increments, no proc
+  - hit 2 on target: counter increments, no proc
+  - hit 3 on target: delayed true-damage ping fires
+  - source + target ownership keeps counters separated across different sources and different targets
+  - proc-generated delayed hits do not emit `OnHit` and do not recurse further by default
+- Phase 6 proc harness artifacts live under:
+  - `tmp/phase6_proc_harness/`
+  - `tmp/phase6_proc_harness_output.txt`
 - Manual gameplay verification is still required for:
   - revolver explosive feel
   - AK explosive feel

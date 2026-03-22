@@ -112,6 +112,32 @@ local function validateStatusApplications(content_type, content_id, field, appli
     end
 end
 
+local function validateProcRules(content_type, content_id, field, rules)
+    if not rules then
+        return
+    end
+    if type(rules) ~= "table" then
+        fail(content_type, content_id, field, "expected table")
+    end
+    for index, rule in ipairs(rules) do
+        if type(rule) ~= "table" then
+            fail(content_type, content_id, field, "expected table entry")
+        end
+        if type(rule.id) ~= "string" then
+            fail(content_type, content_id, field, "missing string id at entry " .. tostring(index))
+        end
+        if type(rule.trigger) ~= "string" then
+            fail(content_type, content_id, field, "missing string trigger at entry " .. tostring(index))
+        end
+        if type(rule.counter) ~= "table" or rule.counter.mode ~= "source_target_hits" or type(rule.counter.every_n) ~= "number" then
+            fail(content_type, content_id, field, "unsupported counter shape at entry " .. tostring(index))
+        end
+        if type(rule.effect) ~= "table" or rule.effect.type ~= "delayed_damage" then
+            fail(content_type, content_id, field, "unsupported effect shape at entry " .. tostring(index))
+        end
+    end
+end
+
 local function validateGuns()
     local Guns = require("src.data.guns")
     for _, gun in ipairs(Guns.pool or {}) do
@@ -153,6 +179,7 @@ local function validatePerks()
             fail("perk", id, "apply", "expected function")
         end
         validateOptionalTags("perk", id, "tags", perk.tags)
+        validateProcRules("perk", id, "proc_rules", perk.proc_rules)
     end
 end
 

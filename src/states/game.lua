@@ -34,6 +34,7 @@ local GameDevApply = require("src.states.game_dev_apply")
 local CombatEvents = require("src.systems.combat_events")
 local DamagePacket = require("src.systems.damage_packet")
 local GameRng = require("src.systems.game_rng")
+local ProcRuntime = require("src.systems.proc_runtime")
 local SourceRef = require("src.systems.source_ref")
 
 local game = {}
@@ -1177,6 +1178,7 @@ function game:enter(_, opts)
     camTargetX, camTargetY = 400, 200
     player = Player.new(50, 300)
     player.autoGun = Settings.getDefaultAutoGun()
+    game._runtime.procRuntime = ProcRuntime.init(player)
     world:add(player, player.x, player.y, player.w, player.h)
     player.isPlayer = true
 

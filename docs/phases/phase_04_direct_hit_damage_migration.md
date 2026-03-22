@@ -128,4 +128,4 @@
 - Harness output recorded resolver-owned debug lines and `CombatEvents` emissions for the migrated paths.
 - Repo-local `:takeDamage(` grep only found the thin wrapper definitions on `player.lua` and `enemy.lua`, with no live combat call sites bypassing the resolver.
 - Harness artifacts live under `tmp/damage_resolver_harness/` with output in `tmp/damage_resolver_harness_output.txt`.
-- Interactive F1 DevLog / hand-played verification was not performed in this environment; if desired, that remains a manual follow-up rather than a blocker for resolver wiring validation.
+- Manual gameplay verification for the migrated Phase 4 paths has now been completed during closeout, so resolver wiring and live combat behavior are both considered verified for this phase.

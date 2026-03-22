@@ -122,5 +122,4 @@
 - Harness output recorded resolver-owned `[damage_resolver]` lines plus `status_applied`, `status_stacked`, `status_refreshed`, `status_ticked`, `status_removed`, and `status_expired` events.
 - Static code review verified player stun gating at the player runtime/action seams and confirmed enemy badges render only the top two statuses with a dark backing plus hard-CC color override.
 - Harness artifacts live under `tmp/status_runtime_harness/` with output in `tmp/status_runtime_harness_output.txt`.
-- Manual live-play verification remains useful for:
-  - enemy badge readability in motion / combat clutter
+- Manual live-play verification for the Phase 5 closeout items has now been completed, including enemy badge readability in motion / combat clutter.
