@@ -5,6 +5,10 @@ local Vision = require("src.data.vision")
 local DamageNumbers = require("src.ui.damage_numbers")
 local ImpactFX = require("src.systems.impact_fx")
 local Sfx = require("src.systems.sfx")
+local CombatEvents = require("src.systems.combat_events")
+local DamagePacket = require("src.systems.damage_packet")
+local GameRng = require("src.systems.game_rng")
+local SourceRef = require("src.systems.source_ref")
 
 local Combat = {}
 
@@ -32,7 +36,22 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
         if b.hitEnemy then
             local hitX = b.x + b.w / 2
             local hitY = b.y + b.h / 2
-            b.hitEnemy:takeDamage(b.damage, world)
+            local packet = DamagePacket.new({
+                kind = b.packet_kind or "direct_hit",
+                family = b.damage_family or "physical",
+                amount = b.damage,
+                source = b.source_ref,
+                tags = b.damage_tags,
+                target_id = b.hitEnemy.actorId or b.hitEnemy.typeId or b.hitEnemy.name,
+            })
+            local killed = b.hitEnemy:takeDamage(b.damage, world, packet)
+            CombatEvents.emit("OnHit", {
+                source_ref = packet.source,
+                target_id = packet.target_id,
+                packet_kind = packet.kind,
+                tags = packet.tags,
+                final_applied_damage = b.damage,
+            })
             DamageNumbers.spawn(hitX, hitY, b.damage, "out")
             -- Ult bullets get a massive explosion effect
             local fxScale = b.ultBullet and 2.0 or nil
@@ -68,11 +87,39 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
                     debugLog("Explosion hit " .. aoeHits .. " nearby")
                 end
             end
+            if killed then
+                CombatEvents.emit("OnKill", {
+                    source_ref = packet.source,
+                    target_id = packet.target_id,
+                    packet_kind = packet.kind,
+                    tags = packet.tags,
+                    final_applied_damage = b.damage,
+                })
+            end
         end
 
         if b.hitPlayer then
-            local ok, dmg = player:takeDamage(b.damage)
+            local packet = DamagePacket.new({
+                kind = b.packet_kind or "direct_hit",
+                family = b.damage_family or "physical",
+                amount = b.damage,
+                source = b.source_ref or SourceRef.new({
+                    owner_actor_id = "enemy",
+                    owner_source_type = "projectile",
+                    owner_source_id = "enemy_projectile",
+                }),
+                tags = b.damage_tags or { "projectile", "enemy" },
+                target_id = player.actorId or "player",
+            })
+            local ok, dmg = player:takeDamage(b.damage, packet)
             if ok then
+                CombatEvents.emit("OnHit", {
+                    source_ref = packet.source,
+                    target_id = packet.target_id,
+                    packet_kind = packet.kind,
+                    tags = packet.tags,
+                    final_applied_damage = dmg,
+                })
                 DamageNumbers.spawn(b.x + b.w / 2, b.y + b.h / 2, dmg, "in")
                 ImpactFX.spawn(b.x + b.w / 2, b.y + b.h / 2, "hit_enemy")
             end
@@ -113,7 +160,7 @@ function Combat.onEnemyKilled(enemy, player)
         value = enemy.xpValue,
     })
 
-    if enemy.goldValue > 0 and math.random() < 0.7 then
+    if enemy.goldValue > 0 and GameRng.randomChance("combat.enemy_drop.gold", 0.7) then
         table.insert(drops, {
             x = baseX + 12,
             y = baseY,
@@ -122,7 +169,7 @@ function Combat.onEnemyKilled(enemy, player)
         })
     end
 
-    if math.random() < 0.1 then
+    if GameRng.randomChance("combat.enemy_drop.health", 0.1) then
         table.insert(drops, {
             x = baseX - 12,
             y = baseY,
@@ -134,7 +181,7 @@ function Combat.onEnemyKilled(enemy, player)
     -- Weapon drop (rare)
     local luck = player:getEffectiveStats().luck or 0
     local weaponDropChance = 0.04 + luck * 0.02
-    if math.random() < weaponDropChance then
+    if GameRng.randomChance("combat.enemy_drop.weapon", weaponDropChance) then
         local gunDef = Guns.rollDrop(luck)
         if gunDef then
             table.insert(drops, {
@@ -152,8 +199,27 @@ end
 function Combat.checkMeleeEnemies(enemies, player)
     for _, enemy in ipairs(enemies) do
         if enemy.alive and enemy:canDamagePlayer(player.x, player.y, player.w, player.h) then
-            local ok, dmg = player:takeDamage(enemy.damage)
+            local packet = DamagePacket.new({
+                kind = "direct_hit",
+                family = "physical",
+                amount = enemy.damage,
+                source = SourceRef.new({
+                    owner_actor_id = enemy.actorId or enemy.typeId or "enemy",
+                    owner_source_type = "enemy_contact",
+                    owner_source_id = enemy.typeId or enemy.name or "enemy",
+                }),
+                tags = { "enemy", "contact" },
+                target_id = player.actorId or "player",
+            })
+            local ok, dmg = player:takeDamage(enemy.damage, packet)
             if ok then
+                CombatEvents.emit("OnHit", {
+                    source_ref = packet.source,
+                    target_id = packet.target_id,
+                    packet_kind = packet.kind,
+                    tags = packet.tags,
+                    final_applied_damage = dmg,
+                })
                 local mx = (enemy.x + enemy.w * 0.5 + player.x + player.w * 0.5) * 0.5
                 local my = (enemy.y + enemy.h * 0.5 + player.y + player.h * 0.5) * 0.5
                 DamageNumbers.spawn(mx, my, dmg, "in")
@@ -174,8 +240,27 @@ function Combat.checkContactDamage(enemies, player)
                 local dist = math.sqrt((ex - px)^2 + (ey - py)^2)
                 local hitR = enemy.contactRange or enemy.attackRange
                 if dist <= hitR then
-                    local ok, dmg = player:takeDamage(enemy.damage)
+                    local packet = DamagePacket.new({
+                        kind = "direct_hit",
+                        family = "physical",
+                        amount = enemy.damage,
+                        source = SourceRef.new({
+                            owner_actor_id = enemy.actorId or enemy.typeId or "enemy",
+                            owner_source_type = "enemy_contact",
+                            owner_source_id = enemy.typeId or enemy.name or "enemy",
+                        }),
+                        tags = { "enemy", "contact" },
+                        target_id = player.actorId or "player",
+                    })
+                    local ok, dmg = player:takeDamage(enemy.damage, packet)
                     if ok then
+                        CombatEvents.emit("OnHit", {
+                            source_ref = packet.source,
+                            target_id = packet.target_id,
+                            packet_kind = packet.kind,
+                            tags = packet.tags,
+                            final_applied_damage = dmg,
+                        })
                         local mx = (ex + px) * 0.5
                         local my = (ey + py) * 0.5
                         DamageNumbers.spawn(mx, my, dmg, "in")
@@ -281,7 +366,26 @@ function Combat.checkPlayerMelee(player, enemies)
             -- AABB overlap
             if hx < e.x + e.w and hx + hw > e.x and
                hy < e.y + e.h and hy + hh > e.y then
-                e:takeDamage(dmg, nil)
+                local packet = DamagePacket.new({
+                    kind = "direct_hit",
+                    family = "physical",
+                    amount = dmg,
+                    source = SourceRef.new({
+                        owner_actor_id = player.actorId or "player",
+                        owner_source_type = "melee",
+                        owner_source_id = "melee_swing",
+                    }),
+                    tags = { "melee" },
+                    target_id = e.actorId or e.typeId or e.name,
+                })
+                local killed = e:takeDamage(dmg, nil, packet)
+                CombatEvents.emit("OnHit", {
+                    source_ref = packet.source,
+                    target_id = packet.target_id,
+                    packet_kind = packet.kind,
+                    tags = packet.tags,
+                    final_applied_damage = dmg,
+                })
                 DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, dmg, "out")
                 ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee", nil, player.meleeAimAngle)
                 Sfx.play("melee_hit")
@@ -293,6 +397,15 @@ function Combat.checkPlayerMelee(player, enemies)
                 e.vy = (e.vy or 0) + math.sin(a) * s.meleeKnockback
                 if debugLog then
                     debugLog("Melee hit " .. (e.name or "enemy") .. " for " .. dmg)
+                end
+                if killed then
+                    CombatEvents.emit("OnKill", {
+                        source_ref = packet.source,
+                        target_id = packet.target_id,
+                        packet_kind = packet.kind,
+                        tags = packet.tags,
+                        final_applied_damage = dmg,
+                    })
                 end
             end
         end

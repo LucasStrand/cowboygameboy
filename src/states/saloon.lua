@@ -25,6 +25,7 @@ local Buffs = require("src.systems.buffs")
 local HUD = require("src.ui.hud")
 local MusicDirector = require("src.systems.music_director")
 local Perks = require("src.data.perks")
+local GameRng = require("src.systems.game_rng")
 
 local saloonRoom = require("src.data.saloon_room")
 
@@ -211,15 +212,15 @@ local function spawnSaloonGoldDrops(amount)
         local v = base + (i <= rem and 1 or 0)
         if v <= 0 then break end
         -- Ring around the player (not underfoot): ~56–112 px so you move to grab them
-        local ang = (i / n) * math.pi * 2 + (math.random() - 0.5) * 0.45
-        local dist = 56 + math.random() * 56
-        local px = cx - pw / 2 + math.cos(ang) * dist + (math.random() - 0.5) * 10
+        local ang = (i / n) * math.pi * 2 + (GameRng.randomFloat("saloon.payout.ang", 0, 1) - 0.5) * 0.45
+        local dist = 56 + GameRng.randomFloat("saloon.payout.dist", 0, 56)
+        local px = cx - pw / 2 + math.cos(ang) * dist + (GameRng.randomFloat("saloon.payout.px", 0, 1) - 0.5) * 10
         px = math.max(4, math.min(roomW - pw - 4, px))
-        local py = player.y - 5 - math.random() * 10
+        local py = player.y - 5 - GameRng.randomFloat("saloon.payout.py", 0, 10)
         local p = Pickup.new(px, py, "gold", v)
         p.casinoPayout = true
-        p.vy = -95 - math.random() * 85
-        p.vx = (math.random() - 0.5) * 115
+        p.vy = -95 - GameRng.randomFloat("saloon.payout.vy", 0, 85)
+        p.vx = (GameRng.randomFloat("saloon.payout.vx", 0, 1) - 0.5) * 115
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end

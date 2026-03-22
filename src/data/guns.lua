@@ -1,4 +1,5 @@
 local Guns = {}
+local GameRng = require("src.systems.game_rng")
 
 -- All gun definitions.  Each weapon's baseStats REPLACE the player's default
 -- gun stats when the weapon is active.  Perk bonuses are applied on top via
@@ -141,7 +142,7 @@ function Guns.rollDrop(luck)
     end
     if totalWeight <= 0 then return nil end
 
-    local roll = math.random() * totalWeight
+    local roll = GameRng.randomFloat("guns.roll_drop.weight", 0, totalWeight)
     local cumulative = 0
     for _, gun in ipairs(Guns.pool) do
         if gun.dropWeight > 0 then

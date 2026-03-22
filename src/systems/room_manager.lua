@@ -7,6 +7,7 @@ local Worlds = require("src.data.worlds")
 local RoomProps = require("src.systems.room_props")
 local Enemy = require("src.entities.enemy")
 local bump = require("lib.bump")
+local GameRng = require("src.systems.game_rng")
 
 local RoomManager = {}
 RoomManager.__index = RoomManager
@@ -72,7 +73,7 @@ function RoomManager:generateSequence()
             if #pool == 0 then
                 pool = RoomData.pool or {}
             end
-            local room = pool[math.random(#pool)]
+            local room = pool[GameRng.random("room_manager.room_pick", #pool)]
             table.insert(self.roomSequence, room)
         end
     end

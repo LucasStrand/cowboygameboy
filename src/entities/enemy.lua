@@ -2,9 +2,11 @@ local EnemyData = require("src.data.enemies")
 local Vision = require("src.data.vision")
 local EnemyAI = require("src.systems.enemy_ai")
 local PlatformCollision = require("src.systems.platform_collision")
+local GameRng = require("src.systems.game_rng")
 
 local Enemy = {}
 Enemy.__index = Enemy
+local NEXT_ENEMY_ID = 1
 
 -- Bandit sprite constants
 local BANDIT_FRAME_H = 48
@@ -229,6 +231,8 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     if not data then return nil end
 
     local self = setmetatable({}, Enemy)
+    self.actorId = "enemy_" .. NEXT_ENEMY_ID
+    NEXT_ENEMY_ID = NEXT_ENEMY_ID + 1
     self.typeId = typeId
     self.x = x
     self.y = y
@@ -612,7 +616,7 @@ function Enemy:updateRanged(dt, world, dx, dy, dist, playerX, playerY)
         end
         local angle = math.atan2(dy, dx)
         -- Slight inaccuracy
-        angle = angle + (math.random() - 0.5) * 0.15
+            angle = angle + (GameRng.randomFloat("enemy.projectile_inaccuracy", 0, 1) - 0.5) * 0.15
         return {
             x = self.x + self.w / 2,
             y = self.y + self.h / 2,
@@ -620,6 +624,9 @@ function Enemy:updateRanged(dt, world, dx, dy, dist, playerX, playerY)
             speed = self.bulletSpeed or 380,
             damage = self.damage,
             fromEnemy = true,
+            damage_family = "physical",
+            packet_kind = "direct_hit",
+            damage_tags = { "projectile", "enemy" },
         }
     end
 
@@ -668,9 +675,10 @@ function Enemy:updateFlying(dt, world, dx, dy, dist, playerX, playerY)
     return nil
 end
 
-function Enemy:takeDamage(amount, world)
+function Enemy:takeDamage(amount, world, packet)
     self.hp = self.hp - amount
     self.hurtTimer = 0.18
+    self.lastDamagePacket = packet
     if self.hp <= 0 then
         self.alive = false
         self.state = "dead"
@@ -678,8 +686,10 @@ function Enemy:takeDamage(amount, world)
         if world and world:hasItem(self) then
             world:remove(self)
         end
+        return true
     else
         EnemyAI.onDamaged(self)
+        return false
     end
 end
 

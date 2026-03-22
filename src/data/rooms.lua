@@ -1,5 +1,6 @@
 local RoomLoader = require("src.systems.room_loader")
 local Worlds = require("src.data.worlds")
+local GameRng = require("src.systems.game_rng")
 
 local RoomData = {}
 
@@ -66,9 +67,17 @@ local MAX_JUMP_UP = 270
 -- Same-tier walk: allow wide gaps (floor often split into segments / auto-bridges in-game)
 local MAX_WALK_GAP = 280
 
+local function rngInt(channel, min_value, max_value)
+    return GameRng.random("rooms." .. channel, min_value, max_value)
+end
+
+local function rngFloat(channel, min_value, max_value)
+    return GameRng.randomFloat("rooms." .. channel, min_value, max_value)
+end
+
 local function shuffle(t)
     for i = #t, 2, -1 do
-        local j = math.random(i)
+        local j = rngInt("shuffle", i)
         t[i], t[j] = t[j], t[i]
     end
 end
@@ -207,7 +216,7 @@ local function pickEnemyType(difficulty, playerLevel, enemyRoster)
             end
         end
         if total > 0 then
-            local r = math.random() * total
+            local r = rngFloat("roster_weight_pick", 0, total)
             local sum = 0
             for _, e in ipairs(entries) do
                 sum = sum + e.weight
@@ -224,7 +233,7 @@ local function pickEnemyType(difficulty, playerLevel, enemyRoster)
     local buzzardChance = 0.10 + tier * 0.04
     local gunslingerChance = 0.18
     local banditChance = math.max(0.22, 1 - nightborneChance - necromancerChance - buzzardChance - gunslingerChance)
-    local r = math.random()
+    local r = rngFloat("fallback_type_pick", 0, 1)
     local banditCut = banditChance
     local nightborneCut = banditCut + nightborneChance
     local gunslingerCut = nightborneCut + gunslingerChance
@@ -246,7 +255,7 @@ end
 local function computeTargetCount(difficulty, playerLevel)
     local prog = (difficulty - 1) * 0.55 + (playerLevel - 1) * 0.65
     local base = 12 + math.floor(prog * 3.8)
-    local n = base + math.random(-3, 6)
+    local n = base + rngInt("target_count_variation", -3, 6)
     return math.max(9, math.min(34, n))
 end
 
@@ -294,15 +303,15 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
             if x < 24 or x > room.width - 48 then return false end
             if tooClose(cx, cy, placed, 46) then return false end
             if not farEnoughFromPlayer(cx, cy, playerCx, playerCy) then return false end
-            if x < avoidX2 and math.random() < 0.42 then return false end
+            if x < avoidX2 and rngFloat("ground_avoid_spawn", 0, 1) < 0.42 then return false end
             return true
         end
         for _ = 1, 120 do
-            local plat = walkPlats[math.random(#walkPlats)]
+            local plat = walkPlats[rngInt("ground_pick_primary", #walkPlats)]
             local margin = 18
             local maxX = plat.x + plat.w - margin - 22
             if maxX > plat.x + margin then
-                local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
+                local x = plat.x + margin + rngFloat("ground_x_primary", 0, maxX - (plat.x + margin))
                 local y = plat.y - h
                 local cx, cy = x + 11, y + h * 0.5
                 if groundCandidateOk(x, y, cx, cy) then
@@ -313,11 +322,11 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
         end
         -- Relax player distance (still avoid stacking on other enemies)
         for _ = 1, 100 do
-            local plat = walkPlats[math.random(#walkPlats)]
+            local plat = walkPlats[rngInt("ground_pick_relaxed", #walkPlats)]
             local margin = 18
             local maxX = plat.x + plat.w - margin - 22
             if maxX > plat.x + margin then
-                local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
+                local x = plat.x + margin + rngFloat("ground_x_relaxed", 0, maxX - (plat.x + margin))
                 local y = plat.y - h
                 local cx, cy = x + 11, y + h * 0.5
                 if x >= 24 and x <= room.width - 48 and not tooClose(cx, cy, placed, 46) then
@@ -333,7 +342,7 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
             local maxX = plat.x + plat.w - margin - 22
             if maxX > plat.x + margin then
                 for _ = 1, 32 do
-                    local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
+                    local x = plat.x + margin + rngFloat("ground_x_farthest", 0, maxX - (plat.x + margin))
                     local y = plat.y - h
                     local cx, cy = x + 11, y + h * 0.5
                     if x >= 24 and x <= room.width - 48 and not tooClose(cx, cy, placed, 46) then
@@ -351,7 +360,7 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
             table.insert(placed, { x = cx, y = cy })
             return bestX, bestY
         end
-        local plat = walkPlats[math.random(#walkPlats)]
+        local plat = walkPlats[rngInt("ground_pick_fallback", #walkPlats)]
         local x = math.max(24, math.min(room.width - 48, plat.x + plat.w * 0.5 - 10))
         local y = plat.y - h
         local cx, cy = x + 11, y + h * 0.5
@@ -366,12 +375,12 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
             return true
         end
         for _ = 1, 80 do
-            local plat = walkPlats[math.random(#walkPlats)]
+            local plat = walkPlats[rngInt("air_pick_primary", #walkPlats)]
             local margin = 20
             local maxX = plat.x + plat.w - margin - 22
             if maxX > plat.x + margin then
-                local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
-                local y = plat.y - math.random(48, 150)
+                local x = plat.x + margin + rngFloat("air_x_primary", 0, maxX - (plat.x + margin))
+                local y = plat.y - rngInt("air_y_primary", 48, 150)
                 if y < 40 then y = 40 end
                 if airOk(x + 11, y + 8) then
                     table.insert(placed, { x = x + 11, y = y + 8 })
@@ -380,12 +389,12 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
             end
         end
         for _ = 1, 70 do
-            local plat = walkPlats[math.random(#walkPlats)]
+            local plat = walkPlats[rngInt("air_pick_relaxed", #walkPlats)]
             local margin = 20
             local maxX = plat.x + plat.w - margin - 22
             if maxX > plat.x + margin then
-                local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
-                local y = plat.y - math.random(48, 150)
+                local x = plat.x + margin + rngFloat("air_x_relaxed", 0, maxX - (plat.x + margin))
+                local y = plat.y - rngInt("air_y_relaxed", 48, 150)
                 if y < 40 then y = 40 end
                 if not tooClose(x + 11, y + 8, placed, 44) then
                     table.insert(placed, { x = x + 11, y = y + 8 })
@@ -399,8 +408,8 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
             local maxX = plat.x + plat.w - margin - 22
             if maxX > plat.x + margin then
                 for _ = 1, 24 do
-                    local x = plat.x + margin + math.random() * (maxX - (plat.x + margin))
-                    local y = plat.y - math.random(48, 150)
+                    local x = plat.x + margin + rngFloat("air_x_farthest", 0, maxX - (plat.x + margin))
+                    local y = plat.y - rngInt("air_y_farthest", 48, 150)
                     if y < 40 then y = 40 end
                     local cx, cy = x + 11, y + 8
                     if not tooClose(cx, cy, placed, 44) then
@@ -417,7 +426,7 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
             table.insert(placed, { x = bestX + 11, y = bestY + 8 })
             return bestX, bestY
         end
-        local plat = walkPlats[math.random(#walkPlats)]
+        local plat = walkPlats[rngInt("air_pick_fallback", #walkPlats)]
         local x = plat.x + plat.w * 0.5 - 11
         local y = math.max(40, plat.y - 90)
         table.insert(placed, { x = x + 11, y = y + 8 })
@@ -426,7 +435,7 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
 
     for _ = 1, n do
         local t = pickEnemyType(difficulty, playerLevel, enemyRoster)
-        local elite = math.random() < eChance
+        local elite = rngFloat("elite_roll", 0, 1) < eChance
         local x, y
         if t == "buzzard" then
             x, y = tryAir()
@@ -438,8 +447,8 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
 
     shuffle(specs)
 
-    local staggerRatio = 0.38 + math.random() * 0.22
-    local nDelayed = math.floor(n * staggerRatio + math.random(0, 1))
+    local staggerRatio = 0.38 + rngFloat("stagger_ratio", 0, 0.22)
+    local nDelayed = math.floor(n * staggerRatio + rngInt("stagger_bonus", 0, 1))
     nDelayed = math.min(nDelayed, n - 1)
     nDelayed = math.max(0, nDelayed)
 
@@ -449,7 +458,7 @@ function RoomData.buildSpawnPlan(room, difficulty, playerLevel, enemyRoster)
         if i <= n - nDelayed then
             table.insert(immediate, s)
         else
-            s.delay = 0.12 + math.random() ^ 1.4 * 7.5 + math.random() * 0.35
+            s.delay = 0.12 + (rngFloat("delayed_spawn_curve", 0, 1) ^ 1.4) * 7.5 + rngFloat("delayed_spawn_bonus", 0, 0.35)
             table.insert(delayed, s)
         end
     end

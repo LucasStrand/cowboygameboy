@@ -3,6 +3,7 @@ local Sfx = require("src.systems.sfx")
 local Timer = require("lib.hump.timer")
 local CasinoFx = require("src.ui.casino_fx")
 local BlackjackVisuals = require("src.ui.blackjack_visuals")
+local GameRng = require("src.systems.game_rng")
 
 local Blackjack = {}
 Blackjack.__index = Blackjack
@@ -353,7 +354,7 @@ function Blackjack:buildDeck()
         end
     end
     for i = #self.deck, 2, -1 do
-        local j = math.random(i)
+        local j = GameRng.random("blackjack.shuffle", i)
         self.deck[i], self.deck[j] = self.deck[j], self.deck[i]
     end
 end

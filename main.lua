@@ -1,5 +1,6 @@
 local Gamestate = require("lib.hump.gamestate")
 local Settings = require("src.systems.settings")
+local ContentValidator = require("src.systems.content_validator")
 
 local boot_intro = require("src.states.boot_intro")
 local game = require("src.states.game")
@@ -59,6 +60,7 @@ function love.load()
     local Settings = require("src.systems.settings")
     Settings.load()
     Settings.apply()
+    ContentValidator.validate_all()
 
     syncGameDimensions()
     updateCanvasScale()

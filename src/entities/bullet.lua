@@ -18,6 +18,10 @@ function Bullet.new(data)
     self.explosive = data.explosive or false
     self.fromEnemy = data.fromEnemy or false
     self.ultBullet = data.ultBullet or false
+    self.source_ref = data.source_ref
+    self.packet_kind = data.packet_kind
+    self.damage_family = data.damage_family
+    self.damage_tags = data.damage_tags
     self.isBullet = true
     self.alive = true
     self.lifetime = 3

@@ -10,8 +10,17 @@
 
 local ChunkLoader = require("src.systems.chunk_loader")
 local Worlds = require("src.data.worlds")
+local GameRng = require("src.systems.game_rng")
 
 local ChunkAssembler = {}
+
+local function rngInt(channel, min_value, max_value)
+    return GameRng.random("chunk_assembler." .. channel, min_value, max_value)
+end
+
+local function rngFloat(channel, min_value, max_value)
+    return GameRng.randomFloat("chunk_assembler." .. channel, min_value, max_value)
+end
 
 -- Grid cell size in pixels
 local CELL_W = 400
@@ -107,7 +116,7 @@ end
 
 local function pickRandom(list)
     if #list == 0 then return nil end
-    return list[math.random(#list)]
+    return list[rngInt("pick_random", #list)]
 end
 
 local function cellKey(col, row)
@@ -154,7 +163,7 @@ local function generateCriticalPath(cols, rows, rightW, vertW)
         else
             local totalWeight = 0
             for _, m in ipairs(moves) do totalWeight = totalWeight + m.weight end
-            local roll = math.random() * totalWeight
+            local roll = rngFloat("critical_path.weight", 0, totalWeight)
             local chosen = moves[1]
             local acc = 0
             for _, m in ipairs(moves) do
@@ -260,7 +269,7 @@ local function generateBranches(path, cols, rows, chunksByType, branchChance)
     end
 
     for _, cell in ipairs(path) do
-        if math.random() > branchChance then goto continue end
+        if rngFloat("branch.chance", 0, 1) > branchChance then goto continue end
         if not cell.chunk then goto continue end
 
         local chunk = cell.chunk
@@ -285,7 +294,7 @@ local function generateBranches(path, cols, rows, chunksByType, branchChance)
         if #unusedDirs == 0 then goto continue end
 
         local dir = pickRandom(unusedDirs)
-        local branchLen = math.random(1, MAX_BRANCH_LENGTH)
+        local branchLen = rngInt("branch.length", 1, MAX_BRANCH_LENGTH)
         local bc, br = cell.col + dir.dc, cell.row + dir.dr
 
         -- Determine the height constraint coming out of this cell
@@ -477,7 +486,7 @@ local function flattenToRoom(cells, cols, rows)
     end
 
     return {
-        id = "generated_" .. tostring(math.random(100000, 999999)),
+        id = "generated_" .. tostring(rngInt("generated_id", 100000, 999999)),
         width  = maxCol * CELL_W,
         height = maxRow * CELL_H,
         platforms = allPlatforms,

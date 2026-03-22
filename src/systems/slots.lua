@@ -1,5 +1,6 @@
 local Sfx = require("src.systems.sfx")
 local CasinoFx = require("src.ui.casino_fx")
+local GameRng = require("src.systems.game_rng")
 
 local Slots = {}
 Slots.__index = Slots
@@ -130,7 +131,7 @@ function Slots:startSpin(player)
     player.gold = player.gold - w
 
     local function rollSymbol()
-        local r = math.random(1, 100)
+        local r = GameRng.random("slots.roll_symbol", 1, 100)
         if r <= 8 then return 1 end
         if r <= 18 then return 2 end
         if r <= 30 then return 3 end
@@ -145,7 +146,7 @@ function Slots:startSpin(player)
 
     for i = 1, 3 do
         self.spinStart[i] = self.reelScroll[i]
-        local turns = math.random(4, 9)
+        local turns = GameRng.random("slots.spin_turns", 4, 9)
         self.spinFinal[i] = self.finalSymbols[i] - 1 + turns * NUM_SYM
     end
 

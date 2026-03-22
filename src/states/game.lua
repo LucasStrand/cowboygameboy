@@ -31,6 +31,9 @@ local MusicDirector = require("src.systems.music_director")
 local WorldLighting = require("src.systems.world_lighting")
 local Vision = require("src.data.vision")
 local GameDevApply = require("src.states.game_dev_apply")
+local CombatEvents = require("src.systems.combat_events")
+local GameRng = require("src.systems.game_rng")
+local SourceRef = require("src.systems.source_ref")
 
 local game = {}
 game._runtime = {}
@@ -105,11 +108,11 @@ local function spawnCheatGoldDrops(amount)
         local v = base + (i <= rem and 1 or 0)
         if v <= 0 then break end
         local spread = (i - 1 - (n - 1) * 0.5) * 18
-        local px = player.x + player.w / 2 - pw / 2 + spread + (math.random() - 0.5) * 8
-        local py = player.y - 6 - math.random() * 16
+        local px = player.x + player.w / 2 - pw / 2 + spread + (GameRng.randomFloat("game.debug_gold.px", 0, 1) - 0.5) * 8
+        local py = player.y - 6 - GameRng.randomFloat("game.debug_gold.py", 0, 16)
         local p = Pickup.new(px, py, "gold", v)
-        p.vy = -150 - math.random() * 130
-        p.vx = (math.random() - 0.5) * 200
+        p.vy = -150 - GameRng.randomFloat("game.debug_gold.vy", 0, 130)
+        p.vx = (GameRng.randomFloat("game.debug_gold.vx", 0, 1) - 0.5) * 200
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end
@@ -1091,6 +1094,11 @@ local function devApplyAction(id)
 end
 
 function game:enter(_, opts)
+    game._runtime = {}
+    game._runtime.runSeed = (opts and opts.runSeed) or GameRng.seedFromTime()
+    game._runtime.rng = GameRng.new(game._runtime.runSeed)
+    GameRng.setCurrent(game._runtime.rng)
+    CombatEvents.clear()
     introCD.active = false
     introCD.n = 0
     introCD.segT = 0
@@ -1158,6 +1166,7 @@ function game:enter(_, opts)
     if editorRoom then
         roomManager:generateSequence()
         DevLog.init()
+        DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
         DevLog.push("sys", "Editor test play")
         currentRoom = roomManager:loadRoom(editorRoom, world, player)
         enemies = currentRoom.enemies
@@ -1165,6 +1174,7 @@ function game:enter(_, opts)
     else
         roomManager:generateSequence()
         DevLog.init()
+        DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
         if devArenaMode then
             DevLog.push("sys", "Dev arena started")
             loadNextRoom()
@@ -1325,6 +1335,14 @@ function game:update(dt)
                         explosive = true,
                         ricochet = 0,
                         ultBullet = true,
+                        source_ref = SourceRef.new({
+                            owner_actor_id = player.actorId or "player",
+                            owner_source_type = "ultimate",
+                            owner_source_id = "dead_mans_hand",
+                        }),
+                        packet_kind = "direct_hit",
+                        damage_family = "physical",
+                        damage_tags = { "projectile", "ultimate" },
                     })
                     table.insert(bullets, b)
                     Sfx.play("ult_shot", { volume = 0.7 })
@@ -1530,13 +1548,21 @@ function game:update(dt)
     i = 1
     while i <= #enemies do
         local e = enemies[i]
-        if e.alive then
-            local bulletData = e:update(dt, world, enemyContext)
-            if bulletData then
-                local b = Combat.spawnBullet(world, bulletData)
-                Sfx.play("shoot", { volume = 0.35 })
-                table.insert(bullets, b)
-            end
+            if e.alive then
+                local bulletData = e:update(dt, world, enemyContext)
+                if bulletData then
+                    bulletData.source_ref = bulletData.source_ref or SourceRef.new({
+                        owner_actor_id = e.actorId or e.typeId or "enemy",
+                        owner_source_type = "enemy_attack",
+                        owner_source_id = e.typeId or e.name or "enemy",
+                    })
+                    bulletData.packet_kind = bulletData.packet_kind or "direct_hit"
+                    bulletData.damage_family = bulletData.damage_family or "physical"
+                    bulletData.damage_tags = bulletData.damage_tags or { "projectile", "enemy" }
+                    local b = Combat.spawnBullet(world, bulletData)
+                    Sfx.play("shoot", { volume = 0.35 })
+                    table.insert(bullets, b)
+                end
             if isOutOfBounds(e, currentRoom) then
                 e.alive = false
                 e.isEnemy = false

@@ -1,4 +1,5 @@
 local Perks = {}
+local GameRng = require("src.systems.game_rng")
 
 Perks.pool = {
     -- Common (60% weight)
@@ -156,7 +157,7 @@ function Perks.rollPerks(count, luck)
             end
         end
 
-        local roll = math.random() * totalWeight
+        local roll = GameRng.randomFloat("perks.roll.weight." .. i, 0, totalWeight)
         local cumulative = 0
         for _, perk in ipairs(available) do
             if not usedIds[perk.id] then

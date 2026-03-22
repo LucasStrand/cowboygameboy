@@ -1,3 +1,5 @@
+local GameRng = require("src.systems.game_rng")
+
 local EnemyAI = {}
 
 local GRAVITY = 900
@@ -46,14 +48,14 @@ local function randRange(lo, hi)
     if hi <= lo then
         return lo
     end
-    return lo + math.random() * (hi - lo)
+    return GameRng.randomFloat("enemy_ai.range", lo, hi)
 end
 
 local function randSigned(amount)
     if not amount or amount == 0 then
         return 0
     end
-    return (math.random() * 2 - 1) * amount
+    return (GameRng.randomFloat("enemy_ai.signed", 0, 1) * 2 - 1) * amount
 end
 
 local function enemyCenter(enemy)
@@ -718,6 +720,9 @@ local function tryRangedAttack(enemy, senses)
         speed = enemy.bulletSpeed or 250,
         damage = enemy.damage,
         fromEnemy = true,
+        damage_family = "physical",
+        packet_kind = "direct_hit",
+        damage_tags = { "projectile", "enemy" },
     }
 end
 
@@ -825,10 +830,10 @@ function EnemyAI.init(enemy, data)
     )
     enemy.ai.attackInaccuracy = math.max(0, (enemy.ai.attackInaccuracy or 0) + randSigned(enemy.ai.attackInaccuracyJitter or 0))
 
-    enemy.aggressionScale = 0.9 + math.random() * 0.25
-    enemy.accuracyScale = 0.88 + math.random() * 0.3
-    enemy.flankBias = math.random() < 0.5 and -1 or 1
-    enemy.aiBobOffset = math.random() * math.pi * 2
+    enemy.aggressionScale = 0.9 + GameRng.randomFloat("enemy_ai.aggression_scale", 0, 0.25)
+    enemy.accuracyScale = 0.88 + GameRng.randomFloat("enemy_ai.accuracy_scale", 0, 0.3)
+    enemy.flankBias = GameRng.randomChance("enemy_ai.flank_bias", 0.5) and -1 or 1
+    enemy.aiBobOffset = GameRng.randomFloat("enemy_ai.bob_offset", 0, math.pi * 2)
 
     enemy.homeX = enemy.x
     enemy.homeY = enemy.homeY or enemy.y

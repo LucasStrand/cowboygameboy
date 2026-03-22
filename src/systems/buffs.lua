@@ -45,6 +45,7 @@ end
 --   visual       optional { jitter = {amp, freq} or {[1],[2]}, tint = {r,g,b,a} }
 
 local definitions = {}
+Buffs._definitions = definitions
 
 function Buffs.define(def)
     assert(def.id, "buff definition needs an id")

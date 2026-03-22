@@ -1,4 +1,5 @@
 local GearData = {}
+local GameRng = require("src.systems.game_rng")
 
 GearData.slots = {"hat", "vest", "boots"}
 
@@ -82,11 +83,11 @@ function GearData.getRandomForSlot(slot, maxTier)
         end
     end
     if #candidates == 0 then return nil end
-    return candidates[math.random(#candidates)]
+    return candidates[GameRng.random("gear.random_for_slot." .. tostring(slot), #candidates)]
 end
 
 function GearData.getRandom(maxTier)
-    local slot = GearData.slots[math.random(#GearData.slots)]
+    local slot = GearData.slots[GameRng.random("gear.random_slot", #GearData.slots)]
     return GearData.getRandomForSlot(slot, maxTier)
 end
 

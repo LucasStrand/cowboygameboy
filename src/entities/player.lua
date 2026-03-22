@@ -8,6 +8,11 @@ local ImpactFX = require("src.systems.impact_fx")
 local GearIcons = require("src.ui.gear_icons")
 local Font = require("src.ui.font")
 local Buffs = require("src.systems.buffs")
+local CombatEvents = require("src.systems.combat_events")
+local DamagePacket = require("src.systems.damage_packet")
+local GameRng = require("src.systems.game_rng")
+local SourceRef = require("src.systems.source_ref")
+local StatRuntime = require("src.systems.stat_runtime")
 
 -- Monster Energy (saloon): each drink heals to full; walk-speed bonus stacks with diminishing returns.
 local MONSTER_MOVE_FIRST = 44
@@ -75,6 +80,31 @@ local AIM_FACE_DEADZONE = 3
 -- Head/gun draw: turn relative to body forward so we never flip the cowboy upside down
 local MAX_HEAD_TURN = 1.32 -- ~75° each way from facing
 
+local STAT_RUNTIME_COMPARE_KEYS = {
+    "maxHP",
+    "moveSpeed",
+    "damageMultiplier",
+    "armor",
+    "luck",
+    "pickupRadius",
+    "reloadSpeed",
+    "cylinderSize",
+    "bulletSpeed",
+    "bulletDamage",
+    "bulletCount",
+    "spreadAngle",
+    "lifestealOnKill",
+    "ricochetCount",
+    "meleeDamage",
+    "meleeRange",
+    "meleeCooldown",
+    "meleeKnockback",
+    "blockReduction",
+    "blockMobility",
+    "shootCooldown",
+    "inaccuracy",
+}
+
 local function angleWrapPi(a)
     while a > math.pi do a = a - 2 * math.pi end
     while a < -math.pi do a = a + 2 * math.pi end
@@ -85,8 +115,43 @@ local function angleDiff(a, b)
     return angleWrapPi(a - b)
 end
 
+local function weaponSourceRef(player, slotIndex, gun, parent_source_id)
+    return SourceRef.new({
+        owner_actor_id = player.actorId or "player",
+        owner_source_type = slotIndex and "weapon_slot" or "player",
+        owner_source_id = gun and gun.id or ("slot_" .. tostring(slotIndex or player.activeWeaponSlot or 1)),
+        parent_source_id = parent_source_id,
+    })
+end
+
+local function compareStatRuntime(player, gun, live_stats)
+    if not DEBUG or not debugLog then
+        return
+    end
+
+    local ctx = StatRuntime.build_player_context(player, gun, PLAYER_BASE_GUN_STATS)
+    local computed = StatRuntime.compute_actor_stats(ctx)
+    local exported = StatRuntime.export_legacy_stats(computed)
+    player._statRuntimeMismatchCache = player._statRuntimeMismatchCache or {}
+    local cacheKey = gun and gun.id or "melee"
+    player._statRuntimeMismatchCache[cacheKey] = player._statRuntimeMismatchCache[cacheKey] or {}
+
+    for _, key in ipairs(STAT_RUNTIME_COMPARE_KEYS) do
+        local live = live_stats[key]
+        local next_value = exported[key]
+        if live ~= nil and next_value ~= nil then
+            local mismatch = tostring(live) .. "!=" .. tostring(next_value)
+            if live ~= next_value and player._statRuntimeMismatchCache[cacheKey][key] ~= mismatch then
+                player._statRuntimeMismatchCache[cacheKey][key] = mismatch
+                debugLog(string.format("[stat_runtime] %s mismatch for %s: live=%s runtime=%s", cacheKey, key, tostring(live), tostring(next_value)))
+            end
+        end
+    end
+end
+
 function Player.new(x, y)
     local self = setmetatable({}, Player)
+    self.actorId = "player"
     self.x = x
     self.y = y
     self.w = 16
@@ -341,6 +406,7 @@ function Player:getEffectiveStatsForGun(gun)
         end
     end
 
+    compareStatRuntime(self, gun, s)
     return s
 end
 
@@ -411,6 +477,11 @@ function Player:update(dt, world, enemies)
                         w.ammo = gunBase + perkDelta
                         w.reloadTimer = 0
                         Sfx.play("reload")
+                        CombatEvents.emit("OnReloadFinished", {
+                            source_ref = weaponSourceRef(self, i, w.gun),
+                            slot_index = i,
+                            owner_actor_id = self.actorId,
+                        })
                         if i == self.activeWeaponSlot and self.stats.deadEye then
                             self.deadEyeTimer = 3.0
                         end
@@ -442,6 +513,11 @@ function Player:update(dt, world, enemies)
                         w.ammo = gunBase + perkDelta
                         w.reloadTimer = 0
                         Sfx.play("reload")
+                        CombatEvents.emit("OnReloadFinished", {
+                            source_ref = weaponSourceRef(self, i, w.gun),
+                            slot_index = i,
+                            owner_actor_id = self.actorId,
+                        })
                         if i == self.activeWeaponSlot and self.stats.deadEye then
                             self.deadEyeTimer = 3.0
                         end
@@ -734,10 +810,11 @@ function Player:shootFromSlot(slotIndex, mx, my)
     local cx = self.x + self.w / 2
     local cy = self.y + self.h / 2
     local angle = math.atan2(my - cy, mx - cx)
+    local source_ref = weaponSourceRef(self, slotIndex, gun)
 
     local inacc = effectiveStats.inaccuracy or 0
     if inacc > 0 then
-        angle = angle + (math.random() - 0.5) * 2 * inacc
+        angle = angle + (GameRng.randomFloat("player.weapon_inaccuracy." .. tostring(slotIndex), 0, 1) - 0.5) * 2 * inacc
     end
 
     local bullets = {}
@@ -757,6 +834,10 @@ function Player:shootFromSlot(slotIndex, mx, my)
             damage = math.floor(effectiveStats.bulletDamage * effectiveStats.damageMultiplier),
             ricochet = effectiveStats.ricochetCount,
             explosive = effectiveStats.explosiveRounds,
+            source_ref = source_ref,
+            packet_kind = "direct_hit",
+            damage_family = gun.damageFamily or "physical",
+            damage_tags = { "projectile", gun.id or "gun" },
         })
     end
     Sfx.play("shoot")
@@ -928,6 +1009,11 @@ function Player:startReloadSlot(slotIndex)
     local reloadDelta = self.stats.reloadSpeed - PLAYER_BASE_GUN_STATS.reloadSpeed
     slot.reloading = true
     slot.reloadTimer = slot.gun.baseStats.reloadSpeed + reloadDelta
+    CombatEvents.emit("OnReloadStarted", {
+        source_ref = weaponSourceRef(self, slotIndex, slot.gun),
+        slot_index = slotIndex,
+        owner_actor_id = self.actorId,
+    })
     if slotIndex == self.activeWeaponSlot then
         self.reloading = true
         self.reloadTimer = slot.reloadTimer
@@ -969,7 +1055,7 @@ function Player:addUltCharge(amount)
     end
 end
 
-function Player:takeDamage(amount)
+function Player:takeDamage(amount, packet)
     if self.dying then return false end
     if self.devGodMode then return false end
     if self.iframes > 0 then return false end
@@ -981,10 +1067,27 @@ function Player:takeDamage(amount)
         amount = math.max(1, math.floor(amount * (1 - es.blockReduction)))
     end
 
+    packet = packet or DamagePacket.new({
+        kind = "direct_hit",
+        family = "physical",
+        amount = amount,
+        source = SourceRef.new({ owner_actor_id = "unknown_actor", owner_source_type = "unknown_source", owner_source_id = "unknown_source" }),
+        tags = { "incoming" },
+        target_id = self.actorId,
+    })
+
     local finalDamage = math.max(1, amount - es.armor)
     self.hp = self.hp - finalDamage
     self.iframes = 0.5
     Sfx.play("hurt")
+    CombatEvents.emit("OnDamageTaken", {
+        source_ref = packet.source,
+        target_id = self.actorId,
+        packet_kind = packet.kind,
+        family = packet.family,
+        tags = packet.tags,
+        final_applied_damage = finalDamage,
+    })
 
     if debugLog then
         local suffix = self.blocking and " [blocked]" or ""
@@ -1017,10 +1120,10 @@ function Player:consumeMonsterEnergy()
             MONSTER_JITTER_BASE_CHANCE + (n - 2) * MONSTER_JITTER_PER_DRINK
         )
     end
-    if math.random() < jitterChance then
+    if GameRng.randomChance("player.monster_energy.jitter", jitterChance) then
         -- Longer / shakier as drinks mount (still mild on 2nd drink)
         local intensity = math.min(1.15, 0.35 + (n - 2) * 0.18)
-        self.monsterJitteryTimer = (6.0 + intensity * 5.0) + math.random() * (3.0 + intensity * 2.0)
+        self.monsterJitteryTimer = (6.0 + intensity * 5.0) + GameRng.randomFloat("player.monster_energy.jitter_duration", 0, 3.0 + intensity * 2.0)
         self.monsterJitterShakeMul = intensity
         Buffs.apply(self.buffs, "jitter")
     end
@@ -1029,8 +1132,8 @@ function Player:consumeMonsterEnergy()
     Buffs.apply(self.buffs, "speed_boost")
 
     self.monsterSpeechText = nil
-    if math.random() < MONSTER_SPEECH_CHANCE then
-        self.monsterSpeechText = MONSTER_SPEECH_LINES[math.random(#MONSTER_SPEECH_LINES)]
+    if GameRng.randomChance("player.monster_energy.speech", MONSTER_SPEECH_CHANCE) then
+        self.monsterSpeechText = MONSTER_SPEECH_LINES[GameRng.random("player.monster_energy.speech_line", #MONSTER_SPEECH_LINES)]
         self.monsterSpeechLife = 0
     end
 
