@@ -1,8 +1,11 @@
 local EnemyData = require("src.data.enemies")
 local Vision = require("src.data.vision")
+local DamagePacket = require("src.systems.damage_packet")
+local DamageResolver = require("src.systems.damage_resolver")
 local EnemyAI = require("src.systems.enemy_ai")
 local PlatformCollision = require("src.systems.platform_collision")
 local GameRng = require("src.systems.game_rng")
+local SourceRef = require("src.systems.source_ref")
 
 local Enemy = {}
 Enemy.__index = Enemy
@@ -241,6 +244,13 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     self.hp = data.hp
     self.maxHP = data.hp
     self.damage = data.damage
+    self.armor = 0
+    self.magic_resist = 0
+    self.armor_shred = 0
+    self.magic_shred = 0
+    self.incoming_damage_mul = 1
+    self.incoming_physical_mul = 1
+    self.incoming_magical_mul = 1
     self.speed = data.speed
     self.xpValue = data.xpValue
     self.goldValue = data.goldValue
@@ -676,7 +686,32 @@ function Enemy:updateFlying(dt, world, dx, dy, dist, playerX, playerY)
 end
 
 function Enemy:takeDamage(amount, world, packet)
-    self.hp = self.hp - amount
+    packet = packet or DamagePacket.new({
+        kind = "direct_hit",
+        family = "physical",
+        amount = amount,
+        source = SourceRef.new({ owner_actor_id = "unknown_actor", owner_source_type = "unknown_source", owner_source_id = "unknown_source" }),
+        target_id = self.actorId,
+        metadata = {
+            source_context_kind = "snapshot_only",
+        },
+    })
+    local result = DamageResolver.resolve_direct_hit({
+        packet = packet,
+        source_actor = nil,
+        target_actor = self,
+        target_kind = "enemy",
+        world = world,
+    })
+    return result.target_killed
+end
+
+function Enemy:applyResolvedDamage(result, world, packet)
+    if not self.alive then
+        return false, 0, false
+    end
+
+    self.hp = self.hp - (result.final_damage or 0)
     self.hurtTimer = 0.18
     self.lastDamagePacket = packet
     if self.hp <= 0 then
@@ -686,11 +721,11 @@ function Enemy:takeDamage(amount, world, packet)
         if world and world:hasItem(self) then
             world:remove(self)
         end
-        return true
-    else
-        EnemyAI.onDamaged(self)
-        return false
+        return true, result.final_damage or 0, true
     end
+
+    EnemyAI.onDamaged(self)
+    return true, result.final_damage or 0, false
 end
 
 function Enemy:canDamagePlayer(playerX, playerY, playerW, playerH)

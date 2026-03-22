@@ -43,7 +43,7 @@ StatRegistry.defs = {
     shoot_cooldown = { default = 0.38, group = "weapon", accepted_ops = { "flat", "add_pct", "mul", "override" }, clamp = { min = 0 } },
     inaccuracy = { default = 0, group = "weapon", accepted_ops = { "flat", "add_pct", "mul", "override" }, clamp = { min = 0 } },
     crit_chance = { default = 0, group = "crit", accepted_ops = { "flat", "add_pct", "mul", "override" }, clamp = { min = 0 } },
-    crit_damage = { default = 0, group = "crit", accepted_ops = { "flat", "add_pct", "mul", "override" } },
+    crit_damage = { default = 1.5, group = "crit", accepted_ops = { "flat", "add_pct", "mul", "override" }, clamp = { min = 1 } },
     chain_targets = { default = 0, group = "projectile", accepted_ops = { "flat", "add_pct", "mul", "override" }, rounding = "floor", clamp = { min = 0 } },
     chain_range = { default = 0, group = "projectile", accepted_ops = { "flat", "add_pct", "mul", "override" }, clamp = { min = 0 } },
 }

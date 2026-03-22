@@ -1,4 +1,5 @@
 local CombatEvents = require("src.systems.combat_events")
+local DamagePacket = require("src.systems.damage_packet")
 local GameRng = require("src.systems.game_rng")
 local Sfx = require("src.systems.sfx")
 local SourceRef = require("src.systems.source_ref")
@@ -119,6 +120,61 @@ local function computeResolvedStats(player, gun_def)
     return StatRuntime.export_legacy_stats(normalized)
 end
 
+local function computeNormalizedStats(player, gun_def)
+    if not gun_def then
+        return nil
+    end
+
+    local ctx = StatRuntime.build_player_context(player, gun_def, player.baseGunStats)
+    return StatRuntime.compute_actor_stats(ctx)
+end
+
+local function snapshotSourceContext(base_damage, normalized)
+    return {
+        base_min = base_damage,
+        base_max = base_damage,
+        damage = normalized.damage or 1,
+        physical_damage = normalized.physical_damage or 0,
+        magical_damage = normalized.magical_damage or 0,
+        true_damage = normalized.true_damage or 0,
+        crit_chance = normalized.crit_chance or 0,
+        crit_damage = normalized.crit_damage or 1.5,
+        armor_pen = normalized.armor_pen or 0,
+        magic_pen = normalized.magic_pen or 0,
+    }
+end
+
+local function buildProjectilePacket(ctx)
+    local base_scale = ctx.base_scale or 1
+    local base_damage = math.max(0, (ctx.normalized_stats.projectile_damage or 0) * base_scale)
+    local family = ctx.gun.damageFamily or "physical"
+    return DamagePacket.new({
+        kind = "direct_hit",
+        family = family,
+        base_min = base_damage,
+        base_max = base_damage,
+        can_crit = true,
+        counts_as_hit = true,
+        can_trigger_on_hit = true,
+        can_trigger_proc = true,
+        can_lifesteal = true,
+        source = ctx.source_ref,
+        tags = { "projectile", ctx.gun.id or "gun" },
+        snapshot_data = {
+            source_context = snapshotSourceContext(base_damage, ctx.normalized_stats),
+        },
+        metadata = {
+            source_context_kind = "player_weapon_projectile",
+            source_slot_index = ctx.slot.slot_index,
+            source_weapon_id = ctx.gun.id,
+            source_attack_profile_id = ctx.slot.attack_profile_id,
+            base_scale = base_scale,
+            explosion_radius = ctx.stats.explosiveRounds and 60 or nil,
+            explosion_damage_scale = ctx.stats.explosiveRounds and 0.5 or nil,
+        },
+    })
+end
+
 local ATTACK_PROFILES = {
     projectile_basic = function(ctx)
         local bullets = {}
@@ -127,9 +183,11 @@ local ATTACK_PROFILES = {
             y = ctx.origin_y,
             angle = ctx.angle,
             speed = ctx.stats.bulletSpeed,
-            damage = math.floor(ctx.stats.bulletDamage * ctx.stats.damageMultiplier),
+            damage = math.floor((ctx.normalized_stats.projectile_damage or 0) * (ctx.base_scale or 1)),
             ricochet = ctx.stats.ricochetCount,
             explosive = ctx.stats.explosiveRounds,
+            packet = buildProjectilePacket(ctx),
+            source_actor = ctx.player,
             source_ref = ctx.source_ref,
             packet_kind = "direct_hit",
             damage_family = ctx.gun.damageFamily or "physical",
@@ -151,9 +209,11 @@ local ATTACK_PROFILES = {
                 y = ctx.origin_y,
                 angle = bullet_angle,
                 speed = ctx.stats.bulletSpeed,
-                damage = math.floor(ctx.stats.bulletDamage * ctx.stats.damageMultiplier),
+                damage = math.floor((ctx.normalized_stats.projectile_damage or 0) * (ctx.base_scale or 1)),
                 ricochet = ctx.stats.ricochetCount,
                 explosive = ctx.stats.explosiveRounds,
+                packet = buildProjectilePacket(ctx),
+                source_actor = ctx.player,
                 source_ref = ctx.source_ref,
                 packet_kind = "direct_hit",
                 damage_family = ctx.gun.damageFamily or "physical",
@@ -442,6 +502,7 @@ function WeaponRuntime.fireSlot(player, slot_index, aim_x, aim_y)
 
     local gun = slot.weapon_def
     local resolved = WeaponRuntime.getResolvedStats(player, slot_index)
+    local normalized = computeNormalizedStats(player, gun)
     local cx = player.x + player.w / 2
     local cy = player.y + player.h / 2
     local angle = math.atan2(aim_y - cy, aim_x - cx)
@@ -461,6 +522,7 @@ function WeaponRuntime.fireSlot(player, slot_index, aim_x, aim_y)
         slot = slot,
         gun = gun,
         stats = resolved,
+        normalized_stats = normalized,
         angle = angle,
         origin_x = cx,
         origin_y = cy,

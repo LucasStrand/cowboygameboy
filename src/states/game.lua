@@ -32,6 +32,7 @@ local WorldLighting = require("src.systems.world_lighting")
 local Vision = require("src.data.vision")
 local GameDevApply = require("src.states.game_dev_apply")
 local CombatEvents = require("src.systems.combat_events")
+local DamagePacket = require("src.systems.damage_packet")
 local GameRng = require("src.systems.game_rng")
 local SourceRef = require("src.systems.source_ref")
 
@@ -1327,19 +1328,53 @@ function game:update(dt)
                     local ty = target.y + target.h / 2
                     local angle = math.atan2(ty - py, tx - px)
                     local effectiveStats = player:getEffectiveStats()
+                    local source_ref = SourceRef.new({
+                        owner_actor_id = player.actorId or "player",
+                        owner_source_type = "ultimate",
+                        owner_source_id = "dead_mans_hand",
+                    })
+                    local base_damage = (effectiveStats.bulletDamage or 0) * 3
+                    local packet = DamagePacket.new({
+                        kind = "direct_hit",
+                        family = "physical",
+                        base_min = base_damage,
+                        base_max = base_damage,
+                        can_crit = true,
+                        counts_as_hit = true,
+                        can_trigger_on_hit = true,
+                        can_trigger_proc = true,
+                        can_lifesteal = true,
+                        source = source_ref,
+                        tags = { "projectile", "ultimate" },
+                        snapshot_data = {
+                            source_context = {
+                                base_min = base_damage,
+                                base_max = base_damage,
+                                damage = effectiveStats.damageMultiplier or 1,
+                                physical_damage = 0,
+                                magical_damage = 0,
+                                true_damage = 0,
+                                crit_chance = effectiveStats.critChance or 0,
+                                crit_damage = effectiveStats.critDamage or 1.5,
+                                armor_pen = effectiveStats.armorPen or 0,
+                                magic_pen = effectiveStats.magicPen or 0,
+                            },
+                        },
+                        metadata = {
+                            explosion_radius = 60,
+                            explosion_damage_scale = 0.5,
+                        },
+                    })
                     local b = Combat.spawnBullet(world, {
                         x = px, y = py,
                         angle = angle,
                         speed = effectiveStats.bulletSpeed * 2.0,
-                        damage = effectiveStats.bulletDamage * 3,
+                        damage = base_damage,
                         explosive = true,
                         ricochet = 0,
                         ultBullet = true,
-                        source_ref = SourceRef.new({
-                            owner_actor_id = player.actorId or "player",
-                            owner_source_type = "ultimate",
-                            owner_source_id = "dead_mans_hand",
-                        }),
+                        packet = packet,
+                        source_ref = source_ref,
                         packet_kind = "direct_hit",
                         damage_family = "physical",
                         damage_tags = { "projectile", "ultimate" },

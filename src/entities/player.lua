@@ -8,8 +8,8 @@ local ImpactFX = require("src.systems.impact_fx")
 local GearIcons = require("src.ui.gear_icons")
 local Font = require("src.ui.font")
 local Buffs = require("src.systems.buffs")
-local CombatEvents = require("src.systems.combat_events")
 local DamagePacket = require("src.systems.damage_packet")
+local DamageResolver = require("src.systems.damage_resolver")
 local GameRng = require("src.systems.game_rng")
 local SourceRef = require("src.systems.source_ref")
 local StatRuntime = require("src.systems.stat_runtime")
@@ -875,7 +875,7 @@ end
 --- Dead Man's Hand ultimate: mark all enemies and fire explosive barrage.
 --- Returns true if activation succeeded.
 function Player:tryActivateUlt()
-    if self.dying then return false end
+    if self.dying then return false, 0 end
     if self.ultActive then return false end
     if self.ultCharge < 1 then return false end
     self.ultCharge = 0
@@ -900,17 +900,6 @@ function Player:addUltCharge(amount)
 end
 
 function Player:takeDamage(amount, packet)
-    if self.dying then return false end
-    if self.devGodMode then return false end
-    if self.iframes > 0 then return false end
-
-    local es = self:getEffectiveStats()
-
-    -- Blocking absorbs a fraction of incoming damage (default shield has blockReduction from gear)
-    if self.blocking and (es.blockReduction or 0) > 0 then
-        amount = math.max(1, math.floor(amount * (1 - es.blockReduction)))
-    end
-
     packet = packet or DamagePacket.new({
         kind = "direct_hit",
         family = "physical",
@@ -918,31 +907,50 @@ function Player:takeDamage(amount, packet)
         source = SourceRef.new({ owner_actor_id = "unknown_actor", owner_source_type = "unknown_source", owner_source_id = "unknown_source" }),
         tags = { "incoming" },
         target_id = self.actorId,
+        metadata = {
+            source_context_kind = "snapshot_only",
+        },
     })
 
-    local finalDamage = math.max(1, amount - es.armor)
-    self.hp = self.hp - finalDamage
+    local result = DamageResolver.resolve_direct_hit({
+        packet = packet,
+        source_actor = nil,
+        target_actor = self,
+        target_kind = "player",
+    })
+
+    return result.applied, result.final_damage
+
+end
+
+function Player:applyResolvedDamage(result, _, packet)
+    if self.dying or self.devGodMode or self.iframes > 0 then
+        return false, 0, false
+    end
+
+    local before = self.hp
+    self.hp = self.hp - (result.final_damage or 0)
     self.iframes = 0.5
     Sfx.play("hurt")
-    CombatEvents.emit("OnDamageTaken", {
-        source_ref = packet.source,
-        target_id = self.actorId,
-        packet_kind = packet.kind,
-        family = packet.family,
-        tags = packet.tags,
-        final_applied_damage = finalDamage,
-    })
 
     if debugLog then
         local suffix = self.blocking and " [blocked]" or ""
-        debugLog(string.format("Took %d dmg  HP %d→%d%s", finalDamage, self.hp + finalDamage, self.hp, suffix))
+        debugLog(string.format(
+            "Took %d dmg  HP %d -> %d%s [%s]",
+            result.final_damage or 0,
+            before,
+            self.hp,
+            suffix,
+            tostring(packet and packet.family or "physical")
+        ))
     end
 
-    if self.hp <= 0 then
+    local killed = self.hp <= 0
+    if killed then
         self:beginDeath()
     end
 
-    return true, finalDamage
+    return true, result.final_damage or 0, killed
 end
 
 function Player:heal(amount)

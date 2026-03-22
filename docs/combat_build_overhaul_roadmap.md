@@ -28,6 +28,7 @@ Syftet är att:
 | [runtime_rules_spec.md](./runtime_rules_spec.md) | Hit-regler, overrides, slot/runtime-model och proc-defaults | `phase 1 spec` |
 | [phases/phase_02_shared_foundations.md](./phases/phase_02_shared_foundations.md) | Phase 2 implementation log | `implemented` |
 | [phases/phase_03_player_loadout_weapon_runtime.md](./phases/phase_03_player_loadout_weapon_runtime.md) | Phase 3 implementation log | `implemented + hardened` |
+| [phases/phase_04_direct_hit_damage_migration.md](./phases/phase_04_direct_hit_damage_migration.md) | Phase 4 implementation log | `implemented` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -89,8 +90,8 @@ Just nu gäller det:
 - [x] Phase 1: Lock runtime specs
 - [x] Phase 2: Shared foundations
 - [x] Phase 3: Player/loadout/weapon runtime
-- [ ] Phase 4: Direct-hit damage migration `CURRENT`
-- [ ] Phase 5: Status + CC subsystem
+- [x] Phase 4: Direct-hit damage migration
+- [ ] Phase 5: Status + CC subsystem `CURRENT`
 - [ ] Phase 6: Proc system + rule-breaking overrides
 - [ ] Phase 7: Content pipeline + tooltips + presentation hooks
 - [ ] Phase 8: Economy + rewards + meta + run metadata
@@ -141,7 +142,7 @@ Delar:
 - source ownership ids
 - faslogg: `docs/phases/phase_02_shared_foundations.md`
 
-### [ ] Phase 3: Player/loadout/weapon runtime `CURRENT`
+### [x] Phase 3: Player/loadout/weapon runtime
 
 Mål:
 
@@ -154,7 +155,7 @@ Delar:
 - resolved weapon stats
 - ammo/reload/cooldown/counters i weapon runtime state
 
-### [ ] Phase 4: Direct-hit damage migration `NEXT`
+### [x] Phase 4: Direct-hit damage migration
 
 Mål:
 
@@ -287,7 +288,7 @@ Delar:
 | Damage resolution order | `spec locked after Phase 1` | implementera resolver och debug print |
 | Mitigation model | `spec locked after Phase 1` | route bullet/melee genom ny modell |
 | Pen/shred | `spec locked after Phase 1` | implementera target defense state + source pen |
-| Direct-hit migration | `not started` | migrera bullets, melee, basic explosions |
+| Direct-hit migration | `implemented` | verifiera live behavior och bygg Phase 5 ovanpå resolver/events |
 
 ### Weapon Runtime
 
