@@ -52,22 +52,48 @@
   - resolves a payoff hit through the resolver
   - applies `stun`
 
-## Content Hooks Landed
+## Content Hooks
 
-- Guns and enemy projectiles can now declare `status_applications`.
-- Current live hooks:
-  - `blunderbuss` -> `bleed`
-  - `ak47` -> `shock`
-  - `necromancer` projectile -> `burn`
-  - `gunslinger` projectile -> `slow`
-  - ultimate barrage -> `wet`
-  - explosive rounds perk path -> `burn`
+- Runtime and packet support for future `status_applications` remains in place.
+- Temporary closeout cleanup removed the hardcoded live examples from:
+  - player guns
+  - enemy projectile examples
+  - ultimate projectile
+- Phase 5 now leaves the status runtime content-neutral until future authored content adds explicit hooks.
+
+## Closeout Notes
+
+- Phase 5 lands the shared runtime in code.
+- Phase 4 direct-hit behavior remains the base damage path and is not reopened here.
+- Temporary hardcoded live status hooks were removed during closeout so the runtime remains content-neutral until future authored content adds explicit `status_applications`.
 
 ## Acceptance Notes
 
-- Phase 5 lands the shared runtime and live status hooks in code.
-- Phase 4 direct-hit behavior remains the base damage path and is not reopened here.
-- Manual gameplay verification is still required for:
+### Verified Good
+
+- Shared status runtime exists and is wired to both player and enemies.
+- Status ticks/payoff hits route through canonical damage packets instead of direct HP mutation.
+- Compatibility path for legacy boons/HUD remains present through `buffs.lua`.
+- Temporary authored status hooks have been removed from player guns, enemy projectile examples, and the ultimate projectile.
+
+### Still Unverified In Gameplay
+
+- bleed / burn tick pacing
+- shock overload + stun DR
+- status HUD ordering
+- enemy badge readability
+- player stun gating
+- broader remove-op behavior in real gameplay
+
+### Bugs / Balance Problems Found During Closeout
+
+- None confirmed in this pass.
+
+## Verification Status
+
+- Static repo search used to confirm no temporary authored `status_applications` remain on guns, enemy projectile examples, or the ultimate path.
+- Short LOVE boot smoke test completed without an immediate startup crash.
+- Manual gameplay verification was not completed in this environment and is still required for:
   - bleed / burn tick pacing
   - shock overload + stun DR
   - status HUD ordering

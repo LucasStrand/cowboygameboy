@@ -28,8 +28,8 @@ Syftet är att:
 | [runtime_rules_spec.md](./runtime_rules_spec.md) | Hit-regler, overrides, slot/runtime-model och proc-defaults | `phase 1 spec` |
 | [phases/phase_02_shared_foundations.md](./phases/phase_02_shared_foundations.md) | Phase 2 implementation log | `implemented` |
 | [phases/phase_03_player_loadout_weapon_runtime.md](./phases/phase_03_player_loadout_weapon_runtime.md) | Phase 3 implementation log | `implemented + hardened` |
-| [phases/phase_04_direct_hit_damage_migration.md](./phases/phase_04_direct_hit_damage_migration.md) | Phase 4 implementation log | `implemented` |
-| [phases/phase_05_unified_status_cc_runtime.md](./phases/phase_05_unified_status_cc_runtime.md) | Phase 5 implementation log | `implemented` |
+| [phases/phase_04_direct_hit_damage_migration.md](./phases/phase_04_direct_hit_damage_migration.md) | Phase 4 implementation log | `implemented + verification debt` |
+| [phases/phase_05_unified_status_cc_runtime.md](./phases/phase_05_unified_status_cc_runtime.md) | Phase 5 implementation log | `implemented + verification debt` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -91,8 +91,8 @@ Just nu gäller det:
 - [x] Phase 1: Lock runtime specs
 - [x] Phase 2: Shared foundations
 - [x] Phase 3: Player/loadout/weapon runtime
-- [x] Phase 4: Direct-hit damage migration
-- [x] Phase 5: Status + CC subsystem
+- [ ] Phase 4: Direct-hit damage migration `implemented + verification debt`
+- [ ] Phase 5: Status + CC subsystem `implemented + verification debt`
 - [ ] Phase 6: Proc system + rule-breaking overrides
 - [ ] Phase 7: Content pipeline + tooltips + presentation hooks
 - [ ] Phase 8: Economy + rewards + meta + run metadata
@@ -156,7 +156,7 @@ Delar:
 - resolved weapon stats
 - ammo/reload/cooldown/counters i weapon runtime state
 
-### [x] Phase 4: Direct-hit damage migration
+### [ ] Phase 4: Direct-hit damage migration
 
 Mål:
 
@@ -169,7 +169,7 @@ Delar:
 - basic explosions
 - basic delayed secondary hits
 
-### [x] Phase 5: Status + CC subsystem
+### [ ] Phase 5: Status + CC subsystem
 
 Mål:
 

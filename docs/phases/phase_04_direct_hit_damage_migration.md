@@ -83,16 +83,25 @@
 
 ## Acceptance Checklist
 
+### Verified Good
+
+- [x] `DamagePacket` canonical fields are present on migrated direct-hit paths.
+- [x] Crit resolves before mitigation in resolver code.
+- [x] `physical`, `magical`, and `true` family branches all exist in the resolver.
+- [x] Resolver owns `OnDamageTaken`, `OnHit`, and `OnKill` emissions for migrated direct-hit paths.
+- [x] Player/enemy apply helpers are thin and no longer own mitigation math.
+
+### Still Unverified In Gameplay
+
 - [ ] Player projectiles hit enemies through `damage_resolver`.
 - [ ] Enemy projectiles hit player through `damage_resolver`.
 - [ ] Player melee hit damage comes from resolver output, not combat-local math.
 - [ ] Enemy contact damage comes from resolver output, not player-local armor math.
-- [ ] `DamagePacket` canonical fields are present on migrated direct-hit paths.
-- [ ] Crit resolves before mitigation.
-- [ ] `physical`, `magical`, and `true` family branches all exist in the resolver.
 - [ ] Explosive splash routes through delayed-secondary jobs.
-- [ ] Resolver owns `OnDamageTaken`, `OnHit`, and `OnKill` emissions for migrated direct-hit paths.
-- [ ] Player/enemy apply helpers are thin and no longer own mitigation math.
+
+### Bugs / Balance Problems Found During Closeout
+
+- None confirmed in this pass.
 
 ## Remaining Adapters / Follow-Up
 
@@ -104,7 +113,8 @@
 
 - Static repo search used to confirm direct-hit event ownership moved to `damage_resolver`.
 - Static repo search used to confirm direct direct-hit call sites in combat no longer call `target:takeDamage(raw_amount)` for live paths.
-- Manual gameplay verification is still required for:
+- Short LOVE boot smoke test completed without an immediate startup crash.
+- Manual gameplay verification was not completed in this environment and is still required for:
   - revolver/blunderbuss/AK-47 behavior
   - enemy projectile mitigation
   - block ordering

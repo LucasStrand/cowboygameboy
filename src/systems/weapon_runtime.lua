@@ -149,17 +149,6 @@ local function buildStatusApplications(ctx)
     for _, app in ipairs(ctx.gun.status_applications or {}) do
         applications[#applications + 1] = cloneTable(app)
     end
-    if ctx.stats.explosiveRounds then
-        applications[#applications + 1] = {
-            id = "burn",
-            chance = 1,
-            stacks = 1,
-            duration = 4,
-            base_damage = 3,
-            level_scale = 0.06,
-            source_tag = "explosive_rounds",
-        }
-    end
     return applications
 end
 

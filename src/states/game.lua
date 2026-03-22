@@ -1346,14 +1346,6 @@ function game:update(dt)
                         can_lifesteal = true,
                         source = source_ref,
                         tags = { "projectile", "ultimate" },
-                        status_applications = {
-                            {
-                                id = "wet",
-                                chance = 1,
-                                stacks = 1,
-                                duration = 4,
-                            },
-                        },
                         snapshot_data = {
                             source_context = {
                                 base_min = base_damage,

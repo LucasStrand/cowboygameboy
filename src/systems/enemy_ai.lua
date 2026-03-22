@@ -721,24 +721,8 @@ local function tryRangedAttack(enemy, senses)
     })
     local family = enemy.typeId == "necromancer" and "magical" or "physical"
     local tags = { "projectile", "enemy" }
-    local status_applications = {}
-    if enemy.typeId == "gunslinger" then
-        status_applications[1] = {
-            id = "slow",
-            chance = 0.35,
-            stacks = 1,
-            duration = 2.5,
-        }
-    elseif enemy.typeId == "necromancer" then
+    if enemy.typeId == "necromancer" then
         tags[#tags + 1] = "damage:fire"
-        status_applications[1] = {
-            id = "burn",
-            chance = 1,
-            stacks = 1,
-            duration = 4,
-            base_damage = 2,
-            level_scale = 0,
-        }
     end
     local packet = DamagePacket.new({
         kind = "direct_hit",
@@ -752,7 +736,6 @@ local function tryRangedAttack(enemy, senses)
         can_lifesteal = false,
         source = source_ref,
         tags = tags,
-        status_applications = status_applications,
         snapshot_data = {
             source_context = {
                 base_min = enemy.damage,
@@ -785,7 +768,6 @@ local function tryRangedAttack(enemy, senses)
         damage_family = family,
         packet_kind = "direct_hit",
         damage_tags = tags,
-        status_applications = status_applications,
     }
 end
 
