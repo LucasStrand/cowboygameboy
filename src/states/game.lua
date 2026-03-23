@@ -762,6 +762,26 @@ local function isOutOfBounds(entity, room)
         or entity.x > room.width + 200
 end
 
+--- HP lost when leaving the play bounds (pit / sides); then snap to spawn.
+local OUT_OF_BOUNDS_HP_PENALTY = 20
+
+local function placePlayerAtRoomSpawn()
+    if not player or not currentRoom or not world then return end
+    local sp = currentRoom.playerSpawn
+    if sp then
+        player.x = sp.x
+        player.y = sp.y
+    else
+        player.x = math.max(32, currentRoom.width * 0.25)
+        player.y = math.max(80, currentRoom.height * 0.45)
+    end
+    player.vx = 0
+    player.vy = 0
+    player.blocking = false
+    player.dropThroughTimer = 0
+    world:update(player, player.x, player.y)
+end
+
 -- AABB overlap with padding (center-distance was too strict at tall doors / zoomed camera)
 local DOOR_INTERACT_PAD = 10
 
@@ -2087,9 +2107,27 @@ function game:update(dt)
 
     -- Exit door: use interact keybind when nearby (see tryExitThroughDoor)
 
-    -- Kill plane (fell out of bounds)
+    -- Out of bounds: respawn at room start, lose fixed HP (unless dev god mode)
     if isOutOfBounds(player, currentRoom) then
-        player:beginDeath()
+        if player.devGodMode then
+            placePlayerAtRoomSpawn()
+            updateCamera(0, true)
+        else
+            local loss = OUT_OF_BOUNDS_HP_PENALTY
+            player.hp = math.max(0, player.hp - loss)
+            player.iframes = math.max(player.iframes or 0, 1.0)
+            Sfx.play("hurt")
+            local pcx = player.x + player.w / 2
+            local pcy = player.y + player.h / 2
+            DamageNumbers.spawn(pcx, pcy, loss, "out")
+            DevLog.push("sys", string.format("Out of bounds —%d HP  (respawn)", loss))
+            if player.hp <= 0 then
+                player:beginDeath()
+            else
+                placePlayerAtRoomSpawn()
+                updateCamera(0, true)
+            end
+        end
     end
 
     ::skipLivingCombat::

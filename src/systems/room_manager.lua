@@ -325,6 +325,8 @@ function RoomManager:loadRoom(room, world, player, opts)
         door = door,
         width = room.width,
         height = room.height,
+        --- Copy for respawn after pit / out-of-bounds (game state).
+        playerSpawn = room.playerSpawn and { x = room.playerSpawn.x, y = room.playerSpawn.y } or nil,
         --- Room `boss = true` in room data forces boss BGM; can also toggle at runtime for boss fights.
         bossFight = room.boss or false,
         nightMode = nightMode,
