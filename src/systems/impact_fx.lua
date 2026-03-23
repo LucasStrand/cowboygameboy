@@ -105,10 +105,36 @@ local EFFECTS = {
         rotation_mode = "follow_angle",
         lifetime_jitter = 0.015,
     },
+    --- Single PNG (e.g. commission muzzle); origin toward grip so flash extends along aim.
+    muzzle_colt45 = {
+        image_path = "assets/vfx/muzzle_colt45.png",
+        start_frame = 1,
+        end_frame = 1,
+        fps = 20,
+        scale = 0.44,
+        blend_mode = DEFAULT_BLEND_MODE,
+        alpha_mode = DEFAULT_ALPHA_MODE,
+        rotation_mode = "follow_angle",
+        origin_x_frac = 0.2,
+        origin_y_frac = 0.5,
+        lifetime_jitter = 0.02,
+    },
 }
 
 local sheetCache = {}
+local standaloneImageCache = {}
 local active = {}
+
+local function loadStandaloneImage(path)
+    local cached = standaloneImageCache[path]
+    if cached then
+        return cached
+    end
+    local image = love.graphics.newImage(path)
+    image:setFilter("nearest", "nearest")
+    standaloneImageCache[path] = image
+    return image
+end
 
 local function loadSheet(sheet_id)
     local cached = sheetCache[sheet_id]
@@ -171,6 +197,11 @@ function ImpactFX.spawn(cx, cy, effect_id, opts, legacy_angle)
         lifetime_offset = (love.math.random() * 2 - 1) * jitter
     end
 
+    local frame_end = effect.end_frame or 1
+    if effect.sheet_id and not effect.image_path then
+        frame_end = effect.end_frame or loadSheet(effect.sheet_id).cols
+    end
+
     active[#active + 1] = {
         x = cx,
         y = cy,
@@ -184,12 +215,14 @@ function ImpactFX.spawn(cx, cy, effect_id, opts, legacy_angle)
         flip_y = options.flip_y and -1 or 1,
         tint = options.tint,
         frame_start = effect.start_frame or 1,
-        frame_end = effect.end_frame or loadSheet(effect.sheet_id).cols,
+        frame_end = frame_end,
         blend_mode = effect.blend_mode or DEFAULT_BLEND_MODE,
         alpha_mode = effect.alpha_mode or DEFAULT_ALPHA_MODE,
         sheet_id = effect.sheet_id,
         rotation_mode = effect.rotation_mode,
         lifetime_offset = lifetime_offset,
+        origin_x_frac = effect.origin_x_frac,
+        origin_y_frac = effect.origin_y_frac,
     }
 end
 
@@ -227,36 +260,68 @@ function ImpactFX.draw()
     local currentAlphaMode = nil
 
     for _, fx in ipairs(active) do
-        local sheet = loadSheet(fx.sheet_id)
-        local q = sheet.quads[ImpactFX.getDefinition(fx.effect_id).row]
-            and sheet.quads[ImpactFX.getDefinition(fx.effect_id).row][fx.frame]
-        if q then
+        local def = ImpactFX.getDefinition(fx.effect_id)
+        if def.image_path then
+            local img = loadStandaloneImage(def.image_path)
+            local iw, ih = img:getDimensions()
+            local oxf = fx.origin_x_frac ~= nil and fx.origin_x_frac or (def.origin_x_frac or 0.5)
+            local oyf = fx.origin_y_frac ~= nil and fx.origin_y_frac or (def.origin_y_frac or 0.5)
+            local ox = iw * oxf
+            local oy = ih * oyf
             if currentBlendMode ~= fx.blend_mode or currentAlphaMode ~= fx.alpha_mode then
                 love.graphics.setBlendMode(fx.blend_mode, fx.alpha_mode)
                 currentBlendMode = fx.blend_mode
                 currentAlphaMode = fx.alpha_mode
             end
-
             local tint = fx.tint
             if tint then
                 love.graphics.setColor(tint[1] or 1, tint[2] or 1, tint[3] or 1, (tint[4] or 1) * vfxMul)
             else
                 love.graphics.setColor(1, 1, 1, vfxMul)
             end
-
             local sx = fx.scale * fx.flip_x
             local sy = fx.scale * fx.flip_y
             love.graphics.draw(
-                sheet.image,
-                q,
+                img,
                 fx.x,
                 fx.y,
                 fx.rotation_mode == "follow_angle" and fx.angle or 0,
                 sx,
                 sy,
-                sheet.frame_size / 2,
-                sheet.frame_size / 2
+                ox,
+                oy
             )
+        else
+            local sheet = loadSheet(fx.sheet_id)
+            local q = sheet.quads[def.row] and sheet.quads[def.row][fx.frame]
+            if q then
+                if currentBlendMode ~= fx.blend_mode or currentAlphaMode ~= fx.alpha_mode then
+                    love.graphics.setBlendMode(fx.blend_mode, fx.alpha_mode)
+                    currentBlendMode = fx.blend_mode
+                    currentAlphaMode = fx.alpha_mode
+                end
+
+                local tint = fx.tint
+                if tint then
+                    love.graphics.setColor(tint[1] or 1, tint[2] or 1, tint[3] or 1, (tint[4] or 1) * vfxMul)
+                else
+                    love.graphics.setColor(1, 1, 1, vfxMul)
+                end
+
+                local sx = fx.scale * fx.flip_x
+                local sy = fx.scale * fx.flip_y
+                love.graphics.draw(
+                    sheet.image,
+                    q,
+                    fx.x,
+                    fx.y,
+                    fx.rotation_mode == "follow_angle" and fx.angle or 0,
+                    sx,
+                    sy,
+                    sheet.frame_size / 2,
+                    sheet.frame_size / 2
+                )
+            end
         end
     end
 

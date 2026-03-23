@@ -1,9 +1,15 @@
 local Guns = {}
 local GameRng = require("src.systems.game_rng")
 
--- All gun definitions.  Each weapon's baseStats REPLACE the player's default
--- gun stats when the weapon is active.  Perk bonuses are applied on top via
--- the delta approach in player:getEffectiveStats().
+-- Overlay guns: heldHandOffset (pixels, x mirrors when facing left) + spriteOrigin tune the grip.
+-- Held sprites rotate with body + getHeadGunTilt (see Player:getHeldGunDrawAngle), not raw cursor aim.
+-- Cowboy strips still bake a small revolver; use drawHeldGunSprite only when you accept overlap until unarmed body art exists.
+--
+-- Gun definitions: baseStats feed StatRuntime with a revolver-anchored delta
+-- merge for core weapon stats (damage, mag, reload, speed, spread, crit, ROF, …).
+-- rateOfFire is shots per second (default player baseline 1). StatRuntime derives
+-- shoot_cooldown as 1 / rate_of_fire. inaccuracy overrides when set on the gun.
+-- See docs/player_weapon_stat_resolution.md.
 
 -- Weapon sprite directory
 local WEAPON_SPRITE_DIR = "assets/weapons/Weapons/"
@@ -28,7 +34,7 @@ Guns.pool = {
     ---------------------------------------------------------------------------
     {
         id          = "revolver",
-        name        = "Revolver",
+        name        = "Colt .45",
         rarity      = "common",
         dropWeight  = 0,            -- 0 = starter only
         ammoType    = "cylinder",   -- HUD render style
@@ -37,10 +43,16 @@ Guns.pool = {
         tags = { "attack:projectile", "weapon:revolver" },
         capabilities = {},
         rules = {},
-        sprite      = "ColtSingleActionArmy.png",
-        -- Sprite origin: fraction of 32x32 where the grip is (for rotation pivot)
-        spriteOrigin = { x = 0.25, y = 0.55 },
-        spriteScale  = 0.65,
+        -- Commission art: assets/weapons/guns/.../Revolver - Colt 45 [64x32].png → Weapons/Colt45.png
+        sprite      = "Colt45.png",
+        spriteOrigin = { x = 0.36, y = 0.52 },
+        spriteScale  = 0.58,
+        heldHandOffset = { x = 11, y = -1 },
+        drawHeldGunSprite = true,
+        muzzle_fx_id = "muzzle_colt45",
+        muzzle_tip = 15,
+        shoot_sfx_id = "shoot_revolver",
+        shoot_sfx_opts = { volume = 1.2 },
         baseStats   = {
             cylinderSize  = 6,
             reloadSpeed   = 1.2,
@@ -48,7 +60,9 @@ Guns.pool = {
             bulletDamage  = 10,
             bulletCount   = 1,
             spreadAngle   = 0,
-            shootCooldown = 0.38,
+            critChance    = 0,
+            critDamage    = 1.5,
+            rateOfFire    = 1 / 0.38,
             inaccuracy    = 0,
         },
     },
@@ -73,6 +87,7 @@ Guns.pool = {
         sprite      = "Blunderbuss.png",
         spriteOrigin = { x = 0.3, y = 0.55 },
         spriteScale  = 0.75,
+        heldHandOffset = { x = 14, y = -2 },
         baseStats   = {
             cylinderSize  = 2,
             reloadSpeed   = 1.8,
@@ -80,7 +95,9 @@ Guns.pool = {
             bulletDamage  = 6,
             bulletCount   = 5,
             spreadAngle   = 0.45,
-            shootCooldown = 0.70,
+            critChance    = 0.04,
+            critDamage    = 1.48,
+            rateOfFire    = 1 / 0.70,
             inaccuracy    = 0,
         },
         ---@param player table
@@ -114,6 +131,7 @@ Guns.pool = {
         sprite      = "AK47.png",
         spriteOrigin = { x = 0.22, y = 0.50 },
         spriteScale  = 0.72,
+        heldHandOffset = { x = 13, y = -1 },
         baseStats   = {
             cylinderSize  = 30,
             reloadSpeed   = 2.0,
@@ -121,7 +139,9 @@ Guns.pool = {
             bulletDamage  = 5,
             bulletCount   = 1,
             spreadAngle   = 0,
-            shootCooldown = 0.10,
+            critChance    = 0.02,
+            critDamage    = 1.45,
+            rateOfFire    = 10,
             inaccuracy    = 0.08,
         },
     },

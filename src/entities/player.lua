@@ -75,6 +75,9 @@ local PLAYER_BASE_GUN_STATS = {
     bulletDamage  = 10,
     bulletCount   = 1,
     spreadAngle   = 0,
+    critChance    = 0,
+    critDamage    = 1.5,
+    rateOfFire    = 1,
 }
 
 -- Face sprite toward horizontal aim; small deadzone only when aim is ~through torso
@@ -105,7 +108,10 @@ local STAT_RUNTIME_COMPARE_KEYS = {
     "blockReduction",
     "blockMobility",
     "shootCooldown",
+    "rateOfFire",
     "inaccuracy",
+    "critChance",
+    "critDamage",
 }
 
 local function angleWrapPi(a)
@@ -152,6 +158,43 @@ local function compareStatRuntime(player, gun, live_stats)
     end
 end
 
+--- Fresh default `stats` table for a new run (also used by dev rebuild-perks).
+local function defaultRunStats()
+    return {
+        maxHP = 100,
+        moveSpeed = 200,
+        jumpForce = JUMP_FORCE,
+        damageMultiplier = 1.0,
+        armor = 0,
+        luck = 0,
+        pickupRadius = 20,
+        reloadSpeed = 1.2,
+        cylinderSize = 6,
+        bulletSpeed = 720,
+        bulletDamage = 10,
+        bulletCount = 1,
+        spreadAngle = 0,
+        critChance = 0,
+        critDamage = 1.5,
+        rateOfFire = 1,
+        lifestealOnKill = 0,
+        ricochetCount = 0,
+        explosiveRounds = false,
+        deadEye = false,
+        akimbo = false,
+        meleeDamage = 0,
+        meleeRange = 0,
+        meleeCooldown = 0,
+        meleeKnockback = 0,
+        blockReduction = 0,
+        blockMobility = 0,
+    }
+end
+
+function Player.newRunBaseStatsCopy()
+    return defaultRunStats()
+end
+
 function Player.new(x, y)
     local self = setmetatable({}, Player)
     self.actorId = "player"
@@ -173,36 +216,7 @@ function Player.new(x, y)
     self.dashDir = 1
     self.combatDisabled = false
 
-    self.stats = {
-        maxHP = 100,
-        moveSpeed = 200,
-        jumpForce = JUMP_FORCE,
-        damageMultiplier = 1.0,
-        armor = 0,
-        luck = 0,
-        -- Distance at which pickups on the ground start moving toward the player
-        pickupRadius = 20,
-        reloadSpeed = 1.2,
-        cylinderSize = 6,
-        bulletSpeed = 720,
-        bulletDamage = 10,
-        bulletCount = 1,
-        spreadAngle = 0,
-        lifestealOnKill = 0,
-        ricochetCount = 0,
-        explosiveRounds = false,
-        deadEye = false,
-        akimbo = false,
-        -- Melee
-        meleeDamage    = 0,
-        meleeRange     = 0,
-        meleeCooldown  = 0,
-        meleeKnockback = 0,
-        -- Shield / blocking
-        blockReduction = 0,
-        -- >0 = can move / jump / dash while blocking (upgrades); 0 = Smash-style rooted shield
-        blockMobility = 0,
-    }
+    self.stats = defaultRunStats()
 
     self.baseGunStats = PLAYER_BASE_GUN_STATS
     self.hp = self.stats.maxHP
@@ -739,11 +753,16 @@ function Player:shootFromSlot(slotIndex, mx, my)
     if not self:isAkimbo() then
         self.anim:play("shoot", true)
     end
-    Sfx.play("shoot")
+    if fired.shoot_sfx_id then
+        Sfx.play(fired.shoot_sfx_id, fired.shoot_sfx_opts)
+    else
+        Sfx.play("shoot")
+    end
     if fired.muzzle_fx_id then
         local cx = self.x + self.w * 0.5
         local cy = self.y + self.h * 0.5
-        local tip = fired.weapon_def and fired.weapon_def.id == "blunderbuss" and 24 or 18
+        local wd = fired.weapon_def
+        local tip = wd and (wd.muzzle_tip or (wd.id == "blunderbuss" and 24 or 18)) or 18
         ImpactFX.spawn(
             cx + math.cos(fired.angle) * tip,
             cy + math.sin(fired.angle) * tip,
@@ -802,6 +821,35 @@ function Player:getHeadGunTilt()
     local bodyAng = self.facingRight and 0 or math.pi
     local rel = angleDiff(worldAim, bodyAng)
     return math.max(-MAX_HEAD_TURN, math.min(MAX_HEAD_TURN, rel))
+end
+
+--- World rotation for held weapon sprites: body facing + clamped aim tilt (matches cowboy strip intent).
+function Player:getHeldGunDrawAngle()
+    local bodyAng = self.facingRight and 0 or math.pi
+    return bodyAng + self:getHeadGunTilt()
+end
+
+--- Chest-relative hand anchor for overlay guns (pixels; x mirrors when facing left).
+local function heldGunHandWorldPos(player, gun, yOff)
+    local cx = player.x + player.w * 0.5
+    local visMul = math.max(1, Animator.PLAYER_VISUAL_SCALE_MUL or 1)
+    -- Nudge hand up when body draw is scaled up (feet stay on hitbox floor).
+    local chestY = player.y + player.h * 0.42 - player.h * 0.38 * (visMul - 1) + (yOff or 0)
+    local off = (gun and gun.heldHandOffset) or { x = 9, y = -1 }
+    local lx = player.facingRight and off.x or -off.x
+    local ly = off.y or 0
+    local sdx, sdy = 0, 0
+    local anim = player.anim
+    if anim then
+        if anim.current == "shoot" then
+            local f = anim.frame or 1
+            local extend = (f >= 2 and f <= 4) and 5 or (f >= 5 and 2 or 0)
+            sdx = player.facingRight and extend or -extend
+        elseif anim.current == "holster" or anim.current == "holster_spin" then
+            sdx = player.facingRight and -3 or 3
+        end
+    end
+    return cx + lx + sdx, chestY + ly + sdy
 end
 
 --- Aim direction for melee when not locked into a swing (mouse world aim, else facing).
@@ -1128,6 +1176,22 @@ function Player:applyPerk(perk)
     self:syncLegacyWeaponViews()
 end
 
+--- Dev: reset `stats` to run base, then re-apply perks in order (no unapply hooks on perks).
+function Player:rebuildPerksFromIds(orderedIds)
+    local Progression = require("src.systems.progression")
+    local Perks = require("src.data.perks")
+    self.stats = Player.newRunBaseStatsCopy()
+    self.perks = {}
+    for _, pid in ipairs(orderedIds or {}) do
+        local perk = Perks.getById(pid)
+        if perk then
+            Progression.applyPerk(self, perk)
+        end
+    end
+    self.hp = math.max(1, math.min(self.hp, self.stats.maxHP))
+    self:syncLegacyWeaponViews()
+end
+
 --- Save active slot state from live fields, then restore the target slot.
 --- Always toggles 1 <-> 2 so Tab can highlight which slot a ground weapon will replace
 --- (including when slot 2 is empty / melee).
@@ -1284,12 +1348,10 @@ function Player:draw()
 
         -- Weapon sprite overlay (gun — hidden during melee swing so equipped dagger reads clearly)
         if self.meleeSwingTimer <= 0 then
-            local aimAngle = self:getAimAngle()
-            local handX = cx + (self.facingRight and 2 or -2)
-            local baseHandY = self.y + self.h * 0.42
-
             local function drawGunSprite(gun, yOff)
-                if gun.id == "revolver" then return end  -- cowboy animation already has a revolver
+                if gun.id == "revolver" and not gun.drawHeldGunSprite then
+                    return -- default: cowboy anim includes a revolver; Colt commission uses drawHeldGunSprite
+                end
                 local sprite = Guns.getSprite(gun)
                 if not sprite then return end
                 local scale = gun.spriteScale or 0.7
@@ -1299,8 +1361,10 @@ function Player:draw()
                 local oy = sh * origin.y
                 local sy = scale
                 if not self.facingRight then sy = -scale end
+                local drawAng = gun.useFullAimForHeldSprite and self:getAimAngle() or self:getHeldGunDrawAngle()
+                local gx, gy = heldGunHandWorldPos(self, gun, yOff)
                 love.graphics.setColor(1, 1, 1, 1)
-                love.graphics.draw(sprite, handX, baseHandY + yOff, aimAngle, scale, sy, ox, oy)
+                love.graphics.draw(sprite, gx, gy, drawAng, scale, sy, ox, oy)
             end
 
             if self:isAkimbo() then

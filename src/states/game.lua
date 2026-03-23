@@ -13,6 +13,8 @@ local RoomManager = require("src.systems.room_manager")
 local HUD    = require("src.ui.hud")
 local DevLog = require("src.ui.devlog")
 local DevPanel = require("src.ui.dev_panel")
+local DevLayout = require("src.ui.dev_layout")
+local Perks = require("src.data.perks")
 local DamageNumbers = require("src.ui.damage_numbers")
 local Font = require("src.ui.font")
 local Cursor = require("src.ui.cursor")
@@ -280,8 +282,16 @@ local function defaultDevNpcSpawn()
     }
 end
 
+local function devLayoutOpts()
+    return {
+        devPanelOpen = devPanelState.open,
+        characterSheetOpen = characterSheetOpen,
+        debugOverlay = DEBUG,
+    }
+end
+
 local function getDevPanelLayout()
-    return DevPanel.panelRect(GAME_WIDTH, GAME_HEIGHT)
+    return DevLayout.devPanelRect(GAME_WIDTH, GAME_HEIGHT, devLayoutOpts())
 end
 
 local function pointInRect(x, y, rx, ry, rw, rh)
@@ -289,12 +299,8 @@ local function pointInRect(x, y, rx, ry, rw, rh)
 end
 
 local function getDebugConsoleLayout()
-    local panelX = GAME_WIDTH - 260
-    local consoleGap = 12
-    local consoleH = 240
-    local consoleW = math.min(720, math.max(420, panelX - 24))
-    local consoleX = math.max(12, panelX - consoleW - consoleGap)
-    return consoleX, 60, consoleW, consoleH
+    local cx, cy, cw, ch = DevLayout.debugConsoleRect(GAME_WIDTH, GAME_HEIGHT, devLayoutOpts())
+    return cx, cy, cw, ch
 end
 
 local function currentDevSpawnCount()
@@ -1106,11 +1112,13 @@ local function pauseGoToMainMenu()
     Gamestate.switch(menu)
 end
 
-local function drawCharacterSheet()
+local function drawCharacterSheet(sheetX, sheetY, sheetW, sheetH)
     if not player then return end
     local pad = 14
-    local w, h = 332, 452
-    local x, y = 18, 56
+    local w = sheetW or 332
+    local h = sheetH or 452
+    local x = sheetX or 18
+    local y = sheetY or 56
     love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
     love.graphics.rectangle("fill", x, y, w, h, 8, 8)
     love.graphics.setColor(0.85, 0.65, 0.35, 0.9)
@@ -1300,6 +1308,33 @@ local function queueRunRecap(outcome, source)
     }
 end
 
+local function devOwnedPerksRows()
+    local out = {}
+    for _, pid in ipairs(player and player.perks or {}) do
+        local def = Perks.getById(pid)
+        out[#out + 1] = { id = pid, label = def and def.name or pid }
+    end
+    return out
+end
+
+local function devWeaponSummaryLine()
+    if not player then
+        return ""
+    end
+    local w = player.weapons
+    local function slotLabel(i)
+        local s = w and w[i]
+        local g = s and s.gun
+        return g and g.name or "Melee"
+    end
+    return string.format(
+        "S1: %s | S2: %s | active %d",
+        slotLabel(1),
+        slotLabel(2),
+        player.activeWeaponSlot or 1
+    )
+end
+
 devRebuildPanelRows = function()
     if game._runtime and game._runtime.devRewardLab then
         game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
@@ -1316,6 +1351,8 @@ devRebuildPanelRows = function()
         nightOverride = roomManager and roomManager.nightVisualsOverride,
         bossFightActive = currentRoom and currentRoom.bossFight,
         inDevArena = devArenaMode,
+        ownedPerks = devOwnedPerksRows(),
+        weaponSummary = devWeaponSummaryLine(),
         sections = devPanelState.sections,
         npc = {
             peaceful = devNpcSpawn and devNpcSpawn.peaceful,
@@ -1370,7 +1407,6 @@ local function openDevPanel()
     end
     devPanelState.open = true
     devPanelState.pauseGameplay = false
-    characterSheetOpen = false
     devPanelState.scroll = 0
     devPanelState.hover = nil
     devRebuildPanelRows()
@@ -1395,6 +1431,8 @@ local function devApplyAction(id)
     r.devShowHitboxes = devShowHitboxes
     r.gameRef = game
     r.devRewardLab = game._runtime.devRewardLab
+    r.devRebuildPanelRows = devRebuildPanelRows
+    r.devClampScroll = devClampScroll
     GameDevApply.apply(id, r)
     doorOpen = r.doorOpen
     characterSheetOpen = r.characterSheetOpen
@@ -1985,7 +2023,8 @@ function game:update(dt)
                     table.insert(bullets, b)
                 end
                 local gun = gunForShake
-                local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+                local rof = gun and gun.baseStats.rateOfFire or 1
+                local cooldown = 1 / (type(rof) == "number" and rof > 0 and rof or 1)
                 local shakeMult = math.min(1, cooldown / 0.38)
                 shakeTimer = 0.08
                 shakeIntensity = 2 * shakeMult
@@ -2535,7 +2574,8 @@ function game:mousepressed(x, y, button)
                         table.insert(bullets, b)
                     end
                     local gun = player:getActiveGun()
-                    local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+                    local rof = gun and gun.baseStats.rateOfFire or 1
+                    local cooldown = 1 / (type(rof) == "number" and rof > 0 and rof or 1)
                     local shakeMult = math.min(1, cooldown / 0.38)
                     shakeTimer = 0.08
                     shakeIntensity = 2 * shakeMult
@@ -2936,9 +2976,12 @@ function game:draw()
         end
 
         if characterSheetOpen and not paused then
-            love.graphics.setColor(0, 0, 0, 0.35)
+            local L = DevLayout.compute(GAME_WIDTH, GAME_HEIGHT, devLayoutOpts())
+            local ch = L.character
+            local dimA = (devToolsEnabled() and devPanelState.open) and 0.12 or 0.35
+            love.graphics.setColor(0, 0, 0, dimA)
             love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
-            drawCharacterSheet()
+            drawCharacterSheet(ch.x, ch.y, ch.w, ch.h)
         end
 
         if paused then
@@ -3021,7 +3064,7 @@ function game:draw()
         love.graphics.printf("ESC to cancel · Enemies ready", 0, GAME_HEIGHT * 0.88, GAME_WIDTH, "center")
     end
 
-    -- Debug overlay (F1)
+    -- DEBUG build: stats column + DevLog (layout shares space with dev panel / character sheet)
     if DEBUG then
         local es = player:getEffectiveStats()
         if not game.debugFont then
@@ -3041,11 +3084,11 @@ function game:draw()
         local cylinderSize = es.cylinderSize or 0
         local luck = es.luck or 0
 
-        -- Stats panel (right side)
-        local panelX = GAME_WIDTH - 260
-        local py = 60
+        local dbgL = DevLayout.compute(GAME_WIDTH, GAME_HEIGHT, devLayoutOpts())
+        local panelX = dbgL.debugStats.textX
+        local py = dbgL.debugStats.y
         love.graphics.setColor(0, 0, 0, 0.7)
-        love.graphics.rectangle("fill", panelX - 5, py - 5, 255, 240)
+        love.graphics.rectangle("fill", dbgL.debugStats.blockX, py - 5, dbgL.debugStats.blockW, 240)
         love.graphics.setColor(0, 1, 0)
         love.graphics.print("-- EFFECTIVE STATS --", panelX, py)
         py = py + 16
@@ -3076,8 +3119,7 @@ function game:draw()
         end
         py = py + 20
 
-        -- Dev log: wide console to the left of the stat panel.
-        local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+        local consoleX, consoleY, consoleW, consoleH = dbgL.debugConsole.x, dbgL.debugConsole.y, dbgL.debugConsole.w, dbgL.debugConsole.h
         DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
     end
 

@@ -69,6 +69,39 @@ local function resolvePerkTokens(item)
     return tokens
 end
 
+local function formatRateOfFire(value)
+    if type(value) ~= "number" then
+        return "?"
+    end
+    local rounded = math.floor(value * 100 + 0.5) / 100
+    if rounded == math.floor(rounded) then
+        return tostring(math.floor(rounded))
+    end
+    return string.format("%.2f", rounded):gsub("0+$", ""):gsub("%.$", "")
+end
+
+local function formatShotIntervalSeconds(cd)
+    if type(cd) ~= "number" or cd <= 0 then
+        return "?"
+    end
+    local r = math.floor(cd * 1000 + 0.5) / 1000
+    if r == math.floor(r) then
+        return tostring(math.floor(r))
+    end
+    return string.format("%.3f", r):gsub("0+$", ""):gsub("%.$", "")
+end
+
+local function formatCritDamageMult(value)
+    if type(value) ~= "number" then
+        return "?"
+    end
+    local rounded = math.floor(value * 100 + 0.5) / 100
+    if rounded == math.floor(rounded) then
+        return tostring(math.floor(rounded))
+    end
+    return string.format("%.2f", rounded):gsub("0+$", ""):gsub("%.$", "")
+end
+
 local function resolveGunTokens(item)
     local tokens = shallowCopy(item.tooltip_tokens)
     local stats = item.baseStats or {}
@@ -77,7 +110,26 @@ local function resolveGunTokens(item)
     tokens.bullet_damage = tokens.bullet_damage or stats.bulletDamage
     tokens.bullet_count = tokens.bullet_count or stats.bulletCount
     tokens.spread_angle = tokens.spread_angle or stats.spreadAngle
-    tokens.shoot_cooldown = tokens.shoot_cooldown or stats.shootCooldown
+    local rof = stats.rateOfFire
+    if type(rof) ~= "number" or rof <= 0 then
+        if type(stats.shootCooldown) == "number" and stats.shootCooldown > 0 then
+            rof = 1 / stats.shootCooldown
+        else
+            rof = 1
+        end
+    end
+    tokens.rate_of_fire = tokens.rate_of_fire or formatRateOfFire(rof)
+    if tokens.shoot_cooldown == nil then
+        if type(stats.shootCooldown) == "number" and stats.shootCooldown > 0 then
+            tokens.shoot_cooldown = formatShotIntervalSeconds(stats.shootCooldown)
+        else
+            tokens.shoot_cooldown = formatShotIntervalSeconds(1 / rof)
+        end
+    end
+    tokens.crit_chance_pct = tokens.crit_chance_pct
+        or math.floor((stats.critChance or 0) * 100 + 0.5)
+    tokens.crit_damage_mult = tokens.crit_damage_mult
+        or formatCritDamageMult(stats.critDamage ~= nil and stats.critDamage or 1.5)
     return tokens
 end
 

@@ -176,11 +176,14 @@ local function getExplosionSpec(tier)
 end
 
 local function getMuzzleFxId(ctx)
-    if not (ctx.stats and ctx.stats.explosiveRounds) then
+    if ctx.stats and ctx.stats.explosiveRounds then
+        if ctx.gun and ctx.gun.id == "blunderbuss" then
+            return "muzzle_explosive_shotgun"
+        end
         return nil
     end
-    if ctx.gun and ctx.gun.id == "blunderbuss" then
-        return "muzzle_explosive_shotgun"
+    if ctx.gun and ctx.gun.muzzle_fx_id then
+        return ctx.gun.muzzle_fx_id
     end
     return nil
 end
@@ -626,6 +629,8 @@ function WeaponRuntime.fireSlot(player, slot_index, aim_x, aim_y)
         resolved_stats = resolved,
         muzzle_fx_id = bullets[1] and bullets[1].muzzle_fx_id or nil,
         explosion_tier = bullets[1] and bullets[1].explosion_tier or nil,
+        shoot_sfx_id = gun.shoot_sfx_id,
+        shoot_sfx_opts = gun.shoot_sfx_opts,
     }
 end
 

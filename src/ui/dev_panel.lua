@@ -143,7 +143,13 @@ function DevPanel.buildRows(args)
     end
 
     if addSection("weapons", "Weapons") then
-        rows[#rows + 1] = rowInfo("Click to equip a weapon immediately.")
+        if args.weaponSummary and args.weaponSummary ~= "" then
+            rows[#rows + 1] = rowInfo("Loadout: " .. args.weaponSummary)
+        end
+        rows[#rows + 1] = rowAction("weapon_clear_slot:1", "Clear slot 1 (melee)")
+        rows[#rows + 1] = rowAction("weapon_clear_slot:2", "Clear slot 2 (melee)")
+        rows[#rows + 1] = rowAction("weapon_clear_both", "Clear both slots (melee)")
+        rows[#rows + 1] = rowInfo("Click to equip into the active slot.")
         for _, gun in ipairs(Guns.pool) do
             local rarity = gun.rarity and (" [" .. gun.rarity .. "]") or ""
             rows[#rows + 1] = rowAction("gun:" .. gun.id, gun.name .. rarity)
@@ -151,7 +157,18 @@ function DevPanel.buildRows(args)
     end
 
     if addSection("perks", "Perks") then
-        rows[#rows + 1] = rowInfo("Click to add a perk to the player.")
+        local owned = args.ownedPerks or {}
+        if #owned > 0 then
+            rows[#rows + 1] = rowInfo("Owned — click to remove one perk.")
+            for _, o in ipairs(owned) do
+                rows[#rows + 1] = rowAction(
+                    "perk_remove:" .. o.id,
+                    "Remove: " .. tostring(o.label or o.id) .. "  [" .. tostring(o.id) .. "]"
+                )
+            end
+            rows[#rows + 1] = rowAction("perk_clear_all", "Remove ALL perks (rebuild stats)")
+        end
+        rows[#rows + 1] = rowInfo("Click to add a perk from the pool.")
         for _, perk in ipairs(Perks.pool) do
             rows[#rows + 1] = rowAction("perk:" .. perk.id, perk.name .. "  [" .. perk.id .. "]")
         end

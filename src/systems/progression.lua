@@ -15,6 +15,12 @@ function Progression.applyPerk(player, perk)
     player:applyPerk(perk)
 end
 
+function Progression.rebuildPerksFromIds(player, orderedIds)
+    if player and player.rebuildPerksFromIds then
+        player:rebuildPerksFromIds(orderedIds)
+    end
+end
+
 function Progression.getXPProgress(player)
     return player.xp / player.xpToNext
 end

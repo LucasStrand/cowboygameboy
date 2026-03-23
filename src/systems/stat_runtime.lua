@@ -155,6 +155,9 @@ function StatRuntime.compute_actor_stats(ctx)
             projectile_damage = true,
             projectile_count = true,
             spread_angle = true,
+            crit_chance = true,
+            crit_damage = true,
+            rate_of_fire = true,
         }
         for stat_id in pairs(overridden) do
             local gun_value = gun_stats[stat_id]
@@ -167,16 +170,22 @@ function StatRuntime.compute_actor_stats(ctx)
                 applyTrace(trace, "active_gun", stat_id, before, stats[stat_id], "override", gun_value + delta)
             end
         end
-        if gun_stats.shoot_cooldown ~= nil then
-            local before = stats.shoot_cooldown
-            stats.shoot_cooldown = applyClampAndRounding("shoot_cooldown", gun_stats.shoot_cooldown)
-            applyTrace(trace, "active_gun", "shoot_cooldown", before, stats.shoot_cooldown, "override", gun_stats.shoot_cooldown)
-        end
         if gun_stats.inaccuracy ~= nil then
             local before = stats.inaccuracy
             stats.inaccuracy = applyClampAndRounding("inaccuracy", gun_stats.inaccuracy)
             applyTrace(trace, "active_gun", "inaccuracy", before, stats.inaccuracy, "override", gun_stats.inaccuracy)
         end
+    end
+
+    do
+        local rof = stats.rate_of_fire
+        if type(rof) ~= "number" or rof <= 0 then
+            rof = 1
+        end
+        local cd = 1 / rof
+        local before = stats.shoot_cooldown
+        stats.shoot_cooldown = applyClampAndRounding("shoot_cooldown", cd)
+        applyTrace(trace, "rate_of_fire", "shoot_cooldown", before, stats.shoot_cooldown, "override", cd)
     end
 
     if ctx.monster_move_bonus and ctx.monster_move_bonus ~= 0 then

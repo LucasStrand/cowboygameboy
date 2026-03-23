@@ -14,14 +14,16 @@ Phase 10 regression (metadata/recap/persist/export seams): `love . --phase10-reg
 
 Phase 10 dev: metadata snapshot + stress sample workflow — [docs/phases/phase_10_hardening.md](docs/phases/phase_10_hardening.md).
 
-Phase 11 regression (actor defense, attack profiles, enemy proc path): `love . --phase11-actor-regression`
+Phase 11 regression (actor defense, attack profiles, enemy proc path, weapon crit merge): `love . --phase11-actor-regression`
 
 On Windows you can also drag the repo folder onto `love.exe`.
 
 ## Debug and Development Tools
 
-- `F1` toggles the gameplay debug overlay.
-- `F2` opens the in-run dev panel when debug tools are enabled.
+- Dev tools are active when the game is built with `DEBUG` or when `DEV_TOOLS_ENABLED` is set for the run.
+- **Game / dev arena:** `F1` opens or closes the dev panel. If `DEBUG` is true, the green effective-stats column and DevLog console are drawn as well (layout shares the screen with the dev panel and the character sheet).
+- **Saloon:** `F2` opens or closes the dev panel (same dev tools flag).
+- **Character sheet:** toggle via the `character` keybind (default **`C`**, rebindable in Settings). It can stay open next to the dev panel; layout places them side by side.
 - The main menu exposes `World Editor` and `Dev arena`.
 
 ## State Flow

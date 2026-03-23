@@ -46,17 +46,21 @@ TooltipTemplates.lines = {
     gun_revolver = {
         "Balanced sidearm with a {cylinder_size}-shot cylinder.",
         "Fires {bullet_count} projectile per shot for {bullet_damage} base damage.",
-        "Reloads in {reload_speed}s with a {shoot_cooldown}s fire cadence.",
+        "Fire rate {rate_of_fire}/s (~{shoot_cooldown}s between shots); reloads in {reload_speed}s.",
+        "{crit_chance_pct}% crit chance; {crit_damage_mult}x damage on crit.",
     },
     gun_blunderbuss = {
         "Double-barrel scattergun with {cylinder_size} loaded shots.",
         "Fires {bullet_count} pellets per blast with {spread_angle} radians of spread.",
+        "Fire rate {rate_of_fire}/s (~{shoot_cooldown}s between shots).",
         "Aiming downward kicks you upward after firing.",
+        "{crit_chance_pct}% crit chance; {crit_damage_mult}x damage on crit.",
     },
     gun_ak47 = {
         "Rapid-fire rifle with a {cylinder_size}-round magazine.",
         "Fires {bullet_count} projectile per shot for {bullet_damage} base damage.",
-        "Shoots every {shoot_cooldown}s and reloads in {reload_speed}s.",
+        "Fire rate {rate_of_fire}/s (~{shoot_cooldown}s between shots); reloads in {reload_speed}s.",
+        "{crit_chance_pct}% crit chance; {crit_damage_mult}x damage on crit.",
     },
     gear_cowboy_hat = {
         "Gain {luck_pct}% luck.",

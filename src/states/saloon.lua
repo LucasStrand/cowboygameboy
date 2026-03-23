@@ -17,6 +17,7 @@ local Combat = require("src.systems.combat")
 local DamageNumbers = require("src.ui.damage_numbers")
 local DevLog = require("src.ui.devlog")
 local DevPanel = require("src.ui.dev_panel")
+local DevLayout = require("src.ui.dev_layout")
 local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
 local SettingsPanel = require("src.ui.settings_panel")
@@ -82,7 +83,7 @@ local monster = { img = nil, drunk = false, x = 0, y = 0 }
 local nearbyNPC = nil  -- NPC currently in interact range
 local pickups = {}
 
--- Pause / debug (parity with game state — Esc pause, F2 dev panel, F1 stats when DEBUG)
+-- Pause / debug (Esc pause, F2 dev panel here; game state uses F1. DEBUG adds stats + DevLog.)
 local paused = false
 local pauseMenuView = "main"
 local pauseSelectedIndex = 1
@@ -193,17 +194,21 @@ local function pointInRect(x, y, rx, ry, rw, rh)
     return x >= rx and x <= rx + rw and y >= ry and y <= ry + rh
 end
 
+local function devLayoutOpts()
+    return {
+        devPanelOpen = devPanelOpen,
+        characterSheetOpen = characterSheetOpen,
+        debugOverlay = DEBUG,
+    }
+end
+
 local function getDevPanelLayout()
-    return DevPanel.panelRect(GAME_WIDTH, GAME_HEIGHT)
+    return DevLayout.devPanelRect(GAME_WIDTH, GAME_HEIGHT, devLayoutOpts())
 end
 
 local function getDebugConsoleLayout()
-    local panelX = GAME_WIDTH - 260
-    local consoleGap = 12
-    local consoleH = 240
-    local consoleW = math.min(720, math.max(420, panelX - 24))
-    local consoleX = math.max(12, panelX - consoleW - consoleGap)
-    return consoleX, 60, consoleW, consoleH
+    local cx, cy, cw, ch = DevLayout.debugConsoleRect(GAME_WIDTH, GAME_HEIGHT, devLayoutOpts())
+    return cx, cy, cw, ch
 end
 
 local function devClampScroll()
@@ -223,7 +228,6 @@ local function openDevPanel()
     if not devToolsEnabled() then return end
     devPanelOpen = true
     devPanelPauseGameplay = true
-    characterSheetOpen = false
     devPanelScroll = 0
     devPanelHover = nil
     devPanelRows = DevPanel.buildRows({
@@ -390,11 +394,13 @@ local function saloonDevApplyAction(id)
     end
 end
 
-local function drawCharacterSheet()
+local function drawCharacterSheet(sheetX, sheetY, sheetW, sheetH)
     if not player then return end
     local pad = 14
-    local w, h = 332, 452
-    local x, y = 18, 56
+    local w = sheetW or 332
+    local h = sheetH or 452
+    local x = sheetX or 18
+    local y = sheetY or 56
     love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
     love.graphics.rectangle("fill", x, y, w, h, 8, 8)
     love.graphics.setColor(0.85, 0.65, 0.35, 0.9)
@@ -1651,9 +1657,12 @@ function saloon:draw()
     end
 
     if characterSheetOpen and not paused then
-        love.graphics.setColor(0, 0, 0, 0.35)
+        local L = DevLayout.compute(screenW, screenH, devLayoutOpts())
+        local ch = L.character
+        local dimA = (devToolsEnabled() and devPanelOpen) and 0.12 or 0.35
+        love.graphics.setColor(0, 0, 0, dimA)
         love.graphics.rectangle("fill", 0, 0, screenW, screenH)
-        drawCharacterSheet()
+        drawCharacterSheet(ch.x, ch.y, ch.w, ch.h)
     end
 
     if paused then
@@ -1734,10 +1743,11 @@ function saloon:draw()
         end
         love.graphics.setFont(saloon.debugFont)
 
-        local panelX = screenW - 260
-        local py = 60
+        local dbgL = DevLayout.compute(screenW, screenH, devLayoutOpts())
+        local panelX = dbgL.debugStats.textX
+        local py = dbgL.debugStats.y
         love.graphics.setColor(0, 0, 0, 0.7)
-        love.graphics.rectangle("fill", panelX - 5, py - 5, 255, 240)
+        love.graphics.rectangle("fill", dbgL.debugStats.blockX, py - 5, dbgL.debugStats.blockW, 240)
         love.graphics.setColor(0, 1, 0)
         love.graphics.print("-- EFFECTIVE STATS --", panelX, py)
         py = py + 16
@@ -1767,12 +1777,13 @@ function saloon:draw()
         end
         py = py + 20
 
-        local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
-        DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
+        local c = dbgL.debugConsole
+        DevLog.drawConsole(c.x, c.y, c.w, c.h)
     end
 
     if devToolsEnabled() and devPanelOpen and devPanelRows and player then
-        love.graphics.setColor(0, 0, 0, 0.38)
+        local dimDev = characterSheetOpen and 0.16 or 0.38
+        love.graphics.setColor(0, 0, 0, dimDev)
         love.graphics.rectangle("fill", 0, 0, screenW, screenH)
         if not saloon.devPanelTitleFont then
             saloon.devPanelTitleFont = Font.new(16)

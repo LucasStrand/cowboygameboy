@@ -9,6 +9,7 @@ local RewardRuntime = require("src.systems.reward_runtime")
 local RunMetadata = require("src.systems.run_metadata")
 local MetaRuntime = require("src.systems.meta_runtime")
 local Phase10Telemetry = require("src.systems.phase10_telemetry")
+local WeaponRuntime = require("src.systems.weapon_runtime")
 
 local function adminToolsEnabled()
     return DEBUG or DEV_TOOLS_ENABLED
@@ -761,7 +762,40 @@ local function apply(id, ctx)
             local slot = player.activeWeaponSlot
             player:equipWeapon(gunDef, slot)
             DevLog.push("sys", "[dev] equipped " .. gunDef.name .. " to slot " .. slot)
+            devRebuildPanelRows()
+            devClampScroll()
         end
+    elseif id:sub(1, 12) == "perk_remove:" then
+        local pid = id:sub(13)
+        local kept = {}
+        for _, p in ipairs(player.perks or {}) do
+            if p ~= pid then
+                kept[#kept + 1] = p
+            end
+        end
+        player:rebuildPerksFromIds(kept)
+        DevLog.push("sys", "[dev] removed perk " .. pid)
+        devRebuildPanelRows()
+        devClampScroll()
+    elseif id == "perk_clear_all" then
+        player:rebuildPerksFromIds({})
+        DevLog.push("sys", "[dev] cleared all perks")
+        devRebuildPanelRows()
+        devClampScroll()
+    elseif id:sub(1, 18) == "weapon_clear_slot:" then
+        local n = tonumber(id:sub(19))
+        if n == 1 or n == 2 then
+            WeaponRuntime.equipWeapon(player, nil, n)
+            DevLog.push("sys", "[dev] cleared weapon slot " .. tostring(n))
+            devRebuildPanelRows()
+            devClampScroll()
+        end
+    elseif id == "weapon_clear_both" then
+        WeaponRuntime.equipWeapon(player, nil, 1)
+        WeaponRuntime.equipWeapon(player, nil, 2)
+        DevLog.push("sys", "[dev] cleared both weapon slots (melee)")
+        devRebuildPanelRows()
+        devClampScroll()
     elseif id:sub(1, 5) == "perk:" then
         local pid = id:sub(6)
         if devPlayerHasPerk(player, pid) then
@@ -772,6 +806,8 @@ local function apply(id, ctx)
         if perk then
             Progression.applyPerk(player, perk)
             DevLog.push("sys", "[dev] perk " .. pid)
+            devRebuildPanelRows()
+            devClampScroll()
         end
     end
 end

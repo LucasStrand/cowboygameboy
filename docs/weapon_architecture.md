@@ -16,6 +16,11 @@ Tanken är att vapen ska kunna vara:
 
 Det här är extra viktigt eftersom spelet just nu kör med två aktiva vapen, men arkitekturen bör kunna stödja fler slots senare utan att modellen behöver göras om.
 
+## Implementation status (kod kontra detta dokument)
+
+- **Faktisk stat-upplösning** för spelaren sker i `StatRuntime.compute_actor_stats` och följer modellen i [`player_weapon_stat_resolution.md`](player_weapon_stat_resolution.md): delta mot revolver-bas för kärnvapenstats (inkl. `crit_chance` / `crit_damage` och `rate_of_fire`), sedan härleds `shoot_cooldown` som `1 / rate_of_fire`. `inaccuracy` från vapnet **överstyr** utan delta.
+- **Schema nedan** (`base_stats`, `capabilities`, `visuals` m.m.) är delvis **aspirationellt** — dagens `src/data/guns.lua` använder `baseStats`, `sprite`, `attack_profile_id`, `rules`, `onShoot`, m.m. Alla fält i exemplet finns inte nödvändigtvis i Lua-data ännu; använd validatorn och befintliga vapen som källa för vad som är bindande.
+
 ## Översikt
 
 Föreslagen pipeline per attack:

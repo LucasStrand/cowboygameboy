@@ -5,6 +5,8 @@ local SfxData = {}
 
 SfxData.paths = {
     shoot = "SoundPack/Weapons/shot_muffled.wav",
+    --- Snappier single-action pop (Colt starter); from project Retro pack.
+    shoot_revolver = "SoundPack/Retro/explosion_quick.wav",
     reload = "SoundPack/Weapons/weapon_equip_short.wav",
     melee_swing = "SoundPack/Combat and Gore/swipe.wav",
     melee_hit = "SoundPack/Combat and Gore/punch.wav",
@@ -77,6 +79,7 @@ SfxData.paths = {
 --- Optional volume/pitch jitter for high-frequency cues (see src/systems/sfx.lua).
 SfxData.play_variation = {
     shoot = { volume = 0.1, pitch = 0.065 },
+    shoot_revolver = { volume = 0.12, pitch = 0.08 },
     hit_enemy = { volume = 0.11, pitch = 0.075 },
 }
 

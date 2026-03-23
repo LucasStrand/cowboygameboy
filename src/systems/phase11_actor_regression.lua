@@ -1,6 +1,10 @@
--- Headless checks for actor defense seam, attack profiles, enemy proc path (run: love . --phase11-actor-regression)
+-- Headless checks for actor defense seam, attack profiles, enemy proc path,
+-- and weapon stat resolution (run: love . --phase11-actor-regression)
 
 local AttackPacketBuilder = require("src.systems.attack_packet_builder")
+local Guns = require("src.data.guns")
+local Player = require("src.entities.player")
+local WeaponRuntime = require("src.systems.weapon_runtime")
 local CombatEvents = require("src.systems.combat_events")
 local DamagePacket = require("src.systems.damage_packet")
 local DamageResolver = require("src.systems.damage_resolver")
@@ -138,6 +142,27 @@ function M.run()
         if executed[1] then
             expect((executed[1].result.final_damage or 0) >= 2, "proc secondary should apply min_damage")
         end
+    end
+
+    do
+        local p = Player.new(0, 0)
+        local ak = Guns.getById("ak47")
+        local rev = Guns.getById("revolver")
+        local bus = Guns.getById("blunderbuss")
+        local s_ak = WeaponRuntime.getResolvedStatsForGun(p, ak)
+        local s_rev = WeaponRuntime.getResolvedStatsForGun(p, rev)
+        local s_bus = WeaponRuntime.getResolvedStatsForGun(p, bus)
+        expect(s_ak and s_ak.critChance == 0.02 and s_ak.critDamage == 1.45, "ak47 resolved crit from gun baseStats")
+        expect(s_rev and s_rev.critChance == 0 and s_rev.critDamage == 1.5, "revolver baseline crit")
+        expect(s_bus and s_bus.critChance == 0.04 and s_bus.critDamage == 1.48, "blunderbuss resolved crit from gun baseStats")
+        expect(s_rev and s_rev.shootCooldown and math.abs(s_rev.shootCooldown - 0.38) < 1e-4, "revolver shootCooldown from rateOfFire")
+        expect(s_ak and s_ak.shootCooldown and math.abs(s_ak.shootCooldown - 0.10) < 1e-4, "ak47 shootCooldown from rateOfFire")
+        expect(s_bus and s_bus.shootCooldown and math.abs(s_bus.shootCooldown - 0.70) < 1e-4, "blunderbuss shootCooldown from rateOfFire")
+        expect(s_rev and s_rev.rateOfFire and math.abs(s_rev.rateOfFire - (1 / 0.38)) < 1e-4, "revolver resolved rateOfFire")
+
+        p.stats.critDamage = 1.7
+        local s_ak_built = WeaponRuntime.getResolvedStatsForGun(p, ak)
+        expect(s_ak_built and math.abs(s_ak_built.critDamage - 1.65) < 1e-6, "crit_damage delta carries from player.stats when swapping gun")
     end
 
     if #errors > 0 then
