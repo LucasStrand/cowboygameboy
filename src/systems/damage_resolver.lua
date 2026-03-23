@@ -259,7 +259,7 @@ local function rollBaseDamage(packet, source_context, target_id_value)
     return GameRng.randomFloat(channel, minv, maxv)
 end
 
-local function createSecondaryJobs(packet, result, target_actor)
+local function createSecondaryJobs(packet, result, target_actor, source_actor)
     local metadata = packet.metadata or {}
     if not metadata.explosion_radius or packet.kind ~= "direct_hit" or not target_actor then
         return {}
@@ -306,7 +306,7 @@ local function createSecondaryJobs(packet, result, target_actor)
         {
             delay = metadata.explosion_delay or 0,
             packet = secondary_packet,
-            source_actor = nil,
+            source_actor = source_actor,
             target_selector = "enemies_in_radius",
             origin_x = target_actor.x + target_actor.w * 0.5,
             origin_y = target_actor.y + target_actor.h * 0.5,
@@ -438,7 +438,7 @@ function DamageResolver.resolve_packet(spec)
     result.applied = true
     result.final_damage = applied_damage or final_damage
     result.target_killed = killed == true
-    result.secondary_jobs = createSecondaryJobs(packet, result, target_actor)
+    result.secondary_jobs = createSecondaryJobs(packet, result, target_actor, source_actor)
 
     for _, job in ipairs(result.secondary_jobs) do
         DamageResolver.enqueueSecondaryJob(job)

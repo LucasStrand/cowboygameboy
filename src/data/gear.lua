@@ -101,6 +101,15 @@ GearData.pool = {
     },
 }
 
+local _byId = {}
+for _, gear in ipairs(GearData.pool) do
+    _byId[gear.id] = gear
+end
+
+function GearData.getById(id)
+    return _byId[id]
+end
+
 function GearData.getRandomForSlot(slot, maxTier)
     maxTier = maxTier or 3
     local candidates = {}

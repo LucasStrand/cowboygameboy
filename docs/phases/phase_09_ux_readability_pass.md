@@ -8,9 +8,11 @@
 
 ## Status
 
-- Phase 9 is not started.
+- Phase 9 is not started in code.
+- A repo audit confirms the current codebase still stops at the Phase 8 recap/build-summary seams.
 - This document is the kickoff plan and acceptance contract for the first implementation slice.
-- Phase 9 remains blocked until the Phase 8 final acceptance checklist is completed.
+- Phase 8 closeout is complete, so Phase 9 is no longer blocked on recap sanity signoff.
+- Phase 9 remains blocked only by prioritization, not by unresolved Phase 8 truth issues.
 
 ## Start Conditions
 
@@ -23,7 +25,8 @@
   - event-owned proc/status presentation hooks
   - tooltip/content language pipeline
   - reward/build-profile classification
-  - game-over recap seam
+  - cinematic game-over seam plus dedicated recap screen
+  - recap clipboard export and damage-trace seam
 
 ## Kickoff Slice
 
@@ -33,7 +36,7 @@
 - `1.` Death / recap ownership clarity
   - Add last damaging source to the recap path.
   - Add one clear "recent major proc / payoff" line when present.
-  - Keep this derived from canonical runtime metadata, not from transient draw-state.
+  - Use the new Phase 8 damage-trace seam instead of reconstructing causality from transient draw-state.
 
 - `2.` HUD priority baseline
   - Lock Group A as always-visible combat-critical data.
@@ -53,6 +56,7 @@
   - one major payoff/proc summary line
   - first HUD A/B tier split
   - simple build summary exposure
+  - better use of existing export/debug recap seams in player-facing copy
 
 - Out of scope:
   - full HUD redesign
@@ -70,6 +74,7 @@
 - [ ] At least one player-facing surface explains current build identity using tags/summary language.
 - [ ] One reward-facing surface exposes build-matching help that is understandable without opening DevLog.
 - [ ] Existing recap counts from Phase 8 still match canonical metadata after the readability changes.
+- [ ] Clipboard run report and damage trace remain aligned with the recap surface after readability changes.
 
 ## Debug Hooks Required
 
@@ -82,6 +87,7 @@
   - a dump for last damaging source / recap ownership fields
   - a clutter/readability combat preset
   - a temporary HUD tier overlay or equivalent diagnostic view
+  - a recap-side causal-chain preview that can be toggled without leaving the recap screen
 
 ## Telemetry Fields Required
 
@@ -93,12 +99,15 @@
 - `dominant_build_tags`
 - `visible_buff_count`
 - `recap_outcome`
+- `damage_trace_primary_source`
+- `damage_trace_last_event_source`
 
 ## Risks
 
 - The largest risk is letting Phase 9 turn into broad UI polish without locking a first high-signal slice.
 - The second risk is recomputing recap/readability fields from transient runtime state instead of canonical metadata.
 - The third risk is overloading the HUD before Group A / B / C ownership is explicitly chosen.
+- The fourth risk is duplicating Phase 8 export/debug text in multiple player-facing variants instead of picking one canonical wording layer.
 
 ## Exit Conditions
 

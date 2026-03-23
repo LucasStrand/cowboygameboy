@@ -7,6 +7,13 @@
 - Introduce explicit economy roles for current offers.
 - Start capturing real run metadata from run start through reward/shop decisions.
 
+## Status
+
+- Phase 8 is implemented in code.
+- The metadata truth gate is passed.
+- The live normal-death recap sanity pass is complete.
+- Phase 8 is closed and ready to hand off into Phase 9 readability work and Phase 10 hardening prep.
+
 ## Implemented
 
 - New `reward_runtime` canonical owner for:
@@ -48,6 +55,28 @@
   - run-end outcome
   - final build snapshot at recap / death
 - Game over screen now renders a real recap summary from `run_metadata` instead of only flat score stats.
+- Death flow now uses a two-step post-run presentation:
+  - a short cinematic `THE END` screen
+  - a dedicated recap screen with separated panels for overview, combat, build, perks, loadout, and highscores
+- Recap summary now exposes category-level combat breakdown:
+  - total damage dealt
+  - ultimate damage
+  - explosion damage
+  - proc damage
+  - melee damage
+  - family-level buckets for `physical`, `magical`, and `true`
+- Run metadata now captures per-hit damage trace rows for player-originated damage:
+  - amount
+  - source type/id
+  - packet kind
+  - family
+  - target
+  - room/world context
+  - source tags
+- Recap UI now supports clipboard export for:
+  - full run report
+  - raw damage trace
+- Basic run-score persistence now exists for recap-facing highscores.
 - Dev arena/admin tooling now also exposes:
   - meta summary dump to `DevLog`
   - direct open of the recap screen from the current run
@@ -105,6 +134,8 @@
   - checkpoint milestones
   - boss kill milestones
   - run-end recap data
+  - damage breakdown buckets
+  - damage trace rows for recap/export
 - Phase 8 closeout intentionally stops at recap/meta seams.
 - Full persistent unlock progression remains deferred on purpose rather than half-built here.
 
@@ -154,13 +185,14 @@
 - Do not start Phase 9 implementation until every item below is confirmed in live play.
 - If any item fails, Phase 8 returns to open status.
 
-- [ ] Normal death recap renders and the economy / milestone lines are plausible for the run.
+- [x] Normal death recap renders and the economy / milestone lines are plausible for the run.
 - [x] Dev-panel `meta_dump_summary` matches the same run's canonical recap counts.
 - [x] Dev-panel `meta_open_recap` opens the same derived summary surface without mutating totals.
 - [x] One boss run increments `bossesKilled` only after an actual boss death.
 - [x] One non-boss run leaves `bossesKilled` at `0`.
-- [ ] Dominant tags and recent picks / buys stay consistent across raw metadata, DevLog dump, and game-over recap.
-- [ ] If a mismatch is found, Phase 8 roadmap status is reverted before any Phase 9 code starts.
+- [x] Dominant tags and recent picks / buys stay consistent across raw metadata, DevLog dump, and game-over recap.
+- [x] Damage breakdown buckets render on the recap screen and export through the same canonical metadata object.
+- [x] Player-originated damage trace rows can be copied from the recap screen for follow-up debugging.
 
 ### Checklist Audit Notes
 
@@ -169,11 +201,37 @@
 - Boss and non-boss milestone behavior are mechanically verified by the dedicated Phase 8 harness:
   - boss count stays `0` after a normal enemy kill
   - boss count becomes `1` after an actual boss `OnKill`
-- Remaining unchecked items are intentionally still live-play gates, not assumptions.
+- Dominant tags, recent picks, and recent buys are mechanically tied to the same `MetaRuntime.summarize(...)` output that feeds both DevLog and recap formatting.
+- No mismatch was found in this audit; if one is found later, Phase 8 should be reopened before any Phase 9 implementation starts.
+- The former live-play gate is now satisfied by the landed recap pass:
+  - cinematic end screen separated from stats
+  - dedicated recap layout
+  - copied run report
+  - copied damage trace
+  - fixed damage-event subscription order so recap bookkeeping survives `CombatEvents.clear()`
+
+## Closeout Notes
+
+- Phase 8 now owns the canonical post-run truth seam end to end:
+  - `run_metadata` stores raw reward/economy/milestone/combat truth
+  - `meta_runtime` derives recap-facing summary state
+  - post-run UI reads from derived summary state instead of ad hoc runtime fields
+- The live closeout work intentionally stopped before turning into broader Phase 9 polish:
+  - recap layout is clearer and exportable
+  - HUD priority tiers are still not implemented
+  - richer causal language like "last hit source" remains a Phase 9 readability concern
+- Relevant closeout changes landed across:
+  - `src/systems/run_metadata.lua`
+  - `src/systems/meta_runtime.lua`
+  - `src/systems/run_scoreboard.lua`
+  - `src/states/gameover.lua`
+  - `src/states/run_recap.lua`
+  - `src/states/game.lua`
+  - `src/systems/damage_resolver.lua`
 
 ## Still Deferred
 
 - Real persistent meta progression / unlock systems.
 - Broader reward-pool authoring beyond current perks/gear/offers.
 - Cursed economy and refill-role breadth.
-- Save/load serialization and recap export on top of run metadata.
+- Save/load serialization and broader recap export/history beyond the current local score/clipboard seam.

@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file gives current repository guidance for coding agents working in this project.
 

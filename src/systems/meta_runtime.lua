@@ -80,6 +80,24 @@ local function recentChosenNames(run_meta)
     return out
 end
 
+local function cloneDamageBreakdown(breakdown)
+    local out = {
+        melee = 0,
+        ultimate = 0,
+        explosion = 0,
+        proc = 0,
+        physical = 0,
+        magical = 0,
+        true_damage = 0,
+    }
+    for key, value in pairs(breakdown or {}) do
+        if type(value) == "number" then
+            out[key] = value
+        end
+    end
+    return out
+end
+
 function MetaRuntime.summarize(run_meta, fallback)
     fallback = fallback or {}
     if not run_meta then
@@ -92,6 +110,8 @@ function MetaRuntime.summarize(run_meta, fallback)
             goldEarned = 0,
             goldSpent = 0,
             rerollsUsed = 0,
+            totalDamageDealt = 0,
+            damageBreakdown = cloneDamageBreakdown(nil),
             dominantTags = {},
             recentChoices = {},
             recentPurchases = {},
@@ -103,6 +123,7 @@ function MetaRuntime.summarize(run_meta, fallback)
     local milestones = run_meta.milestones or {}
     local checkpoints = milestones.checkpoints or {}
     local bosses = milestones.bosses or {}
+    local combat = run_meta.combat or {}
     local dominant = dominantTagsFromSnapshots(run_meta)
     if #dominant == 0 and latest and latest.build_profile and latest.build_profile.dominant_tags then
         dominant = cloneList(latest.build_profile.dominant_tags)
@@ -122,6 +143,10 @@ function MetaRuntime.summarize(run_meta, fallback)
         goldSpent = run_meta.economy and run_meta.economy.gold_spent or 0,
         rerollsUsed = (run_meta.economy and run_meta.economy.reroll_counts
             and ((run_meta.economy.reroll_counts.levelup or 0) + (run_meta.economy.reroll_counts.shop or 0))) or 0,
+        totalDamageDealt = (combat and combat.total_damage_dealt)
+            or run_end.total_damage_dealt
+            or 0,
+        damageBreakdown = cloneDamageBreakdown((combat and combat.breakdown) or run_end.damage_breakdown),
         dominantTags = dominant,
         latestBuild = latest,
         recentChoices = recentChosenNames(run_meta),
@@ -148,6 +173,14 @@ function MetaRuntime.toDebugLines(summary)
             tonumber(summary.goldSpent or 0) or 0,
             tonumber(summary.rewardChoices or 0) or 0,
             tonumber(summary.shopPurchases or 0) or 0
+        ),
+        string.format(
+            "[meta] damage total=%d ult=%d explosion=%d proc=%d melee=%d",
+            tonumber(summary.totalDamageDealt or 0) or 0,
+            tonumber(summary.damageBreakdown and summary.damageBreakdown.ultimate or 0) or 0,
+            tonumber(summary.damageBreakdown and summary.damageBreakdown.explosion or 0) or 0,
+            tonumber(summary.damageBreakdown and summary.damageBreakdown.proc or 0) or 0,
+            tonumber(summary.damageBreakdown and summary.damageBreakdown.melee or 0) or 0
         ),
     }
     if summary.seed or summary.worldName then
@@ -190,6 +223,13 @@ function MetaRuntime.toRecapLines(summary)
             tonumber(summary.checkpointsReached or 0) or 0,
             tonumber(summary.bossesKilled or 0) or 0,
             tonumber(summary.perksPicked or 0) or 0
+        ),
+        string.format(
+            "Damage: %d total  |  Ult %d  |  Expl %d  |  Proc %d",
+            tonumber(summary.totalDamageDealt or 0) or 0,
+            tonumber(summary.damageBreakdown and summary.damageBreakdown.ultimate or 0) or 0,
+            tonumber(summary.damageBreakdown and summary.damageBreakdown.explosion or 0) or 0,
+            tonumber(summary.damageBreakdown and summary.damageBreakdown.proc or 0) or 0
         ),
     }
     if summary.dominantTags and #summary.dominantTags > 0 then

@@ -190,7 +190,7 @@ Perks.pool = {
         id = "phantom_third",
         name = "Phantom Third",
         description = "Every 3rd hit on the same target triggers a delayed true-damage ping",
-        tooltip_override = "Every 3rd direct hit on the same target triggers a delayed true-damage ping.\nThe payoff snapshots from the triggering hit and does not recurse into more procs.",
+        tooltip_key = "perk_phantom_third",
         presentation_hooks = {
             on_proc = "phantom_third_payoff",
         },

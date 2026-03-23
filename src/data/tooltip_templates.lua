@@ -39,6 +39,10 @@ TooltipTemplates.lines = {
     perk_akimbo = {
         "Fire both weapon slots at once.",
     },
+    perk_phantom_third = {
+        "Every {every_n}rd direct hit on the same target",
+        "triggers a delayed true-damage ping.",
+    },
     gun_revolver = {
         "Balanced sidearm with a {cylinder_size}-shot cylinder.",
         "Fires {bullet_count} projectile per shot for {bullet_damage} base damage.",

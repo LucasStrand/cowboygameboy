@@ -80,6 +80,65 @@ local pendingGameOver = nil
 --- When true, we're in editor test-play mode — death/door returns to editor.
 local editorTestMode = false
 
+local function classifyDamageBreakdown(payload)
+    local breakdown = {}
+    local source_ref = payload and payload.source_ref or {}
+    local source_type = source_ref and source_ref.owner_source_type or nil
+    local family = payload and payload.family or nil
+    local packet_kind = payload and payload.packet_kind or nil
+
+    if source_type == "melee" then
+        breakdown.melee = true
+    elseif source_type == "ultimate" then
+        breakdown.ultimate = true
+    elseif source_type == "perk" then
+        breakdown.proc = true
+    end
+
+    if packet_kind == "delayed_secondary_hit" then
+        breakdown.explosion = true
+    end
+
+    for _, tag in ipairs((payload and payload.tags) or {}) do
+        if tag == "ultimate" then
+            breakdown.ultimate = true
+        elseif tag == "proc" then
+            breakdown.proc = true
+        elseif tag == "explosion" or tag == "secondary" then
+            breakdown.explosion = true
+        end
+    end
+
+    if family == "physical" then
+        breakdown.physical = true
+    elseif family == "magical" then
+        breakdown.magical = true
+    elseif family == "true" then
+        breakdown.true_damage = true
+    end
+
+    return breakdown
+end
+
+local function buildDamageTraceDetail(payload)
+    local source_ref = payload and payload.source_ref or {}
+    return {
+        amount = payload and payload.final_applied_damage or 0,
+        source_type = source_ref and source_ref.owner_source_type or "unknown",
+        source_id = source_ref and source_ref.owner_source_id or "unknown",
+        parent_source_id = source_ref and source_ref.parent_source_id or nil,
+        packet_kind = payload and payload.packet_kind or "unknown",
+        family = payload and payload.family or "unknown",
+        target_id = payload and payload.target_id or "unknown",
+        tags = payload and payload.tags or {},
+        room_id = currentRoom and currentRoom.id or nil,
+        room_name = currentRoom and currentRoom.name or nil,
+        room_index = roomManager and roomManager.currentRoomIndex or nil,
+        world_id = roomManager and roomManager.worldId or nil,
+        world_name = roomManager and roomManager.worldDef and roomManager.worldDef.name or nil,
+    }
+end
+
 -- Ultimate: Dead Man's Hand (single table to avoid upvalue bloat)
 local ult = { flashAlpha = 0, shotFlashScreen = 0, vignetteAlpha = 0, rings = {}, pulseTimer = 0 }
 local devPanelState = {
@@ -697,6 +756,7 @@ local DOOR_INTERACT_PAD = 10
 
 -- Must be declared before any helper that reads it (Lua local scope starts at declaration)
 local CAM_ZOOM = 3
+local MAX_GAMEPLAY_ASPECT = 16 / 9
 
 -- Dead Cells-style camera settings
 local CAM_LERP_SPEED   = 5      -- how fast camera catches up (higher = snappier)
@@ -706,10 +766,21 @@ local CAM_GROUNDED_Y   = -15    -- slight upward bias when grounded (see more fl
 local camTargetX, camTargetY = 400, 200
 local camCurrentX, camCurrentY = 400, 200
 
+local function getGameplayCameraScale()
+    local maxViewWidthAtBaseZoom = math.floor(GAME_HEIGHT * MAX_GAMEPLAY_ASPECT / CAM_ZOOM + 0.5)
+    local minScaleForAspect = GAME_WIDTH / math.max(1, maxViewWidthAtBaseZoom)
+    return math.max(CAM_ZOOM, minScaleForAspect)
+end
+
+local function getGameplayViewSize()
+    local scale = getGameplayCameraScale()
+    return GAME_WIDTH / scale, GAME_HEIGHT / scale, scale
+end
+
 local function updateCamera(dt, snap)
     if not currentRoom or not camera or not player then return end
-    local viewW = GAME_WIDTH / CAM_ZOOM
-    local viewH = GAME_HEIGHT / CAM_ZOOM
+    local viewW, viewH, scale = getGameplayViewSize()
+    camera.scale = scale
     local px = player.x + player.w / 2
     local py = player.y + player.h / 2
 
@@ -786,8 +857,7 @@ local function drawExitBlockedOffscreenArrows()
     if not blinkOn then return end
 
     local camX, camY = camera:position()
-    local viewW = GAME_WIDTH / CAM_ZOOM
-    local viewH = GAME_HEIGHT / CAM_ZOOM
+    local viewW, viewH = getGameplayViewSize()
     local viewL = camX - viewW / 2
     local viewT = camY - viewH / 2
     local viewR = camX + viewW / 2
@@ -832,8 +902,7 @@ local function drawExitArrow()
 
     local door = currentRoom.door
     local camX, camY = camera:position()
-    local viewW = GAME_WIDTH / CAM_ZOOM
-    local viewH = GAME_HEIGHT / CAM_ZOOM
+    local viewW, viewH = getGameplayViewSize()
     local viewL = camX - viewW / 2
     local viewT = camY - viewH / 2
     local viewR = camX + viewW / 2
@@ -1170,6 +1239,12 @@ local function queueRunRecap(outcome, source)
             rooms_cleared = roomsCleared,
             gold = player.gold,
             perks_count = perksCount,
+            total_damage_dealt = game._runtime.runMetadata.combat
+                and game._runtime.runMetadata.combat.total_damage_dealt
+                or 0,
+            damage_breakdown = game._runtime.runMetadata.combat
+                and game._runtime.runMetadata.combat.breakdown
+                or nil,
             dominant_tags = profile and profile.dominant_tags or nil,
             build_snapshot = buildSnapshot,
         })
@@ -1288,7 +1363,6 @@ local function devApplyAction(id)
 end
 
 local function initGameplaySessionState(opts)
-    CombatEvents.clear()
     introCD.active = false
     introCD.n = 0
     introCD.segT = 0
@@ -1321,6 +1395,7 @@ end
 
 local function initGameplayRuntime(opts)
     game._runtime = {}
+    CombatEvents.clear()
     if game._bindRuntimeHelpers then
         game._bindRuntimeHelpers()
     end
@@ -1353,12 +1428,29 @@ local function initGameplayRuntime(opts)
             dev_arena = roomManager and roomManager.devArenaMode == true,
         })
     end)
+    CombatEvents.subscribe("OnDamageTaken", function(payload)
+        if not payload or payload.target_kind ~= "enemy" then
+            return
+        end
+        if payload.source_actor_kind ~= "player" then
+            return
+        end
+        if not game._runtime or not game._runtime.runMetadata then
+            return
+        end
+        RunMetadata.recordDamageDealt(
+            game._runtime.runMetadata,
+            payload.final_applied_damage,
+            classifyDamageBreakdown(payload),
+            buildDamageTraceDetail(payload)
+        )
+    end)
 end
 
 local function initGameplayWorld()
     world = bump.newWorld(32)
     camera = Camera(400, 200)
-    camera.scale = CAM_ZOOM
+    camera.scale = getGameplayCameraScale()
     camCurrentX, camCurrentY = 400, 200
     camTargetX, camTargetY = 400, 200
     player = Player.new(50, 300)
@@ -1655,6 +1747,7 @@ function game:update(dt)
                         ricochet = 0,
                         ultBullet = true,
                         packet = packet,
+                        source_actor = player,
                         source_ref = source_ref,
                         packet_kind = "direct_hit",
                         damage_family = "physical",
@@ -1727,8 +1820,9 @@ function game:update(dt)
     end
 
     local camX, camY = camera:position()
-    local halfW = GAME_WIDTH / (2 * CAM_ZOOM)
-    local halfH = GAME_HEIGHT / (2 * CAM_ZOOM)
+    local _, _, gameplayScale = getGameplayViewSize()
+    local halfW = GAME_WIDTH / (2 * gameplayScale)
+    local halfH = GAME_HEIGHT / (2 * gameplayScale)
     local viewL, viewT = camX - halfW, camY - halfH
     local viewR, viewB = camX + halfW, camY + halfH
 
@@ -1736,7 +1830,7 @@ function game:update(dt)
     Wind.update(dt, camX, camY, halfW * 2, halfH * 2)
 
     if currentRoom and currentRoom.nightMode and currentRoom.fogExplored and player and not player.dying then
-        Vision.markFogExplored(currentRoom, player, CAM_ZOOM)
+        Vision.markFogExplored(currentRoom, player, getGameplayCameraScale())
     end
 
     local autoTx, autoTy
@@ -2442,8 +2536,7 @@ function game:draw()
         local camX, camY = camera:position()
 
         -- Parallax background — tiles horizontally, scrolls at 30% of camera speed
-        local viewW = GAME_WIDTH / CAM_ZOOM
-        local viewH = GAME_HEIGHT / CAM_ZOOM
+        local viewW, viewH = getGameplayViewSize()
         if bgImage then
             love.graphics.setColor(1, 1, 1)
             local bgW = bgImage:getWidth()
@@ -2536,8 +2629,9 @@ function game:draw()
         end
 
         if nightMode then
-            local fogHalfW = GAME_WIDTH / (2 * CAM_ZOOM)
-            local fogHalfH = GAME_HEIGHT / (2 * CAM_ZOOM)
+            local _, _, gameplayScale = getGameplayViewSize()
+            local fogHalfW = GAME_WIDTH / (2 * gameplayScale)
+            local fogHalfH = GAME_HEIGHT / (2 * gameplayScale)
             local fogVL, fogVT = camX - fogHalfW, camY - fogHalfH
             local fogVR, fogVB = camX + fogHalfW, camY + fogHalfH
             Vision.drawFogOfWar(currentRoom, fogVL, fogVT, fogVR, fogVB)

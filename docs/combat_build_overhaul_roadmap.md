@@ -32,8 +32,9 @@ Syftet är att:
 | [phases/phase_05_unified_status_cc_runtime.md](./phases/phase_05_unified_status_cc_runtime.md) | Phase 5 implementation log | `implemented + verified` |
 | [phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md](./phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md) | Phase 6 implementation log | `implemented + live visual closeout pending` |
 | [phases/phase_07_content_tooltips_and_presentation_hooks.md](./phases/phase_07_content_tooltips_and_presentation_hooks.md) | Phase 7 implementation log | `implemented v1 slice` |
-| [phases/phase_08_reward_weighting_economy_and_run_metadata.md](./phases/phase_08_reward_weighting_economy_and_run_metadata.md) | Phase 8 implementation log | `implemented + truth gate passed; live acceptance pending` |
+| [phases/phase_08_reward_weighting_economy_and_run_metadata.md](./phases/phase_08_reward_weighting_economy_and_run_metadata.md) | Phase 8 implementation log | `implemented + truth gate passed + live recap closeout complete` |
 | [phases/phase_09_ux_readability_pass.md](./phases/phase_09_ux_readability_pass.md) | Phase 9 plan / acceptance contract | `not started` |
+| [phases/phase_10_hardening.md](./phases/phase_10_hardening.md) | Phase 10 plan / acceptance contract | `not started` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -42,6 +43,12 @@ Just nu gäller det:
 - `suno_fight_prompts.md`
 
 ## Beslutsbucketar
+
+## Current Repo Position
+
+- Code audit status: the repo is still at Phase 8.
+- Phase 8 systems are implemented in code, backed by the metadata harness, and now closed with a live recap/export pass.
+- Phase 9 remains a planning document only; the recap/HUD readability slice described there is not landed in the current codebase.
 
 ### Locked
 
@@ -99,7 +106,7 @@ Just nu gäller det:
 - [x] Phase 5: Status + CC subsystem `implemented + verified`
 - [x] Phase 6: Proc system + rule-breaking overrides `implemented + live visual closeout pending`
 - [x] Phase 7: Content pipeline + tooltips + presentation hooks `implemented v1 slice`
-- [x] Phase 8: Economy + rewards + meta + run metadata `implemented + truth gate passed; live acceptance pending`
+- [x] Phase 8: Economy + rewards + meta + run metadata `implemented + truth gate passed + live recap closeout complete`
 - [ ] Phase 9: UX/readability pass
 - [ ] Phase 10: Hardening
 
@@ -336,7 +343,7 @@ Delar:
 |---|---|---|
 | Ownership feedback | `implemented v1` | bredda från proc payoff-hook till fler event-owned feedback paths |
 | HUD tiers | `not started` | gruppera A/B/C-info |
-| Recap/post-run summary | `implemented v1` | Phase 9: djupare clarity, last-hit / proc-linjer, HUD tiers |
+| Recap/post-run summary | `implemented v2` | Phase 9: readability polish, surfacing of causal chains, HUD tiers |
 
 ### Economy / Rewards / Meta
 
@@ -345,7 +352,7 @@ Delar:
 | Reward weighting | `implemented v1` | bredda pool authoring och tuning ovanpå reward runtime |
 | Economy roles | `implemented v1` | cursed/refill-bredd och djupare roll-matris |
 | Meta breadth-first | `deferred` | real persistent unlocks efter stabil meta/recap-seam |
-| Run metadata | `implemented` | save/load och export ovanpå samma truth-modell |
+| Run metadata | `implemented + export seam` | save/load och broader persistence ovanpå samma truth-modell |
 
 ## Dokumentationskrav när utveckling börjar
 
