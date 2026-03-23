@@ -34,7 +34,7 @@ Syftet är att:
 | [phases/phase_07_content_tooltips_and_presentation_hooks.md](./phases/phase_07_content_tooltips_and_presentation_hooks.md) | Phase 7 implementation log | `implemented v1 slice` |
 | [phases/phase_08_reward_weighting_economy_and_run_metadata.md](./phases/phase_08_reward_weighting_economy_and_run_metadata.md) | Phase 8 implementation log | `implemented + truth gate passed + live recap closeout complete` |
 | [phases/phase_09_ux_readability_pass.md](./phases/phase_09_ux_readability_pass.md) | Phase 9 plan / acceptance contract | `slice 1 implemented` |
-| [phases/phase_10_hardening.md](./phases/phase_10_hardening.md) | Phase 10 plan / acceptance contract | `slice 1 implemented` |
+| [phases/phase_10_hardening.md](./phases/phase_10_hardening.md) | Phase 10 plan / acceptance contract | `slice 1 + slice 2+ implemented` |
 | [phases/phase_11_actor_parity_baseline.md](./phases/phase_11_actor_parity_baseline.md) | Phase 11 actor / attack profile / proc seams | `baseline slice (see phase doc)` |
 | [actor_combat_contract.md](./actor_combat_contract.md) | CombatActor, AttackProfile, equipment stub | `Phase 11 contract` |
 
@@ -48,7 +48,7 @@ Just nu gäller det:
 
 ## Current Repo Position
 
-- Code audit status: Phases 2–8 complete; **Phase 9 slice 1** (readability / recap / HUD) and **Phase 10 slice 1** (metadata retention caps, scoreboard write hardening, recap defensive paths, regression harness, dev stress preset) are implemented in code. **Phase 11 slice 1** adds actor-paritet: `get_defense_state`, attack profiles för fiende-offense, generaliserad `proc_runtime`, equipment stub, `--phase11-actor-regression`.
+- Code audit status: Phases 2–8 complete; **Phase 9 slice 1** (readability / recap / HUD) and **Phase 10** (slice 1: retention/scoreboard/recap harness; **slice 2+**: metadata snapshot persist API, extended regression, stress wall-sample telemetry) are implemented in code. **Phase 11 slice 1** adds actor-paritet: `get_defense_state`, attack profiles för fiende-offense, generaliserad `proc_runtime`, equipment stub, `--phase11-actor-regression`.
 - Canonical truth remains: `run_metadata` → `MetaRuntime.summarize` → recap/export; damage-event rings and long-run metadata tables are **explicitly capped** (see `RunMetadata.retentionStats` and [phase_10_hardening.md](./phases/phase_10_hardening.md)).
 - Regression: run `love . --phase10-regression` and `love . --phase11-actor-regression` from the repo root (prints OK or exits non-zero on failure).
 

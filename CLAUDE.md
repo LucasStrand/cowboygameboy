@@ -10,7 +10,9 @@ Requirement: LOVE2D 11.5
 love .
 ```
 
-Phase 10 regression (metadata/recap seams): `love . --phase10-regression`
+Phase 10 regression (metadata/recap/persist/export seams): `love . --phase10-regression`
+
+Phase 10 dev: metadata snapshot + stress sample workflow — [docs/phases/phase_10_hardening.md](docs/phases/phase_10_hardening.md).
 
 Phase 11 regression (actor defense, attack profiles, enemy proc path): `love . --phase11-actor-regression`
 

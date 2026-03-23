@@ -10,7 +10,9 @@ Requirement: LOVE2D 11.5
 love .
 ```
 
-Phase 10 regression (metadata/recap seams): `love . --phase10-regression`
+Phase 10 regression (metadata/recap/persist/export seams): `love . --phase10-regression`
+
+Phase 10 dev: run-metadata snapshot (`meta_save_snapshot` in dev panel) writes `run_metadata_snapshot.lua` in the save directory; stress wall time is logged on `meta_dump_retention` after `preset_phase10_proc_explosion_stress` — see [docs/phases/phase_10_hardening.md](docs/phases/phase_10_hardening.md).
 
 Phase 11 regression (actor defense, attack profiles, enemy proc path): `love . --phase11-actor-regression`
 
