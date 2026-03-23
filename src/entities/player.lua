@@ -272,7 +272,7 @@ function Player.new(x, y)
 
     self.perks = {}
 
-    -- Shared status runtime (legacy player.buffs remains as alias this phase).
+    -- Shared status runtime for player buffs/debuffs and control-state.
     self.statuses = Buffs.newTracker({
         owner_actor_id = self.actorId,
     }, {
@@ -281,7 +281,6 @@ function Player.new(x, y)
         owner_kind = "player",
         cc_profile = "normal",
     })
-    self.buffs = self.statuses
 
     -- Monster Energy (saloon): cumulative drinks this run — move bonus + rare speech / visual jitter
     self.monsterDrinks = 0
@@ -1025,11 +1024,11 @@ function Player:consumeMonsterEnergy()
         local intensity = math.min(1.15, 0.35 + (n - 2) * 0.18)
         self.monsterJitteryTimer = (6.0 + intensity * 5.0) + GameRng.randomFloat("player.monster_energy.jitter_duration", 0, 3.0 + intensity * 2.0)
         self.monsterJitterShakeMul = intensity
-        Buffs.apply(self.buffs, "jitter")
+        Buffs.apply(self.statuses, "jitter")
     end
 
     -- Apply speed buff through buff system
-    Buffs.apply(self.buffs, "speed_boost")
+    Buffs.apply(self.statuses, "speed_boost")
 
     self.monsterSpeechText = nil
     if GameRng.randomChance("player.monster_energy.speech", MONSTER_SPEECH_CHANCE) then
@@ -1039,18 +1038,6 @@ function Player:consumeMonsterEnergy()
 
     local maxHP = self:getEffectiveStats().maxHP
     self:heal(maxHP)
-end
-
-function Player:applyBuff(id, stacks)
-    return Buffs.apply(self.statuses, id, stacks)
-end
-
-function Player:removeBuff(id)
-    Buffs.remove(self.statuses, id, self)
-end
-
-function Player:hasBuff(id)
-    return Buffs.has(self.statuses, id)
 end
 
 function Player:addXP(amount)
@@ -1229,8 +1216,9 @@ function Player:draw()
             jy = (math.cos(t * 19.1) + math.sin(t * 14.4)) * 0.95 * mul
         end
         -- Buff system jitter (stacks with monster jitter)
-        if self.buffs then
-            local vis = Buffs.getVisuals(self.buffs)
+        local statusTracker = self.statuses or self.buffs
+        if statusTracker then
+            local vis = Buffs.getVisuals(statusTracker)
             if vis.jitterAmp > 0 then
                 local f = vis.jitterFreq
                 jx = jx + math.sin(t * f * 1.13) * vis.jitterAmp

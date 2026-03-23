@@ -234,9 +234,10 @@ function StatRuntime.build_player_context(player, gun, base_gun_stats)
     end
 
     local buff_mods = nil
-    if player.buffs then
+    local status_tracker = player.statuses or player.buffs
+    if status_tracker then
         local Buffs = require("src.systems.buffs")
-        buff_mods = Buffs.getStatMods(player.buffs)
+        buff_mods = Buffs.getStatMods(status_tracker)
     end
     if buff_mods then
         flat_sources.buffs = cloneTable(buff_mods)

@@ -105,9 +105,19 @@
 - [x] Enemy contact damage comes from resolver output, not player-local armor math.
 - [x] Explosive splash routes through delayed-secondary jobs.
 
+### Verified In This Closeout Pass
+
+- [x] Harness output in `tmp/damage_resolver_harness_output.txt` was re-checked for all migrated direct-hit scenarios.
+- [x] Static repo search still shows migrated live combat paths resolving through `damage_resolver`.
+- [x] A short LOVE boot smoke was run successfully without an immediate startup/runtime crash.
+
+### Still Open
+
+- [ ] Interactive manual live-play verification of the migrated direct-hit paths in a real run has not been performed in this closeout pass.
+
 ### Bugs / Balance Problems Found During Closeout
 
-- None confirmed in this pass.
+- None confirmed in harness/static/boot verification.
 
 ## Remaining Adapters / Follow-Up
 
@@ -128,4 +138,5 @@
 - Harness output recorded resolver-owned debug lines and `CombatEvents` emissions for the migrated paths.
 - Repo-local `:takeDamage(` grep only found the thin wrapper definitions on `player.lua` and `enemy.lua`, with no live combat call sites bypassing the resolver.
 - Harness artifacts live under `tmp/damage_resolver_harness/` with output in `tmp/damage_resolver_harness_output.txt`.
-- Manual gameplay verification for the migrated Phase 4 paths has now been completed during closeout, so resolver wiring and live combat behavior are both considered verified for this phase.
+- A short LOVE boot smoke was run in this closeout pass and did not immediately crash.
+- Interactive manual gameplay verification for the migrated Phase 4 paths remains open; this phase is harness-verified, not live-play-closed.

@@ -8,7 +8,7 @@ local INFO_H = 34
 local SECTION_H = 24
 local GAP = 4
 local PANEL_PAD = 14
-local PANEL_W = 468
+local PANEL_W = 620
 local FOOTER_H = 28
 
 local function rowSection(id, label, open)
@@ -24,9 +24,11 @@ local function rowInfo(label)
 end
 
 function DevPanel.panelRect(screenW, screenH)
-    local pw = math.min(PANEL_W, screenW - 24)
-    local ph = math.min(664, screenH - 64)
-    return 12, 44, pw, ph
+    local desiredW = math.min(760, math.max(PANEL_W, math.floor(screenW * 0.66)))
+    local desiredH = math.min(820, math.floor(screenH * 0.88))
+    local pw = math.min(desiredW, screenW - 20)
+    local ph = math.min(desiredH, screenH - 24)
+    return 10, 18, pw, ph
 end
 
 function DevPanel.buildRows(args)
@@ -185,6 +187,28 @@ function DevPanel.buildRows(args)
                 end
             end
         end
+    end
+
+    if addSection("meta", "Meta / Recap") then
+        local summary = args.metaLab and args.metaLab.summary or {}
+        rows[#rows + 1] = rowInfo(string.format(
+            "Rooms %d | Checkpoints %d | Bosses %d | Picks %d | Rerolls %d",
+            tonumber(summary.roomsCleared or 0) or 0,
+            tonumber(summary.checkpointsReached or 0) or 0,
+            tonumber(summary.bossesKilled or 0) or 0,
+            tonumber(summary.perksPicked or 0) or 0,
+            tonumber(summary.rerollsUsed or 0) or 0
+        ))
+        rows[#rows + 1] = rowInfo(string.format(
+            "Gold earned $%d | spent $%d",
+            tonumber(summary.goldEarned or 0) or 0,
+            tonumber(summary.goldSpent or 0) or 0
+        ))
+        if summary.dominantTags and #summary.dominantTags > 0 then
+            rows[#rows + 1] = rowInfo("Dominant tags: " .. table.concat(summary.dominantTags, ", "))
+        end
+        rows[#rows + 1] = rowAction("meta_dump_summary", "Dump meta summary to DevLog")
+        rows[#rows + 1] = rowAction("meta_open_recap", "Open recap screen from current run")
     end
 
     if addSection("statuses", "Status Lab") then

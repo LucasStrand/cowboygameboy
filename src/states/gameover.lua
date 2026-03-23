@@ -2,6 +2,7 @@ local Gamestate = require("lib.hump.gamestate")
 local Font = require("src.ui.font")
 local Cursor = require("src.ui.cursor")
 local Settings = require("src.systems.settings")
+local MetaRuntime = require("src.systems.meta_runtime")
 
 local gameover = {}
 
@@ -24,6 +25,7 @@ local musicSource = nil
 local scratchXs = {}
 local bgSnapshot = nil
 local grayscaleShader = nil
+local recapSummary = nil
 
 local function getGrayscaleShader()
     if not grayscaleShader then
@@ -74,6 +76,11 @@ function gameover:enter(_, playerStats)
         gold = playerStats.gold,
         perksCount = playerStats.perksCount,
     }
+    recapSummary = MetaRuntime.summarize(playerStats.runMetadata, {
+        roomsCleared = playerStats.roomsCleared,
+        perksCount = playerStats.perksCount,
+        outcome = playerStats.outcome or "death",
+    })
 
     timer = 0
     fonts.title = Font.new(72)
@@ -100,6 +107,7 @@ end
 function gameover:leave()
     stopFinMusic()
     releaseSnapshot()
+    recapSummary = nil
 end
 
 function gameover:update(dt)
@@ -185,6 +193,14 @@ function gameover:draw()
         string.format("Lv %d  ·  Rooms %d  ·  $%d  ·  Perks %d",
             stats.level or 1, stats.roomsCleared or 0, stats.gold or 0, stats.perksCount or 0),
         0, y, screenW, "center")
+
+    if recapSummary then
+        local lines = MetaRuntime.toRecapLines(recapSummary)
+        love.graphics.setFont(fonts.default)
+        for i, line in ipairs(lines) do
+            love.graphics.printf(line, 24, y + 28 + (i - 1) * 16, screenW - 48, "center")
+        end
+    end
 
     love.graphics.setLineWidth(1)
     for i = 1, #scratchXs do

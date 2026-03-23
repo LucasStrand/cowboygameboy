@@ -7,6 +7,7 @@ local DevLog = require("src.ui.devlog")
 local ContentTooltips = require("src.systems.content_tooltips")
 local RewardRuntime = require("src.systems.reward_runtime")
 local RunMetadata = require("src.systems.run_metadata")
+local MetaRuntime = require("src.systems.meta_runtime")
 
 local function adminToolsEnabled()
     return DEBUG or DEV_TOOLS_ENABLED
@@ -297,15 +298,15 @@ local function apply(id, ctx)
     local spawnCheatGoldDrops = ctx.spawnCheatGoldDrops
     local gameRef = ctx.gameRef
     local devRewardLab = ctx.devRewardLab
+    local queueRunRecap = ctx.queueRunRecap
     local nearestEnemy = nearestLivingEnemy(player, enemies)
 
     if id:sub(1, 8) == "section:" then
         local sectionId = id:sub(9)
-        if devPanelState.sections and devPanelState.sections[sectionId] ~= nil then
-            devPanelState.sections[sectionId] = not devPanelState.sections[sectionId]
-            devRebuildPanelRows()
-            devClampScroll()
-        end
+        devPanelState.sections = devPanelState.sections or {}
+        devPanelState.sections[sectionId] = not (devPanelState.sections[sectionId] == true)
+        devRebuildPanelRows()
+        devClampScroll()
         return
     elseif id == "npc_toggle_peaceful" then
         devNpcSpawn.peaceful = not devNpcSpawn.peaceful
@@ -493,6 +494,22 @@ local function apply(id, ctx)
             DevLog.push("sys", string.format("[dev] rerolled shop for $%d", cost or 0))
         else
             DevLog.push("sys", "[dev] shop reroll failed: " .. tostring(msg))
+        end
+    elseif id == "meta_dump_summary" then
+        local summary = MetaRuntime.summarize(player and player.runMetadata or nil, {
+            roomsCleared = ctx.roomManager and ctx.roomManager.totalRoomsCleared or 0,
+            perksCount = player and player.perks and #player.perks or 0,
+        })
+        for _, line in ipairs(MetaRuntime.toDebugLines(summary)) do
+            DevLog.push("sys", line)
+        end
+    elseif id == "meta_open_recap" then
+        if queueRunRecap then
+            devPanelState.open = false
+            ctx.characterSheetOpen = false
+            clearDevNpcPlacement(false)
+            queueRunRecap("recap", "dev_recap")
+            DevLog.push("sys", "[dev] open recap")
         end
     elseif id:sub(1, 24) == "reward_apply_shop_offer:" then
         local index = tonumber(id:sub(25))

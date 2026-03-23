@@ -52,8 +52,30 @@ function RunMetadata.new(seed, context)
                 shop = 0,
             },
         },
+        milestones = {
+            checkpoints = {
+                count = 0,
+                history = {},
+            },
+            bosses = {
+                kills = 0,
+                history = {},
+                seen_actor_ids = {},
+            },
+        },
         build_snapshots = {},
+        run_end = nil,
     }
+end
+
+function RunMetadata.recordBuildSnapshot(meta, build_snapshot, reason)
+    if not meta or not build_snapshot then
+        return
+    end
+    if reason and build_snapshot.snapshot_reason == nil then
+        build_snapshot.snapshot_reason = reason
+    end
+    meta.build_snapshots[#meta.build_snapshots + 1] = build_snapshot
 end
 
 function RunMetadata.snapshotBuild(player, build_profile)
@@ -132,9 +154,7 @@ function RunMetadata.recordRewardChosen(meta, source, chosen, offers, build_snap
         build_snapshot = build_snapshot,
         gold_after = build_snapshot and build_snapshot.gold or nil,
     }
-    if build_snapshot then
-        meta.build_snapshots[#meta.build_snapshots + 1] = build_snapshot
-    end
+    RunMetadata.recordBuildSnapshot(meta, build_snapshot, "reward_choice")
 end
 
 function RunMetadata.recordShopGenerated(meta, offers, build_snapshot, extra)
@@ -166,9 +186,7 @@ function RunMetadata.recordShopPurchased(meta, item, build_snapshot, extra)
         build_snapshot = build_snapshot,
         gold_after = build_snapshot and build_snapshot.gold or nil,
     }
-    if build_snapshot then
-        meta.build_snapshots[#meta.build_snapshots + 1] = build_snapshot
-    end
+    RunMetadata.recordBuildSnapshot(meta, build_snapshot, "shop_purchase")
 end
 
 function RunMetadata.recordEconomy(meta, kind, amount, reason)
@@ -200,6 +218,58 @@ function RunMetadata.recordShopVisit(meta, info)
     }
 end
 
+function RunMetadata.recordCheckpoint(meta, info)
+    if not meta then
+        return
+    end
+    info = info or {}
+    local bucket = meta.milestones and meta.milestones.checkpoints
+    if not bucket then
+        return
+    end
+    bucket.history[#bucket.history + 1] = {
+        world_id = info.world_id,
+        world_name = info.world_name,
+        room_index = info.room_index,
+        total_cleared = info.total_cleared,
+        difficulty = info.difficulty,
+        dev_arena = info.dev_arena == true,
+    }
+    bucket.count = #bucket.history
+end
+
+function RunMetadata.recordBossKilled(meta, enemy, info)
+    if not meta then
+        return
+    end
+    info = info or {}
+    local bucket = meta.milestones and meta.milestones.bosses
+    if not bucket then
+        return
+    end
+    local actor_id = enemy and enemy.actorId or info.actor_id
+    if actor_id and bucket.seen_actor_ids and bucket.seen_actor_ids[actor_id] then
+        return
+    end
+    if actor_id and bucket.seen_actor_ids then
+        bucket.seen_actor_ids[actor_id] = true
+    end
+    bucket.history[#bucket.history + 1] = {
+        actor_id = actor_id,
+        enemy_id = enemy and enemy.typeId or info.enemy_id,
+        enemy_name = enemy and enemy.name or info.enemy_name,
+        room_id = info.room_id,
+        room_name = info.room_name,
+        world_id = info.world_id,
+        world_name = info.world_name,
+        room_index = info.room_index,
+        total_cleared = info.total_cleared,
+        difficulty = info.difficulty,
+        dev_arena = info.dev_arena == true,
+    }
+    bucket.kills = #bucket.history
+end
+
 function RunMetadata.getRerollCount(meta, surface)
     if not meta then
         return 0
@@ -225,6 +295,23 @@ function RunMetadata.recordReroll(meta, surface, cost, before_offers, after_offe
     }
     meta.economy.reroll_counts[surface == "shop" and "shop" or "levelup"] =
         (meta.economy.reroll_counts[surface == "shop" and "shop" or "levelup"] or 0) + 1
+end
+
+function RunMetadata.finishRun(meta, info)
+    if not meta then
+        return
+    end
+    info = info or {}
+    meta.run_end = {
+        outcome = info.outcome or "completed",
+        source = info.source or "run_end",
+        level = info.level,
+        rooms_cleared = info.rooms_cleared,
+        gold = info.gold,
+        perks_count = info.perks_count,
+        dominant_tags = cloneList(info.dominant_tags),
+    }
+    RunMetadata.recordBuildSnapshot(meta, info.build_snapshot, info.snapshot_reason or "run_end")
 end
 
 return RunMetadata

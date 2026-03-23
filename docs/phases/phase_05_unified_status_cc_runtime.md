@@ -42,7 +42,7 @@
 
 ## Runtime Changes
 
-- Player now owns `player.statuses` with `player.buffs` kept as an alias.
+- Player now owns `player.statuses` as the authoritative runtime tracker.
 - Enemies now own `enemy.statuses` and expose compact status badges in-world.
 - `stun` blocks player and enemy action flow through status runtime checks.
 - `slow` affects movement through status-driven stat aggregation.
@@ -85,6 +85,8 @@
 - Phase 5 lands the shared runtime in code.
 - Phase 4 direct-hit behavior remains the base damage path and is not reopened here.
 - Temporary hardcoded live status hooks were removed during closeout so the runtime remains content-neutral until future authored content adds explicit `status_applications`.
+- Post-closeout cleanup in this pass removed the live `player.buffs` alias dependency from player runtime ownership; HUD/stat-runtime readers now consume `player.statuses` first and only fall back if needed.
+- Remaining direct status applications in gameplay code are intentional authored boons/debug paths, not leftover temporary verification hooks.
 
 ## Acceptance Notes
 
@@ -102,11 +104,16 @@
 
 ### Still Unverified In Live Visual Play
 
-- none
+- interactive live-play verification of status feel/readability in real combat remains open in this closeout pass:
+  - bleed / burn pacing under real encounter pressure
+  - shock overload readability and stun DR feel in motion
+  - HUD ordering under normal play
+  - enemy badge readability in combat clutter
+  - player stun feel while moving / jumping / dashing / reloading
 
 ### Bugs / Balance Problems Found During Closeout
 
-- None confirmed in this pass.
+- None confirmed in harness/static/boot verification.
 
 ## Verification Status
 
@@ -122,4 +129,5 @@
 - Harness output recorded resolver-owned `[damage_resolver]` lines plus `status_applied`, `status_stacked`, `status_refreshed`, `status_ticked`, `status_removed`, and `status_expired` events.
 - Static code review verified player stun gating at the player runtime/action seams and confirmed enemy badges render only the top two statuses with a dark backing plus hard-CC color override.
 - Harness artifacts live under `tmp/status_runtime_harness/` with output in `tmp/status_runtime_harness_output.txt`.
-- Manual live-play verification for the Phase 5 closeout items has now been completed, including enemy badge readability in motion / combat clutter.
+- A short LOVE boot smoke was run in this closeout pass and did not immediately crash.
+- Interactive manual live-play verification for the Phase 5 closeout items remains open; this phase is harness-verified, not live-play-closed.

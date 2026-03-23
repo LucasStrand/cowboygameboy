@@ -20,6 +20,7 @@ local TextLayout = require("src.ui.text_layout")
 local ContentTooltips = require("src.systems.content_tooltips")
 local RewardRuntime = require("src.systems.reward_runtime")
 local RunMetadata = require("src.systems.run_metadata")
+local MetaRuntime = require("src.systems.meta_runtime")
 local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
@@ -163,29 +164,40 @@ local devClampScroll
 local devRebuildPanelRows
 
 local function defaultDevPanelSections()
-    return {
-        debug = true,
-        player = true,
+    local sections = {
+        debug = false,
+        player = false,
         quick = false,
-        world = true,
-        npc = true,
+        world = false,
+        npc = false,
         weapons = false,
         perks = false,
+        rewards = false,
+        meta = false,
         statuses = false,
     }
+    sections.player = true
+    sections.world = true
+    return sections
 end
 
 local function devBootPanelSections()
-    return {
-        debug = true,
-        player = true,
-        quick = true,
-        world = true,
+    local sections = {
+        debug = false,
+        player = false,
+        quick = false,
+        world = false,
         npc = false,
-        weapons = true,
-        perks = true,
-        statuses = true,
+        weapons = false,
+        perks = false,
+        rewards = false,
+        meta = false,
+        statuses = false,
     }
+    sections.quick = true
+    sections.rewards = true
+    sections.meta = true
+    return sections
 end
 
 local function defaultDevNpcSpawn()
@@ -871,6 +883,16 @@ local function tryExitThroughDoor()
     end
     roomManager:onRoomCleared()
     if roomManager:isCheckpoint() then
+        if game._runtime and game._runtime.runMetadata then
+            RunMetadata.recordCheckpoint(game._runtime.runMetadata, {
+                world_id = roomManager and roomManager.worldId or nil,
+                world_name = roomManager and roomManager.worldDef and roomManager.worldDef.name or nil,
+                room_index = roomManager and roomManager.currentRoomIndex or nil,
+                total_cleared = roomManager and roomManager.totalRoomsCleared or nil,
+                difficulty = roomManager and roomManager.difficulty or nil,
+                dev_arena = roomManager and roomManager.devArenaMode == true,
+            })
+        end
         local saloon = require("src.states.saloon")
         Gamestate.push(saloon, player, roomManager)
     else
@@ -1128,12 +1150,51 @@ local function syncCurrentRoomNightMode()
     end
 end
 
+local function queueRunRecap(outcome, source)
+    if pendingGameOver or not player then
+        return
+    end
+
+    local profile = RewardRuntime.buildProfile(player, {
+        source = source or "run_end",
+    })
+    local buildSnapshot = RunMetadata.snapshotBuild(player, profile)
+    local roomsCleared = roomManager and roomManager.totalRoomsCleared or 0
+    local perksCount = player.perks and #player.perks or 0
+
+    if game._runtime and game._runtime.runMetadata then
+        RunMetadata.finishRun(game._runtime.runMetadata, {
+            outcome = outcome or "completed",
+            source = source or "run_end",
+            level = player.level,
+            rooms_cleared = roomsCleared,
+            gold = player.gold,
+            perks_count = perksCount,
+            dominant_tags = profile and profile.dominant_tags or nil,
+            build_snapshot = buildSnapshot,
+        })
+    end
+
+    pendingGameOver = {
+        level = player.level,
+        roomsCleared = roomsCleared,
+        gold = player.gold,
+        perksCount = perksCount,
+        runMetadata = game._runtime and game._runtime.runMetadata or nil,
+        outcome = outcome or "completed",
+    }
+end
+
 devRebuildPanelRows = function()
     if game._runtime and game._runtime.devRewardLab then
         game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
             source = "dev_panel",
         }))
     end
+    local metaSummary = MetaRuntime.summarize(game._runtime and game._runtime.runMetadata or nil, {
+        roomsCleared = roomManager and roomManager.totalRoomsCleared or 0,
+        perksCount = player and player.perks and #player.perks or 0,
+    })
     devPanelState.rows = DevPanel.buildRows({
         gameplayPaused = devPanelState.pauseGameplay,
         showHitboxes = devShowHitboxes,
@@ -1158,6 +1219,9 @@ devRebuildPanelRows = function()
             shopRerollCost = (game._runtime.devRewardLab and game._runtime.devRewardLab.shop and game._runtime.devRewardLab.shop.getRerollCost and game._runtime.devRewardLab.shop:getRerollCost()) or 0,
             levelupRerollCost = RewardRuntime.getRerollCost("levelup", game._runtime and game._runtime.runMetadata or nil),
         },
+        metaLab = {
+            summary = metaSummary,
+        },
     })
 end
 
@@ -1174,6 +1238,7 @@ do
         r.currentDevSpawnCount = currentDevSpawnCount
         r.pendingEnemiesIncoming = pendingEnemiesIncoming
         r.spawnCheatGoldDrops = spawnCheatGoldDrops
+        r.queueRunRecap = queueRunRecap
     end
 
     bindRuntimeHelpers()
@@ -1266,6 +1331,28 @@ local function initGameplayRuntime(opts)
         shop = Shop.new(1),
         profileSummary = "uninitialized",
     }
+    CombatEvents.subscribe("OnKill", function(payload)
+        if not payload or payload.target_kind ~= "enemy" then
+            return
+        end
+        local target = payload.target_actor
+        if not target or target.cc_profile ~= "boss" then
+            return
+        end
+        if not game._runtime or not game._runtime.runMetadata then
+            return
+        end
+        RunMetadata.recordBossKilled(game._runtime.runMetadata, target, {
+            room_id = currentRoom and currentRoom.id or nil,
+            room_name = currentRoom and currentRoom.name or nil,
+            world_id = roomManager and roomManager.worldId or nil,
+            world_name = roomManager and roomManager.worldDef and roomManager.worldDef.name or nil,
+            room_index = roomManager and roomManager.currentRoomIndex or nil,
+            total_cleared = roomManager and roomManager.totalRoomsCleared or nil,
+            difficulty = roomManager and roomManager.difficulty or nil,
+            dev_arena = roomManager and roomManager.devArenaMode == true,
+        })
+    end)
 end
 
 local function initGameplayWorld()
@@ -1902,13 +1989,7 @@ function game:update(dt)
         if not pendingGameOver then
             DevLog.push("sys", string.format("Player died  lv%d  %d rooms  $%d",
                 player.level, roomManager.totalRoomsCleared, player.gold))
-            pendingGameOver = {
-                level = player.level,
-                roomsCleared = roomManager.totalRoomsCleared,
-                gold = player.gold,
-                perksCount = #player.perks,
-                runMetadata = game._runtime.runMetadata,
-            }
+            queueRunRecap("death", "player_death")
         end
         return
     end
@@ -2595,6 +2676,7 @@ function game:draw()
             gold = pendingGameOver.gold,
             perksCount = pendingGameOver.perksCount,
             runMetadata = pendingGameOver.runMetadata,
+            outcome = pendingGameOver.outcome,
             backgroundImage = snapshot,
         }
         pendingGameOver = nil

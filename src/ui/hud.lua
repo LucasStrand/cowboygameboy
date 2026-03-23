@@ -751,7 +751,8 @@ function HUD.draw(player)
     end
 
     -- ── Active buff/debuff icons (just above HP label, aligned with bar column) ──
-    if player.buffs then
+    local statusTracker = player.statuses or player.buffs
+    if statusTracker then
         local Buffs = require("src.systems.buffs")
         local lineH = HUD._lineH
         local rowGap = 4
@@ -768,7 +769,7 @@ function HUD.draw(player)
         local buffRowH = 16 * buffScale + 3
         local buffY = hpTextY - 8 - buffRowH
         local buffX = math.max(6, iconX - 2)
-        Buffs.drawIcons(player.buffs, buffX, buffY, buffScale)
+        Buffs.drawIcons(statusTracker, buffX, buffY, buffScale)
     end
 
     love.graphics.setFont(prevFont)

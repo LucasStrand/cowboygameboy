@@ -31,8 +31,9 @@ Syftet är att:
 | [phases/phase_04_direct_hit_damage_migration.md](./phases/phase_04_direct_hit_damage_migration.md) | Phase 4 implementation log | `implemented + verified` |
 | [phases/phase_05_unified_status_cc_runtime.md](./phases/phase_05_unified_status_cc_runtime.md) | Phase 5 implementation log | `implemented + verified` |
 | [phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md](./phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md) | Phase 6 implementation log | `implemented + live visual closeout pending` |
-| [phases/phase_07_content_tooltips_and_presentation_hooks.md](./phases/phase_07_content_tooltips_and_presentation_hooks.md) | Phase 7 implementation log | `implemented + verified` |
-| [phases/phase_08_reward_weighting_economy_and_run_metadata.md](./phases/phase_08_reward_weighting_economy_and_run_metadata.md) | Phase 8 implementation log | `implemented economy slice + meta deferred` |
+| [phases/phase_07_content_tooltips_and_presentation_hooks.md](./phases/phase_07_content_tooltips_and_presentation_hooks.md) | Phase 7 implementation log | `implemented v1 slice` |
+| [phases/phase_08_reward_weighting_economy_and_run_metadata.md](./phases/phase_08_reward_weighting_economy_and_run_metadata.md) | Phase 8 implementation log | `implemented + truth gate passed; live acceptance pending` |
+| [phases/phase_09_ux_readability_pass.md](./phases/phase_09_ux_readability_pass.md) | Phase 9 plan / acceptance contract | `not started` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -97,8 +98,8 @@ Just nu gäller det:
 - [x] Phase 4: Direct-hit damage migration `implemented + verified`
 - [x] Phase 5: Status + CC subsystem `implemented + verified`
 - [x] Phase 6: Proc system + rule-breaking overrides `implemented + live visual closeout pending`
-- [x] Phase 7: Content pipeline + tooltips + presentation hooks `implemented + verified`
-- [ ] Phase 8: Economy + rewards + meta + run metadata `implemented economy slice + meta deferred`
+- [x] Phase 7: Content pipeline + tooltips + presentation hooks `implemented v1 slice`
+- [x] Phase 8: Economy + rewards + meta + run metadata `implemented + truth gate passed; live acceptance pending`
 - [ ] Phase 9: UX/readability pass
 - [ ] Phase 10: Hardening
 
@@ -159,7 +160,7 @@ Delar:
 - resolved weapon stats
 - ammo/reload/cooldown/counters i weapon runtime state
 
-### [ ] Phase 4: Direct-hit damage migration
+### [x] Phase 4: Direct-hit damage migration
 
 Mål:
 
@@ -172,7 +173,7 @@ Delar:
 - basic explosions
 - basic delayed secondary hits
 
-### [ ] Phase 5: Status + CC subsystem
+### [x] Phase 5: Status + CC subsystem
 
 Mål:
 
@@ -187,7 +188,7 @@ Delar:
 - DR / boss CC rules
 - UI priority
 
-### [ ] Phase 6: Proc system + rule-breaking overrides
+### [x] Phase 6: Proc system + rule-breaking overrides
 
 Mål:
 
@@ -212,7 +213,7 @@ Delar:
 - localization templates
 - event-driven presentation ownership
 
-### [ ] Phase 8: Economy + rewards + meta + run metadata
+### [x] Phase 8: Economy + rewards + meta + run metadata
 
 Mål:
 
@@ -325,26 +326,26 @@ Delar:
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Load-time validation | `implemented + verified` | bredda senare mot fler content-typer och localization breadth |
-| Tooltip model | `implemented + verified` | använd som canonical content-language seam för rewards/meta och senare UI-bredd |
-| Localization templates | `implemented + verified` | fortsätt med fler template keys och språk senare |
+| Load-time validation | `implemented + phase 7 breadth` | bredda senare mot fler content-typer och localization breadth |
+| Tooltip model | `implemented v1` | bredda efter perks + guns till gear/status/rewards |
+| Localization templates | `implemented v1` | fortsätt med fler template keys och språk senare |
 
 ### UI / Readability
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Ownership feedback | `implemented + verified` | bredda vidare från proc/status hooks till fler event-owned feedback paths |
+| Ownership feedback | `implemented v1` | bredda från proc payoff-hook till fler event-owned feedback paths |
 | HUD tiers | `not started` | gruppera A/B/C-info |
-| Recap/post-run summary | `not started` | använd source ownership + metadata |
+| Recap/post-run summary | `implemented v1` | Phase 9: djupare clarity, last-hit / proc-linjer, HUD tiers |
 
 ### Economy / Rewards / Meta
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Reward weighting | `implemented + rerolls` | verifiera live behavior och bredda pool/tag-authoring senare |
-| Economy roles | `implemented + rerolls` | separera senare refills och cursed kring samma role-seam |
-| Meta breadth-first | `not started` | lås unlock-typer före implementation |
-| Run metadata | `implemented + broadened` | bredda senare mot save/load, recap och telemetry/export |
+| Reward weighting | `implemented v1` | bredda pool authoring och tuning ovanpå reward runtime |
+| Economy roles | `implemented v1` | cursed/refill-bredd och djupare roll-matris |
+| Meta breadth-first | `deferred` | real persistent unlocks efter stabil meta/recap-seam |
+| Run metadata | `implemented` | save/load och export ovanpå samma truth-modell |
 
 ## Dokumentationskrav när utveckling börjar
 
