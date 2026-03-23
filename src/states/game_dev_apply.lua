@@ -8,6 +8,7 @@ local ContentTooltips = require("src.systems.content_tooltips")
 local RewardRuntime = require("src.systems.reward_runtime")
 local RunMetadata = require("src.systems.run_metadata")
 local MetaRuntime = require("src.systems.meta_runtime")
+local Phase10Telemetry = require("src.systems.phase10_telemetry")
 
 local function adminToolsEnabled()
     return DEBUG or DEV_TOOLS_ENABLED
@@ -439,7 +440,10 @@ local function apply(id, ctx)
         player.hp = player:getEffectiveStats().maxHP
         devRebuildPanelRows()
         devClampScroll()
-        DevLog.push("sys", "[dev] preset: Phase 10 proc + explosive stress (blunderbuss)")
+        if love and love.timer then
+            ctx.phase10StressWallStart = love.timer.getTime()
+        end
+        DevLog.push("sys", "[dev] preset: Phase 10 proc + explosive stress (blunderbuss) [stress wall timer started]")
     elseif id == "preset_phase9_clutter_readability" then
         local Guns = require("src.data.guns")
         local gunDef = Guns.getById("revolver")
@@ -533,11 +537,41 @@ local function apply(id, ctx)
             DevLog.push("sys", line)
         end
     elseif id == "meta_dump_retention" then
+        if ctx.phase10StressWallStart and love and love.timer then
+            local ms = (love.timer.getTime() - ctx.phase10StressWallStart) * 1000
+            Phase10Telemetry.recordStressWallMs(ms, "phase10_preset_wall")
+            ctx.phase10StressWallStart = nil
+            DevLog.push("sys", string.format(
+                "[phase10] stress_wall_duration_ms=%d (wall time since proc/explosion stress preset)",
+                math.floor(ms + 0.5)
+            ))
+        end
         local rm = player and player.runMetadata
         local stats = RunMetadata.retentionStats(rm)
         DevLog.push("sys", "[meta] retention snapshot (counts vs caps):")
         for k, v in pairs(stats) do
             DevLog.push("sys", string.format("[meta]   %s = %s", tostring(k), tostring(v)))
+        end
+        local sm, sl = Phase10Telemetry.getLastStressSample()
+        if sm then
+            DevLog.push("sys", string.format("[phase10] last_stress_sample_ms=%s label=%s", tostring(sm), tostring(sl)))
+        end
+        DevLog.push("sys", string.format(
+            "[meta]   metadata_persistence_version = %s",
+            tostring(RunMetadata.METADATA_PERSISTENCE_VERSION)
+        ))
+    elseif id == "meta_save_snapshot" then
+        local rm = player and player.runMetadata
+        if not rm then
+            DevLog.push("sys", "[meta] save snapshot: no run metadata")
+        else
+            local path = RunMetadata.defaultPersistPath()
+            local ok, err = RunMetadata.saveToFile(path, rm)
+            if ok then
+                DevLog.push("sys", "[meta] saved run metadata snapshot to " .. tostring(path))
+            else
+                DevLog.push("sys", "[meta] save snapshot failed: " .. tostring(err))
+            end
         end
     elseif id == "meta_dump_last_damage" then
         local rm = player and player.runMetadata

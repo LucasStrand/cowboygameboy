@@ -212,6 +212,7 @@ function DevPanel.buildRows(args)
         rows[#rows + 1] = rowAction("meta_dump_summary", "Dump meta summary to DevLog")
         rows[#rows + 1] = rowAction("meta_dump_last_damage", "Dump last damage / proc recap fields")
         rows[#rows + 1] = rowAction("meta_dump_retention", "Dump run metadata retention counts vs caps")
+        rows[#rows + 1] = rowAction("meta_save_snapshot", "Save run metadata snapshot to save folder (Phase 10)")
         rows[#rows + 1] = rowAction("meta_open_recap", "Open recap screen from current run")
     end
 

@@ -142,6 +142,15 @@ TooltipTemplates.lines = {
     shop_ammo_upgrade = {
         "Increase cylinder capacity by 2 for this run.",
     },
+    attack_enemy_contact_physical = {
+        "Enemy melee contact: {base_min}–{base_max} {family} damage.",
+    },
+    attack_enemy_projectile_physical = {
+        "Enemy projectile: {base_min}–{base_max} {family} damage.",
+    },
+    attack_enemy_projectile_magical = {
+        "Enemy projectile: {base_min}–{base_max} {family} damage.",
+    },
 }
 
 function TooltipTemplates.has(key)

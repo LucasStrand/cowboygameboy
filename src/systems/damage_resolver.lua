@@ -4,6 +4,7 @@ local GameRng = require("src.systems.game_rng")
 local RunMetadata = require("src.systems.run_metadata")
 local SourceRef = require("src.systems.source_ref")
 local StatRuntime = require("src.systems.stat_runtime")
+local AttackProfiles = require("src.data.attack_profiles")
 
 -- Recap "major proc" line: applied perk-sourced damage to enemies at or above this amount.
 local MAJOR_PROC_RECAP_MIN_DAMAGE = 12
@@ -185,7 +186,10 @@ local function liveEnemyContext(packet, source_actor)
     end
 
     local base = source_actor.damage or packet.base_min or 0
-    return {
+    local pid = packet.source and packet.source.owner_source_id
+    local prof = pid and AttackProfiles.get(pid) or nil
+
+    local ctx = {
         base_min = base,
         base_max = base,
         damage = 1,
@@ -197,6 +201,21 @@ local function liveEnemyContext(packet, source_actor)
         armor_pen = 0,
         magic_pen = 0,
     }
+
+    if prof then
+        local offense_ctx = StatRuntime.build_enemy_offense_context(source_actor, prof)
+        local computed = StatRuntime.compute_actor_stats(offense_ctx)
+        ctx.damage = computed.damage or ctx.damage
+        ctx.physical_damage = computed.physical_damage or 0
+        ctx.magical_damage = computed.magical_damage or 0
+        ctx.true_damage = computed.true_damage or 0
+        ctx.crit_chance = computed.crit_chance or 0
+        ctx.crit_damage = normalizeCritDamage(computed.crit_damage)
+        ctx.armor_pen = computed.armor_pen or 0
+        ctx.magic_pen = computed.magic_pen or 0
+    end
+
+    return ctx
 end
 
 local function resolveSourceContext(packet, source_actor)
@@ -214,7 +233,11 @@ local function resolveSourceContext(packet, source_actor)
 end
 
 local function getTargetDefenseState(target_actor, target_kind, packet)
-    if target_kind == "player" then
+    if target_actor and type(target_actor.get_defense_state) == "function" then
+        return target_actor:get_defense_state(packet)
+    end
+
+    if target_kind == "player" and target_actor and target_actor.getEffectiveStats then
         local stats = target_actor:getEffectiveStats()
         local allow_block = not (packet and packet.metadata and packet.metadata.ignore_block)
         return {
@@ -228,6 +251,19 @@ local function getTargetDefenseState(target_actor, target_kind, packet)
             block_damage_mul = (allow_block and target_actor.blocking and (stats.blockReduction or 0) > 0)
                 and (1 - stats.blockReduction)
                 or 1,
+        }
+    end
+
+    if not target_actor then
+        return {
+            armor = 0,
+            magic_resist = 0,
+            armor_shred = 0,
+            magic_shred = 0,
+            incoming_damage_mul = 1,
+            incoming_physical_mul = 1,
+            incoming_magical_mul = 1,
+            block_damage_mul = 1,
         }
     end
 

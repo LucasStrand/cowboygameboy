@@ -37,7 +37,7 @@ Det här **är** framtidssäkring för **skadans och statusens kärna**.
 | **Armor / MR** | Via `getEffectiveStats()` i resolver | Fält finns i resolver-vägen men fylls oftast inte från data; enklare defaults |
 | **Utgående skada** | Vapen + perks + snapshot-kontext i resolver | `liveEnemyContext`: i princip `damage`-fält, begränsad crit/pen-pipeline |
 | **Inventory / gear / vapen-slots** | Ja (`gear`, `weapons`, `WeaponRuntime`) | Nej som samma system — fienden *är* sin attackprofil |
-| **Proc rules** | Perk-lista på spelaren → `proc_runtime` | Inte samma dataväg; skulle kräva “perks på fiende” eller fiende-specifika regler |
+| **Proc rules** | Perk-lista på spelaren → `proc_runtime` (via `getProcRules`) | **Phase 11:** samma motor; regler kan ligga på **attack profile** eller framtida `getProcRules` på NPC |
 
 Alltså: **inkommande** skada kan redan vara “samma spelregler”; **utgående** och **equipment** är medvetet **olika implementationer** idag.
 

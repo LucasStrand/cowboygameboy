@@ -205,6 +205,25 @@ function StatRuntime.export_legacy_stats(final_stats)
     return legacy
 end
 
+function StatRuntime.build_enemy_offense_context(enemy, profile)
+    local flat_sources = {}
+    if enemy and enemy.statuses then
+        local Buffs = require("src.systems.buffs")
+        local mods = Buffs.getStatMods(enemy.statuses)
+        flat_sources.buffs = normalizeStatMap(mods)
+    end
+
+    local base_stats = {}
+    if profile and type(profile.offensive_stats) == "table" then
+        base_stats = normalizeStatMap(profile.offensive_stats)
+    end
+
+    return {
+        base_stats = base_stats,
+        flat_sources = flat_sources,
+    }
+end
+
 function StatRuntime.build_player_context(player, gun, base_gun_stats)
     local flat_sources = {}
     for slot, gear in pairs(player.gear or {}) do

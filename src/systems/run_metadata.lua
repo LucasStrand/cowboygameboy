@@ -3,6 +3,10 @@ local RunMetadata = {}
 -- Phase 10: bounded retention (documented in docs/phases/phase_10_hardening.md)
 RunMetadata.RECAP_EXPORT_VERSION = 1
 RunMetadata.METADATA_RETENTION_VERSION = 1
+-- Phase 10 slice 2: file snapshot bundle version (export/import on disk)
+RunMetadata.METADATA_PERSISTENCE_VERSION = 1
+
+local DEFAULT_PERSIST_SAVE_NAME = "run_metadata_snapshot.lua"
 
 local MAX_DAMAGE_EVENTS_DEALT = 240
 local MAX_DAMAGE_TO_PLAYER_EVENTS = 120
@@ -242,6 +246,7 @@ function RunMetadata.retentionStats(meta)
     local bs = ms.bosses or {}
     return {
         retention_policy_version = RunMetadata.METADATA_RETENTION_VERSION,
+        metadata_persistence_version = RunMetadata.METADATA_PERSISTENCE_VERSION,
         damage_events = #(c.damage_events or {}),
         damage_events_cap = MAX_DAMAGE_EVENTS_DEALT,
         damage_to_player_events = #(c.damage_to_player_events or {}),
@@ -577,6 +582,178 @@ function RunMetadata.finishRun(meta, info)
             or nil,
     }
     RunMetadata.recordBuildSnapshot(meta, info.build_snapshot, info.snapshot_reason or "run_end")
+end
+
+-- --- Phase 10 slice 2: persistable snapshot (metadata only; not full gameplay state) ---
+
+local function deepClonePersistable(v, depth)
+    depth = (depth or 0) + 1
+    if depth > 120 then
+        error("[run_metadata] persist clone depth exceeded", 0)
+    end
+    if v == nil then
+        return nil
+    end
+    local t = type(v)
+    if t == "number" or t == "boolean" or t == "string" then
+        return v
+    end
+    if t ~= "table" then
+        error("[run_metadata] persist clone: unsupported type " .. t, 0)
+    end
+    local out = {}
+    for k, val in pairs(v) do
+        if type(k) ~= "string" and type(k) ~= "number" then
+            error("[run_metadata] persist clone: unsupported key type", 0)
+        end
+        out[k] = deepClonePersistable(val, depth)
+    end
+    return out
+end
+
+local function cmpPersistKeys(a, b)
+    local ta, tb = type(a), type(b)
+    if ta ~= tb then
+        return ta < tb
+    end
+    if ta == "number" then
+        return a < b
+    end
+    return tostring(a) < tostring(b)
+end
+
+local function serializeLuaValue(v, depth)
+    depth = depth or 0
+    if depth > 80 then
+        error("[run_metadata] persist serialize depth exceeded", 0)
+    end
+    local t = type(v)
+    if t == "nil" then
+        return "nil"
+    end
+    if t == "boolean" then
+        return v and "true" or "false"
+    end
+    if t == "number" then
+        if v ~= v or v == math.huge or v == -math.huge then
+            return "0"
+        end
+        local iv = math.floor(v)
+        if iv == v and math.abs(v) < 1e15 then
+            return tostring(iv)
+        end
+        return string.format("%.17g", v)
+    end
+    if t == "string" then
+        return string.format("%q", v)
+    end
+    if t ~= "table" then
+        error("[run_metadata] persist: cannot serialize " .. t, 0)
+    end
+    local keys = {}
+    for k in pairs(v) do
+        keys[#keys + 1] = k
+    end
+    if #keys == 0 then
+        return "{}"
+    end
+    table.sort(keys, cmpPersistKeys)
+    local parts = { "{\n" }
+    for _, k in ipairs(keys) do
+        local val = v[k]
+        local kfrag
+        if type(k) == "string" then
+            kfrag = "[" .. string.format("%q", k) .. "]"
+        else
+            kfrag = "[" .. serializeLuaValue(k, depth + 1) .. "]"
+        end
+        parts[#parts + 1] = "  " .. kfrag .. " = " .. serializeLuaValue(val, depth + 1) .. ",\n"
+    end
+    parts[#parts + 1] = "}"
+    return table.concat(parts)
+end
+
+local function serializePersistBundle(bundle)
+    return "return " .. serializeLuaValue(bundle, 0) .. "\n"
+end
+
+function RunMetadata.exportPersistable(meta)
+    if not meta or type(meta) ~= "table" then
+        return nil
+    end
+    local ok, copy = pcall(deepClonePersistable, meta, 0)
+    if not ok or copy == nil then
+        return nil
+    end
+    return copy
+end
+
+function RunMetadata.importPersistable(bundle)
+    if type(bundle) ~= "table" then
+        return nil, "not_table"
+    end
+    local ver = bundle.metadata_persistence_version
+    if ver ~= RunMetadata.METADATA_PERSISTENCE_VERSION then
+        return nil, "bad_version"
+    end
+    local payload = bundle.payload
+    if type(payload) ~= "table" then
+        return nil, "no_payload"
+    end
+    local ok, meta = pcall(deepClonePersistable, payload, 0)
+    if not ok or meta == nil then
+        return nil, "clone_failed"
+    end
+    return meta, nil
+end
+
+function RunMetadata.defaultPersistPath()
+    return DEFAULT_PERSIST_SAVE_NAME
+end
+
+function RunMetadata.saveToFile(path, meta)
+    path = path or DEFAULT_PERSIST_SAVE_NAME
+    local payload = RunMetadata.exportPersistable(meta)
+    if not payload then
+        return false, "export_failed"
+    end
+    local bundle = {
+        metadata_persistence_version = RunMetadata.METADATA_PERSISTENCE_VERSION,
+        saved_at = (love and love.timer and love.timer.getTime) and love.timer.getTime() or nil,
+        payload = payload,
+    }
+    local okS, srcOrErr = pcall(serializePersistBundle, bundle)
+    if not okS then
+        return false, tostring(srcOrErr)
+    end
+    if not love or not love.filesystem or not love.filesystem.write then
+        return false, "no_love_filesystem"
+    end
+    local okW, err = pcall(love.filesystem.write, path, srcOrErr)
+    if not okW then
+        return false, tostring(err)
+    end
+    return true, nil
+end
+
+function RunMetadata.loadFromFile(path)
+    path = path or DEFAULT_PERSIST_SAVE_NAME
+    if not love or not love.filesystem or not love.filesystem.load then
+        return nil, "no_love_filesystem"
+    end
+    local info = love.filesystem.getInfo(path)
+    if not info then
+        return nil, "missing_file"
+    end
+    local okL, chunk = pcall(love.filesystem.load, path)
+    if not okL or type(chunk) ~= "function" then
+        return nil, "load_fail"
+    end
+    local okD, data = pcall(chunk)
+    if not okD or type(data) ~= "table" then
+        return nil, "bad_data"
+    end
+    return RunMetadata.importPersistable(data)
 end
 
 return RunMetadata

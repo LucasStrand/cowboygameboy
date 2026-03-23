@@ -1,4 +1,6 @@
 local EnemyData = require("src.data.enemies")
+local AttackProfiles = require("src.data.attack_profiles")
+local AttackPacketBuilder = require("src.systems.attack_packet_builder")
 local Vision = require("src.data.vision")
 local DamagePacket = require("src.systems.damage_packet")
 local DamageResolver = require("src.systems.damage_resolver")
@@ -245,13 +247,16 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     self.hp = data.hp
     self.maxHP = data.hp
     self.damage = data.damage
-    self.armor = 0
-    self.magic_resist = 0
-    self.armor_shred = 0
-    self.magic_shred = 0
-    self.incoming_damage_mul = 1
-    self.incoming_physical_mul = 1
-    self.incoming_magical_mul = 1
+    local defense = data.defense or {}
+    self.armor = defense.armor or 0
+    self.magic_resist = defense.magic_resist or 0
+    self.armor_shred = defense.armor_shred or 0
+    self.magic_shred = defense.magic_shred or 0
+    self.incoming_damage_mul = defense.incoming_damage_mul or 1
+    self.incoming_physical_mul = defense.incoming_physical_mul or 1
+    self.incoming_magical_mul = defense.incoming_magical_mul or 1
+    self.contact_attack_id = data.contact_attack_id
+    self.ranged_attack_id = data.ranged_attack_id
     self.speed = data.speed
     self.baseSpeed = data.speed
     self.xpValue = data.xpValue
@@ -352,6 +357,37 @@ function Enemy.new(typeId, x, y, difficulty, opts)
 
     EnemyAI.init(self, data)
     return self
+end
+
+function Enemy:get_defense_state(packet)
+    local _ = packet
+    local mods = Buffs.getStatMods(self.statuses)
+    local armor = (self.armor or 0) + (tonumber(mods.armor) or 0)
+    local mr = (self.magic_resist or 0)
+        + (tonumber(mods.magic_resist) or 0)
+        + (tonumber(mods.magicResist) or 0)
+    return {
+        armor = armor,
+        magic_resist = mr,
+        armor_shred = self.armor_shred or 0,
+        magic_shred = self.magic_shred or 0,
+        incoming_damage_mul = self.incoming_damage_mul or 1,
+        incoming_physical_mul = self.incoming_physical_mul or 1,
+        incoming_magical_mul = self.incoming_magical_mul or 1,
+        block_damage_mul = 1,
+    }
+end
+
+function Enemy:getEquipmentState()
+    return nil
+end
+
+function Enemy:getProcRules()
+    return {}
+end
+
+function Enemy:getAttackProfile(id)
+    return AttackProfiles.get(id)
 end
 
 function Enemy:update(dt, world, context)
@@ -658,16 +694,19 @@ function Enemy:updateRanged(dt, world, dx, dy, dist, playerX, playerY)
         local angle = math.atan2(dy, dx)
         -- Slight inaccuracy
             angle = angle + (GameRng.randomFloat("enemy.projectile_inaccuracy", 0, 1) - 0.5) * 0.15
+        local packet = AttackPacketBuilder.build_enemy_hit(self, "projectile")
         return {
             x = self.x + self.w / 2,
             y = self.y + self.h / 2,
             angle = angle,
             speed = self.bulletSpeed or 380,
+            packet = packet,
+            source_actor = self,
             damage = self.damage,
             fromEnemy = true,
-            damage_family = "physical",
+            damage_family = packet.family,
             packet_kind = "direct_hit",
-            damage_tags = { "projectile", "enemy" },
+            damage_tags = packet.tags,
         }
     end
 

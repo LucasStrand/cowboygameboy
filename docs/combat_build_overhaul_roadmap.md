@@ -35,6 +35,8 @@ Syftet är att:
 | [phases/phase_08_reward_weighting_economy_and_run_metadata.md](./phases/phase_08_reward_weighting_economy_and_run_metadata.md) | Phase 8 implementation log | `implemented + truth gate passed + live recap closeout complete` |
 | [phases/phase_09_ux_readability_pass.md](./phases/phase_09_ux_readability_pass.md) | Phase 9 plan / acceptance contract | `slice 1 implemented` |
 | [phases/phase_10_hardening.md](./phases/phase_10_hardening.md) | Phase 10 plan / acceptance contract | `slice 1 implemented` |
+| [phases/phase_11_actor_parity_baseline.md](./phases/phase_11_actor_parity_baseline.md) | Phase 11 actor / attack profile / proc seams | `baseline slice (see phase doc)` |
+| [actor_combat_contract.md](./actor_combat_contract.md) | CombatActor, AttackProfile, equipment stub | `Phase 11 contract` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -46,9 +48,9 @@ Just nu gäller det:
 
 ## Current Repo Position
 
-- Code audit status: Phases 2–8 complete; **Phase 9 slice 1** (readability / recap / HUD) and **Phase 10 slice 1** (metadata retention caps, scoreboard write hardening, recap defensive paths, regression harness, dev stress preset) are implemented in code.
+- Code audit status: Phases 2–8 complete; **Phase 9 slice 1** (readability / recap / HUD) and **Phase 10 slice 1** (metadata retention caps, scoreboard write hardening, recap defensive paths, regression harness, dev stress preset) are implemented in code. **Phase 11 slice 1** adds actor-paritet: `get_defense_state`, attack profiles för fiende-offense, generaliserad `proc_runtime`, equipment stub, `--phase11-actor-regression`.
 - Canonical truth remains: `run_metadata` → `MetaRuntime.summarize` → recap/export; damage-event rings and long-run metadata tables are **explicitly capped** (see `RunMetadata.retentionStats` and [phase_10_hardening.md](./phases/phase_10_hardening.md)).
-- Regression: run `love . --phase10-regression` from the repo root (prints OK or exits non-zero on failure).
+- Regression: run `love . --phase10-regression` and `love . --phase11-actor-regression` from the repo root (prints OK or exits non-zero on failure).
 
 ### Locked
 
@@ -109,6 +111,7 @@ Just nu gäller det:
 - [x] Phase 8: Economy + rewards + meta + run metadata `implemented + truth gate passed + live recap closeout complete`
 - [x] Phase 9: UX/readability pass `slice 1`
 - [x] Phase 10: Hardening `slice 1`
+- [x] Phase 11: Actor parity baseline `slice 1` (attack profiles, defense seam, proc generalization)
 
 ## Fasordning
 

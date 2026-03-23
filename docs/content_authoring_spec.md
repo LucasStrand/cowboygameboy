@@ -36,7 +36,7 @@ Strategi:
 - specialtext får override:as manuellt
 - `tooltip_key` är default authoring path
 - `tooltip_override` används för regelbrytande eller ovanligt komplex text
-- V1 buildern stöder `perks`, `guns`, `gear`, `statuses` och nuvarande `shop/reward offers`
+- V1 buildern stöder `perks`, `guns`, `gear`, `statuses`, **`attack_profile`** (Phase 11 fiende-offense) och nuvarande `shop/reward offers`
 
 Genereras automatiskt:
 
@@ -110,7 +110,15 @@ V1-contract:
 - hook ids valideras vid load-time
 - Phase 7 använder detta för proc-payoff-feedback och status lifecycle-feedback utan nya combat-lokala specialfall
 
+## Attack profiles (Phase 11)
+
+- Canonical fiende-offense: en rad per attack i `src/data/attack_profiles.lua`.
+- Samma tooltip-kontrakt som övrigt content: `tooltip_key` eller `tooltip_override` krävs; valideras vid load-time.
+- Se [actor_combat_contract.md](./actor_combat_contract.md) för fält och legacy-koppling till `enemy.damage`.
+
 ## Relaterat
 
 - [authoring_readiness_checklist.md](./authoring_readiness_checklist.md) — kodgrindar innan nytt content (sets, proc-AoE, nya families, boss-paritet).
 - [unified_actor_and_content_vision.md](./unified_actor_and_content_vision.md) — mål vs nuläge: enhetlig actor-modell, offense/defense/inventory.
+- [actor_combat_contract.md](./actor_combat_contract.md) — CombatActor, AttackProfile, equipment stub.
+- [phases/phase_11_actor_parity_baseline.md](./phases/phase_11_actor_parity_baseline.md) — acceptance och scope.

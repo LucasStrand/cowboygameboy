@@ -10,6 +10,7 @@ local DamageResolver = require("src.systems.damage_resolver")
 local Buffs = require("src.systems.buffs")
 local GameRng = require("src.systems.game_rng")
 local SourceRef = require("src.systems.source_ref")
+local AttackPacketBuilder = require("src.systems.attack_packet_builder")
 
 local Combat = {}
 
@@ -304,37 +305,8 @@ end
 function Combat.checkMeleeEnemies(enemies, player)
     for _, enemy in ipairs(enemies) do
         if enemy.alive and enemy:canDamagePlayer(player.x, player.y, player.w, player.h) then
-            local packet = DamagePacket.new({
-                kind = "direct_hit",
-                family = "physical",
-                base_min = enemy.damage,
-                base_max = enemy.damage,
-                source = SourceRef.new({
-                    owner_actor_id = enemy.actorId or enemy.typeId or "enemy",
-                    owner_source_type = "enemy_contact",
-                    owner_source_id = enemy.typeId or enemy.name or "enemy",
-                }),
-                tags = { "enemy", "contact" },
-                target_id = player.actorId or "player",
-                snapshot_data = {
-                    source_context = {
-                        base_min = enemy.damage,
-                        base_max = enemy.damage,
-                        damage = 1,
-                        physical_damage = 0,
-                        magical_damage = 0,
-                        true_damage = 0,
-                        crit_chance = 0,
-                        crit_damage = 1.5,
-                        armor_pen = 0,
-                        magic_pen = 0,
-                    },
-                },
-                metadata = {
-                    source_context_kind = "enemy_contact",
-                    source_attack_id = enemy.typeId or enemy.name or "enemy",
-                },
-            })
+            local packet = AttackPacketBuilder.build_enemy_hit(enemy, "contact")
+            packet.target_id = player.actorId or "player"
             local result = DamageResolver.resolve_direct_hit({
                 packet = packet,
                 source_actor = enemy,
@@ -363,37 +335,8 @@ function Combat.checkContactDamage(enemies, player)
                 local dist = math.sqrt((ex - px)^2 + (ey - py)^2)
                 local hitR = enemy.contactRange or enemy.attackRange
                 if dist <= hitR then
-                    local packet = DamagePacket.new({
-                        kind = "direct_hit",
-                        family = "physical",
-                        base_min = enemy.damage,
-                        base_max = enemy.damage,
-                        source = SourceRef.new({
-                            owner_actor_id = enemy.actorId or enemy.typeId or "enemy",
-                            owner_source_type = "enemy_contact",
-                            owner_source_id = enemy.typeId or enemy.name or "enemy",
-                        }),
-                        tags = { "enemy", "contact" },
-                        target_id = player.actorId or "player",
-                        snapshot_data = {
-                            source_context = {
-                                base_min = enemy.damage,
-                                base_max = enemy.damage,
-                                damage = 1,
-                                physical_damage = 0,
-                                magical_damage = 0,
-                                true_damage = 0,
-                                crit_chance = 0,
-                                crit_damage = 1.5,
-                                armor_pen = 0,
-                                magic_pen = 0,
-                            },
-                        },
-                        metadata = {
-                            source_context_kind = "enemy_contact",
-                            source_attack_id = enemy.typeId or enemy.name or "enemy",
-                        },
-                    })
+                    local packet = AttackPacketBuilder.build_enemy_hit(enemy, "contact")
+                    packet.target_id = player.actorId or "player"
                     local result = DamageResolver.resolve_direct_hit({
                         packet = packet,
                         source_actor = enemy,

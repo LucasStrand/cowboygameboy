@@ -92,6 +92,21 @@ function love.load()
         return
     end
 
+    if hasCliFlag("--phase11-actor-regression") then
+        local Phase11Reg = require("src.systems.phase11_actor_regression")
+        local ok, err = Phase11Reg.run()
+        if ok then
+            print("[phase11-actor-regression] OK")
+        else
+            print("[phase11-actor-regression] FAIL: " .. tostring(err))
+            if os and os.exit then
+                os.exit(1)
+            end
+        end
+        love.event.quit()
+        return
+    end
+
     syncGameDimensions()
     updateCanvasScale()
     

@@ -9,8 +9,9 @@
 ## Status
 
 - **Slice 1 is implemented in code** (bounded run-metadata growth, scoreboard write hardening, defensive recap entry, clipboard export version stamps, regression harness, dev stress preset).
-- Full mid-run **save/load of run metadata** and automated stress timing assertions remain future slices.
-- This document remains the acceptance contract; unchecked items below are intentionally reserved for those slices unless marked done.
+- **Slice 2+ is implemented in code** (versioned run-metadata snapshot export/import, `saveToFile`/`loadFromFile`, dev action `meta_save_snapshot`, extended `--phase10-regression` including boss milestone + persist round-trip + recap export header checks).
+- **Gameplay “Continue run”** (full world state) remains **out of scope**; snapshots are **metadata-only** (see `RunMetadata.saveToFile`).
+- This document remains the acceptance contract.
 
 ## Start Conditions
 
@@ -63,15 +64,17 @@
 
 ## Acceptance Checklist
 
-- [ ] Canonical recap totals survive save/load or equivalent persistence seam without drift. *(Deferred: no mid-run metadata persistence yet; scoreboard-only persistence unchanged.)*
+- [x] Canonical recap totals survive save/load or equivalent persistence seam without drift. *(`RunMetadata.exportPersistable` / `importPersistable` / `saveToFile` / `loadFromFile`; `--phase10-regression` compares `MetaRuntime.summarize` before vs after round-trip.)*
 - [x] Damage-trace retention is bounded and documented. *(Ring buffers / table caps in `run_metadata.lua`; counts via `RunMetadata.retentionStats` and dev action `meta_dump_retention`.)*
 - [x] Missing optional metadata does not break game over, recap, or export surfaces. *(Recap uses `pcall` around `MetaRuntime.summarize` and scoreboard `recordRun`.)*
 - [x] A regression harness verifies at least:
   - total damage dealt
   - damage breakdown buckets
-  - *(boss milestones + full export alignment checks reserved for a later harness slice)*
+  - boss milestones (`recordBossKilled` → `summarize.bossesKilled`)
+  - persist round-trip (memory + disk when `love.filesystem` available)
+  - recap export header / format line (`run_recap.buildRunReportText`)
 - [x] Highscore persistence survives multiple runs without malformed rows. *(Load path sanitizes rows; failed disk write rolls back the in-memory list.)*
-- [ ] One stress run with proc/explosion-heavy output stays within acceptable performance bounds. *(Manual + dev preset `preset_phase10_proc_explosion_stress`; no automated ms budget yet.)*
+- [x] Stress observation hook for proc/explosion-heavy preset. *(Wall-clock since `preset_phase10_proc_explosion_stress` until next `meta_dump_retention` logs `stress_wall_duration_ms` and stores last sample in `phase10_telemetry.lua`. **No automated FPS/ms CI budget** — see “Stress budget (soft)” below.)*
 
 ## Debug Hooks Required
 

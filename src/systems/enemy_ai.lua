@@ -1,6 +1,5 @@
-local DamagePacket = require("src.systems.damage_packet")
 local GameRng = require("src.systems.game_rng")
-local SourceRef = require("src.systems.source_ref")
+local AttackPacketBuilder = require("src.systems.attack_packet_builder")
 
 local EnemyAI = {}
 
@@ -714,47 +713,9 @@ local function tryRangedAttack(enemy, senses)
     local angle = math.atan2(senses.dy, senses.dx)
     local spread = math.max(0.01, enemy.ai.attackInaccuracy / enemy.accuracyScale)
     angle = angle + randSigned(spread)
-    local source_ref = SourceRef.new({
-        owner_actor_id = enemy.actorId or enemy.typeId or "enemy",
-        owner_source_type = "enemy_attack",
-        owner_source_id = enemy.typeId or enemy.name or "enemy",
-    })
-    local family = enemy.typeId == "necromancer" and "magical" or "physical"
-    local tags = { "projectile", "enemy" }
-    if enemy.typeId == "necromancer" then
-        tags[#tags + 1] = "damage:fire"
-    end
-    local packet = DamagePacket.new({
-        kind = "direct_hit",
-        family = family,
-        base_min = enemy.damage,
-        base_max = enemy.damage,
-        can_crit = true,
-        counts_as_hit = true,
-        can_trigger_on_hit = true,
-        can_trigger_proc = true,
-        can_lifesteal = false,
-        source = source_ref,
-        tags = tags,
-        snapshot_data = {
-            source_context = {
-                base_min = enemy.damage,
-                base_max = enemy.damage,
-                damage = 1,
-                physical_damage = family == "physical" and 0 or 0,
-                magical_damage = family == "magical" and 0 or 0,
-                true_damage = 0,
-                crit_chance = 0,
-                crit_damage = 1.5,
-                armor_pen = 0,
-                magic_pen = 0,
-            },
-        },
-        metadata = {
-            source_context_kind = "enemy_projectile",
-            source_attack_id = source_ref.owner_source_id,
-        },
-    })
+    local packet = AttackPacketBuilder.build_enemy_hit(enemy, "projectile")
+    local family = packet.family
+    local tags = packet.tags
 
     return {
         x = enemy.x + enemy.w * 0.5,

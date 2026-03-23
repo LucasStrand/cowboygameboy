@@ -15,6 +15,7 @@ local RunMetadata = require("src.systems.run_metadata")
 local SourceRef = require("src.systems.source_ref")
 local StatRuntime = require("src.systems.stat_runtime")
 local WeaponRuntime = require("src.systems.weapon_runtime")
+local Perks = require("src.data.perks")
 
 -- Monster Energy (saloon): each drink heals to full; walk-speed bonus stacks with diminishing returns.
 local MONSTER_MOVE_FIRST = 44
@@ -940,6 +941,41 @@ function Player:addUltCharge(amount)
     if not wasFull and self.ultCharge >= 1 then
         Sfx.play("ult_ready")
     end
+end
+
+function Player:get_defense_state(packet)
+    local stats = self:getEffectiveStats()
+    local allow_block = not (packet and packet.metadata and packet.metadata.ignore_block)
+    return {
+        armor = stats.armor or 0,
+        magic_resist = stats.magicResist or 0,
+        armor_shred = self.armorShred or 0,
+        magic_shred = self.magicShred or 0,
+        incoming_damage_mul = self.incomingDamageMul or 1,
+        incoming_physical_mul = self.incomingPhysicalMul or 1,
+        incoming_magical_mul = self.incomingMagicalMul or 1,
+        block_damage_mul = (allow_block and self.blocking and (stats.blockReduction or 0) > 0)
+            and (1 - stats.blockReduction)
+            or 1,
+    }
+end
+
+function Player:getProcRules()
+    local out = {}
+    for _, perk_id in ipairs(self.perks or {}) do
+        local perk = Perks.getById and Perks.getById(perk_id) or nil
+        for _, rule in ipairs((perk and perk.proc_rules) or {}) do
+            out[#out + 1] = {
+                rule = rule,
+                meta = { kind = "perk", perk = perk },
+            }
+        end
+    end
+    return out
+end
+
+function Player:getEquipmentState()
+    return nil
 end
 
 function Player:takeDamage(amount, packet)

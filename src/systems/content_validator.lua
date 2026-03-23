@@ -5,6 +5,16 @@ local TooltipTemplates = require("src.data.tooltip_templates")
 
 local ContentValidator = {}
 
+local KNOWN_DAMAGE_FAMILIES = {
+    physical = true,
+    magical = true,
+    ["true"] = true,
+}
+
+local KNOWN_ATTACK_PACKET_KINDS = {
+    direct_hit = true,
+}
+
 local KNOWN_RARITIES = {
     common = true,
     uncommon = true,
@@ -30,6 +40,7 @@ local KNOWN_TAGS = {
     wet = true,
     projectile = true,
     melee = true,
+    contact = true,
     player = true,
     enemy = true,
     dot = true,
@@ -213,6 +224,34 @@ local function validatePresentationHooks(content_type, content_id, item)
     end
 end
 
+local function validateAttackProfiles()
+    local AttackProfiles = require("src.data.attack_profiles")
+    for _, profile in ipairs(AttackProfiles.pool or {}) do
+        local id = profile.id or "<missing>"
+        if not profile.id then fail("attack_profile", id, "id", "missing id") end
+        if type(profile.kind) ~= "string" or not KNOWN_ATTACK_PACKET_KINDS[profile.kind] then
+            fail("attack_profile", id, "kind", "expected supported packet kind (slice: direct_hit)")
+        end
+        if type(profile.family) ~= "string" or not KNOWN_DAMAGE_FAMILIES[profile.family] then
+            fail("attack_profile", id, "family", "unknown family '" .. tostring(profile.family) .. "'")
+        end
+        if type(profile.base_min) ~= "number" or type(profile.base_max) ~= "number" then
+            fail("attack_profile", id, "base_min/base_max", "expected numbers")
+        end
+        if profile.delivery ~= nil and profile.delivery ~= "contact" and profile.delivery ~= "projectile" then
+            fail("attack_profile", id, "delivery", "expected 'contact' or 'projectile'")
+        end
+        if profile.offensive_stats then
+            validateStatMap("attack_profile", id, "offensive_stats", profile.offensive_stats)
+        end
+        validateOptionalTags("attack_profile", id, "tags", profile.tags)
+        validateStatusApplications("attack_profile", id, "status_applications", profile.status_applications)
+        validateProcRules("attack_profile", id, "proc_rules", profile.proc_rules)
+        validateTooltipSpec("attack_profile", id, profile, true)
+        validatePresentationHooks("attack_profile", id, profile)
+    end
+end
+
 local function validateShopOffers()
     local Shop = require("src.systems.shop")
     Shop.validateOfferSpecs()
@@ -337,6 +376,7 @@ end
 function ContentValidator.validate_combat_content()
     validateGuns()
     validatePerks()
+    validateAttackProfiles()
     validateGear()
     validateWeapons()
     validateBuffs()

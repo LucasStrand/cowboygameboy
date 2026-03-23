@@ -109,6 +109,14 @@ local function resolveOfferTokens(item)
     return shallowCopy(item.tooltip_tokens)
 end
 
+local function resolveAttackProfileTokens(item)
+    local tokens = shallowCopy(item.tooltip_tokens)
+    tokens.base_min = tokens.base_min or item.base_min
+    tokens.base_max = tokens.base_max or item.base_max
+    tokens.family = tokens.family or item.family
+    return tokens
+end
+
 function ContentTooltips.getLines(content_type, item, runtime_ctx)
     local _ = runtime_ctx
     if type(item) ~= "table" then
@@ -130,6 +138,8 @@ function ContentTooltips.getLines(content_type, item, runtime_ctx)
             tokens = resolveStatusTokens(item)
         elseif content_type == "offer" then
             tokens = resolveOfferTokens(item)
+        elseif content_type == "attack_profile" then
+            tokens = resolveAttackProfileTokens(item)
         else
             tokens = resolvePerkTokens(item)
         end

@@ -12,6 +12,8 @@ love .
 
 Phase 10 regression (metadata/recap seams): `love . --phase10-regression`
 
+Phase 11 regression (actor defense, attack profiles, enemy proc path): `love . --phase11-actor-regression`
+
 On Windows you can also drag the repo folder onto `love.exe`.
 
 ## Debug and Development Tools

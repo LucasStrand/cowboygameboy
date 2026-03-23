@@ -318,6 +318,11 @@ local function buildRunReportText(run_meta, current_summary, current_stats, buil
     return table.concat(lines, "\n")
 end
 
+--- Regression / tooling: same text as clipboard "full report" body builder.
+function run_recap.buildRunReportText(run_meta, current_summary, current_stats, build)
+    return buildRunReportText(run_meta, current_summary, current_stats, build)
+end
+
 local function copyText(label, text)
     if love.system and love.system.setClipboardText then
         love.system.setClipboardText(text)

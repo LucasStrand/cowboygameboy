@@ -1,7 +1,7 @@
 local CombatEvents = require("src.systems.combat_events")
 local DamagePacket = require("src.systems.damage_packet")
 local DamageResolver = require("src.systems.damage_resolver")
-local Perks = require("src.data.perks")
+local AttackProfiles = require("src.data.attack_profiles")
 local SourceRef = require("src.systems.source_ref")
 
 local ProcRuntime = {
@@ -28,18 +28,29 @@ local function makeCounterKey(rule, payload)
     }, "|")
 end
 
-local function getPlayerProcRules(player)
-    local rules = {}
-    for _, perk_id in ipairs(player.perks or {}) do
-        local perk = Perks.getById and Perks.getById(perk_id) or nil
-        for _, rule in ipairs((perk and perk.proc_rules) or {}) do
-            rules[#rules + 1] = {
-                perk = perk,
-                rule = rule,
-            }
+local function collectProcEntries(source_actor, payload)
+    local entries = {}
+    if source_actor and type(source_actor.getProcRules) == "function" then
+        local actor_rules = source_actor:getProcRules()
+        if actor_rules then
+            for _, entry in ipairs(actor_rules) do
+                entries[#entries + 1] = entry
+            end
         end
     end
-    return rules
+    if source_actor and source_actor.isEnemy and payload.packet and payload.packet.source then
+        local pid = payload.packet.source.owner_source_id
+        local prof = pid and AttackProfiles.get(pid) or nil
+        if prof and prof.proc_rules then
+            for _, rule in ipairs(prof.proc_rules) do
+                entries[#entries + 1] = {
+                    rule = rule,
+                    meta = { kind = "attack_profile", profile_id = prof.id },
+                }
+            end
+        end
+    end
+    return entries
 end
 
 local function packetCanEvaluateProcs(payload)
@@ -75,6 +86,24 @@ end
 local function buildProcPacket(entry, payload, proc_damage)
     local source_ref = payload.source_ref or {}
     local proc_rule_id = entry.rule.id or "proc_rule"
+    local meta = entry.meta or {}
+    local owner_source_type = "perk"
+    local owner_source_id = "proc"
+    local md = {
+        proc_rule_id = proc_rule_id,
+        source_context_kind = "snapshot_only",
+    }
+
+    if meta.kind == "perk" and meta.perk then
+        owner_source_type = "perk"
+        owner_source_id = meta.perk.id
+        md.proc_source_perk_id = meta.perk.id
+        md.source_context_kind = "player_weapon_proc"
+    elseif meta.kind == "attack_profile" then
+        owner_source_type = "attack_profile"
+        owner_source_id = meta.profile_id or "attack_profile"
+    end
+
     return DamagePacket.new({
         kind = "delayed_secondary_hit",
         family = entry.rule.effect.family or "true",
@@ -89,8 +118,8 @@ local function buildProcPacket(entry, payload, proc_damage)
         proc_depth = (payload.packet.proc_depth or 0) + 1,
         source = SourceRef.new({
             owner_actor_id = source_ref.owner_actor_id,
-            owner_source_type = "perk",
-            owner_source_id = entry.perk.id,
+            owner_source_type = owner_source_type,
+            owner_source_id = owner_source_id,
             parent_source_id = source_ref.owner_source_id,
         }),
         tags = { "proc", "delayed", "true_damage", proc_rule_id },
@@ -109,15 +138,11 @@ local function buildProcPacket(entry, payload, proc_damage)
                 magic_pen = 0,
             },
         },
-        metadata = {
-            proc_rule_id = proc_rule_id,
-            proc_source_perk_id = entry.perk.id,
-            source_context_kind = "player_weapon_proc",
-        },
+        metadata = md,
     })
 end
 
-local function queueEveryNthHit(entry, state, payload)
+local function queueEveryNthHit(entry, payload)
     local pre_defense = payload.pre_defense_damage or 0
     local effect = entry.rule.effect or {}
     local scaled_damage = math.max(
@@ -125,10 +150,11 @@ local function queueEveryNthHit(entry, state, payload)
         math.floor(pre_defense * (effect.damage_scale or 0))
     )
     local packet = buildProcPacket(entry, payload, scaled_damage)
+    local source_actor = payload.source_actor
     DamageResolver.enqueueSecondaryJob({
-        delay = effect.delay or 0.08,
+        delay = effect.delay ~= nil and effect.delay or 0.08,
         packet = packet,
-        source_actor = state.player,
+        source_actor = source_actor,
         target_selector = "actor_id",
         target_id = payload.target_id,
         target_kind = payload.target_kind,
@@ -146,11 +172,12 @@ local function handleOnHit(state, payload)
     if not packetCanEvaluateProcs(payload) then
         return
     end
-    if not state.player or not payload.source_ref or payload.source_ref.owner_actor_id ~= state.player.actorId then
+    local source_actor = payload.source_actor
+    if not source_actor or not payload.source_ref or payload.source_ref.owner_actor_id ~= source_actor.actorId then
         return
     end
 
-    for _, entry in ipairs(getPlayerProcRules(state.player)) do
+    for _, entry in ipairs(collectProcEntries(source_actor, payload)) do
         local rule = entry.rule
         if ruleMatchesPayload(rule, payload) and rule.counter and rule.counter.mode == "source_target_hits" then
             local key = makeCounterKey(rule, payload)
@@ -166,16 +193,15 @@ local function handleOnHit(state, payload)
             if count >= (rule.counter.every_n or 1) then
                 state.counters[key] = 0
                 if rule.effect and rule.effect.type == "delayed_damage" then
-                    queueEveryNthHit(entry, state, payload)
+                    queueEveryNthHit(entry, payload)
                 end
             end
         end
     end
 end
 
-function ProcRuntime.init(player)
+function ProcRuntime.init(_player)
     local state = {
-        player = player,
         counters = {},
     }
     CombatEvents.subscribe("OnHit", function(payload)
