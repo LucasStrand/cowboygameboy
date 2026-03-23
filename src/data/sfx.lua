@@ -11,6 +11,8 @@ SfxData.paths = {
     dash = "SoundPack/Other/whoosh_1.wav",
     jump = "SoundPack/Retro/jump_short.wav",
     hit_enemy = "Impact/impactMetal_light_002.ogg",
+    --- Player-sourced enemy kill payoff (heavier than hit_enemy; distinct from melee_hit swipe/punch).
+    enemy_kill = "Impact/impactPunch_heavy_000.ogg",
     hit_wall = "Impact/impactGeneric_light_001.ogg",
     ricochet = "Impact/impactMetal_light_001.ogg",
     explosion = "SoundPack/Retro/explosion_small.wav",
@@ -70,6 +72,12 @@ SfxData.paths = {
     chips_handle_4 = "Casino/chips-handle-4.ogg",
     chips_handle_5 = "Casino/chips-handle-5.ogg",
     chips_handle_6 = "Casino/chips-handle-6.ogg",
+}
+
+--- Optional volume/pitch jitter for high-frequency cues (see src/systems/sfx.lua).
+SfxData.play_variation = {
+    shoot = { volume = 0.1, pitch = 0.065 },
+    hit_enemy = { volume = 0.11, pitch = 0.075 },
 }
 
 return SfxData

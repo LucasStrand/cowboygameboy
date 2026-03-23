@@ -1526,6 +1526,15 @@ local function initGameplayWorld()
         shakeTimer = math.max(shakeTimer or 0, duration)
         shakeIntensity = math.max(shakeIntensity or 0, intensity)
     end)
+    Combat.setKillShakeHook(function(duration, intensity)
+        duration = tonumber(duration) or 0
+        intensity = tonumber(intensity) or 0
+        if duration <= 0 or intensity <= 0 then
+            return
+        end
+        shakeTimer = math.max(shakeTimer or 0, duration)
+        shakeIntensity = math.max(shakeIntensity or 0, intensity)
+    end)
 end
 
 local function configureGameplayRun(opts)

@@ -8,9 +8,9 @@ function Bullet.new(data)
     local self = setmetatable({}, Bullet)
     self.x = data.x
     self.y = data.y
-    -- Small axis-aligned hitbox (visual is drawn along travel direction below).
-    self.w = data.w or 3
-    self.h = data.h or 2
+    -- Axis-aligned bump box (slightly larger than the slug draw for readable hits).
+    self.w = data.w or 5
+    self.h = data.h or 3
     self.angle = data.angle
     self.speed = data.speed or 500
     self.packet = data.packet
@@ -125,8 +125,8 @@ end
 function Bullet:draw()
     local cx = self.x + self.w * 0.5
     local cy = self.y + self.h * 0.5
-    local len = self.ultBullet and 8.5 or 5.5
-    local halfW = self.ultBullet and 1.15 or 0.95
+    local len = self.ultBullet and 9.5 or 6.8
+    local halfW = self.ultBullet and 1.2 or 1.05
 
     love.graphics.push()
     love.graphics.translate(cx, cy)
@@ -138,15 +138,15 @@ function Bullet:draw()
         love.graphics.setColor(1, 0.95, 0.55)
         love.graphics.rectangle("fill", len * 0.5 - 1.6, -halfW * 0.7, 1.6, halfW * 1.4, 0.35, 0.35)
     elseif self.fromEnemy then
-        love.graphics.setColor(0.55, 0.14, 0.12)
+        love.graphics.setColor(0.62, 0.18, 0.14)
         love.graphics.rectangle("fill", -len * 0.5 + 0.4, -halfW, len - 1.2, halfW * 2, 0.45, 0.45)
-        love.graphics.setColor(1, 0.45, 0.38)
-        love.graphics.rectangle("fill", len * 0.5 - 1.35, -halfW * 0.72, 1.35, halfW * 1.44, 0.3, 0.3)
+        love.graphics.setColor(1, 0.52, 0.42)
+        love.graphics.rectangle("fill", len * 0.5 - 1.45, -halfW * 0.72, 1.45, halfW * 1.44, 0.3, 0.3)
     else
-        love.graphics.setColor(0.5, 0.38, 0.14)
+        love.graphics.setColor(0.58, 0.44, 0.16)
         love.graphics.rectangle("fill", -len * 0.5 + 0.4, -halfW, len - 1.2, halfW * 2, 0.45, 0.45)
-        love.graphics.setColor(0.92, 0.88, 0.78)
-        love.graphics.rectangle("fill", len * 0.5 - 1.35, -halfW * 0.72, 1.35, halfW * 1.44, 0.3, 0.3)
+        love.graphics.setColor(1, 0.96, 0.82)
+        love.graphics.rectangle("fill", len * 0.5 - 1.45, -halfW * 0.72, 1.45, halfW * 1.44, 0.3, 0.3)
     end
 
     love.graphics.pop()

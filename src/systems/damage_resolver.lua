@@ -618,6 +618,7 @@ function DamageResolver.processSecondaryJobs(ctx)
                                 target_actor = enemy,
                                 x = ex,
                                 y = ey,
+                                source_actor = job.source_actor,
                             })
                         end
                     end
@@ -650,6 +651,7 @@ function DamageResolver.processSecondaryJobs(ctx)
                         target_actor = target_actor,
                         x = tx,
                         y = ty,
+                        source_actor = job.source_actor,
                     })
                 end
             end

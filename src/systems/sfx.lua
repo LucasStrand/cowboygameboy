@@ -7,6 +7,7 @@ local prefix = "assets/sounds/"
 local SFX_BASE_GAIN = 0.48
 
 --- Play a one-shot by logical id from src/data/sfx.lua. opts.volume multiplies the cue (default 1).
+--- opts.pitch sets playback pitch; opts.no_variation skips automatic jitter for ids in SfxData.play_variation.
 function Sfx.play(id, opts)
     opts = opts or {}
     local rel = SfxData.paths and SfxData.paths[id]
@@ -19,7 +20,20 @@ function Sfx.play(id, opts)
         return
     end
     local mul = opts.volume ~= nil and opts.volume or 1
-    src:setVolume(mul * Settings.getSfxVolumeMul() * SFX_BASE_GAIN)
+    local pitch = opts.pitch
+    if pitch == nil and not opts.no_variation then
+        local var = SfxData.play_variation and SfxData.play_variation[id]
+        if var then
+            local vm = var.volume or 0.08
+            local pm = var.pitch or 0.06
+            mul = mul * (1 + (love.math.random() - 0.5) * 2 * vm)
+            pitch = 1 + (love.math.random() - 0.5) * 2 * pm
+        end
+    end
+    if type(pitch) == "number" and pitch ~= 1 then
+        src:setPitch(math.max(0.35, math.min(2.2, pitch)))
+    end
+    src:setVolume(math.max(0, mul * Settings.getSfxVolumeMul() * SFX_BASE_GAIN))
     src:play()
 end
 

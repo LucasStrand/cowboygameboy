@@ -15,10 +15,42 @@ local AttackPacketBuilder = require("src.systems.attack_packet_builder")
 local Combat = {}
 
 local explosiveShakeHook = nil
+local killShakeHook = nil
 
 --- Optional callback(duration, intensity) from gameplay (e.g. game.lua camera shake) for player explosive hits.
 function Combat.setExplosiveShakeHook(cb)
     explosiveShakeHook = cb
+end
+
+--- Optional callback(duration, intensity) for player-sourced enemy kills (lighter than explosive).
+function Combat.setKillShakeHook(cb)
+    killShakeHook = cb
+end
+
+local function tryKillShake(duration, intensity)
+    if not killShakeHook then
+        return
+    end
+    duration = tonumber(duration) or 0.09
+    intensity = tonumber(intensity) or 1.35
+    if duration <= 0 or intensity <= 0 then
+        return
+    end
+    killShakeHook(duration, intensity)
+end
+
+--- Extra juice when the player kills an enemy (SFX + optional burst FX + camera hook).
+local function playPlayerEnemyKillFeedback(hitX, hitY, opts)
+    opts = opts or {}
+    if not opts.skipBurst then
+        ImpactFX.spawn(hitX, hitY, "explosion_small", { scale_mul = opts.burst_scale or 1.22 })
+    end
+    Sfx.play("enemy_kill", {
+        volume = opts.quiet_sfx and 0.44 or 0.9,
+        pitch = opts.quiet_sfx and 1.12 or 1.04,
+        no_variation = true,
+    })
+    tryKillShake(opts.shake_dur or (opts.quiet_sfx and 0.07 or 0.09), opts.shake_int or (opts.quiet_sfx and 1.12 or 1.35))
 end
 
 local function tryExplosiveShake(effect_id)
@@ -155,33 +187,39 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
         if b.hitEnemy then
             local hitX = b.x + b.w / 2
             local hitY = b.y + b.h / 2
+            local enemyRef = b.hitEnemy
             local packet = b.packet or DamagePacket.new({
                 kind = b.packet_kind or "direct_hit",
                 family = b.damage_family or "physical",
                 amount = b.damage,
                 source = b.source_ref,
                 tags = b.damage_tags,
-                target_id = b.hitEnemy.actorId or b.hitEnemy.typeId or b.hitEnemy.name,
+                target_id = enemyRef.actorId or enemyRef.typeId or enemyRef.name,
             })
             local result = DamageResolver.resolve_direct_hit({
                 packet = packet,
                 source_actor = b.source_actor,
-                target_actor = b.hitEnemy,
+                target_actor = enemyRef,
                 target_kind = "enemy",
                 world = world,
             })
             if result.applied then
-                applyStatusApplications(packet, result, b.source_actor, b.hitEnemy, "enemy", world)
-                DamageNumbers.spawn(hitX, hitY, result.final_damage, "out")
+                applyStatusApplications(packet, result, b.source_actor, enemyRef, "enemy", world)
+                DamageNumbers.spawn(hitX, hitY, result.final_damage, "out", { was_crit = result.was_crit })
                 local fxScale = b.ultBullet and 2.0 or nil
                 local metadata = packet.metadata or {}
                 local explosiveHit = b.explosive or metadata.explosion_radius ~= nil
+                local isPlayerBullet = not b.fromEnemy and b.source_actor and b.source_actor.isPlayer
+                local killed = result.target_killed
+
                 if explosiveHit then
                     local fxId = b.impact_fx_id or metadata.impact_fx_id or "explosion_medium"
                     ImpactFX.spawn(hitX, hitY, fxId)
-                    if not b.fromEnemy then
+                    if isPlayerBullet then
                         tryExplosiveShake(fxId)
                     end
+                elseif killed and isPlayerBullet then
+                    ImpactFX.spawn(hitX, hitY, "hit_enemy", { scale_mul = fxScale and fxScale * 1.08 or 1.08 })
                 else
                     ImpactFX.spawn(hitX, hitY, "hit_enemy", { scale_mul = fxScale })
                 end
@@ -189,7 +227,22 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
                     ImpactFX.spawn(hitX, hitY - 8, "melee", { scale_mul = fxScale })
                 end
                 if not b.fromEnemy then
-                    Sfx.play(explosiveHit and (b.explosion_sfx_id or metadata.explosion_sfx_id or "explosion") or "hit_enemy")
+                    if killed and isPlayerBullet then
+                        playPlayerEnemyKillFeedback(hitX, hitY, {
+                            skipBurst = explosiveHit,
+                            quiet_sfx = explosiveHit,
+                        })
+                        if explosiveHit then
+                            Sfx.play(b.explosion_sfx_id or metadata.explosion_sfx_id or "explosion")
+                        end
+                    else
+                        Sfx.play(explosiveHit and (b.explosion_sfx_id or metadata.explosion_sfx_id or "explosion") or "hit_enemy")
+                    end
+                end
+                if isPlayerBullet and enemyRef.alive and not killed then
+                    local imp = 32
+                    enemyRef.vx = (enemyRef.vx or 0) + math.cos(b.angle) * imp
+                    enemyRef.vy = (enemyRef.vy or 0) + math.sin(b.angle) * imp
                 end
             end
         end
@@ -238,7 +291,12 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
         player = player,
     })
     for _, entry in ipairs(secondary_results) do
-        DamageNumbers.spawn(entry.x, entry.y - 4, entry.result.final_damage, "out")
+        local r = entry.result
+        DamageNumbers.spawn(entry.x, entry.y - 4, r.final_damage, "out", { was_crit = r.was_crit })
+        local src = entry.source_actor
+        if r.target_killed and src and src.isPlayer then
+            playPlayerEnemyKillFeedback(entry.x, entry.y - 4, { quiet_sfx = true, skipBurst = false, burst_scale = 1.18 })
+        end
     end
 
     return #allDrops > 0 and allDrops or nil
@@ -488,7 +546,8 @@ function Combat.checkPlayerMelee(player, enemies)
                 })
                 if result.applied then
                     applyStatusApplications(packet, result, player, e, "enemy", nil)
-                    DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, result.final_damage, "out")
+                    local ecx, ecy = e.x + e.w / 2, e.y + e.h / 2 - 4
+                    DamageNumbers.spawn(ecx, ecy, result.final_damage, "out", { was_crit = result.was_crit })
                     ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee", nil, player.meleeAimAngle)
                     Sfx.play("melee_hit")
                     player.meleeHitEnemies[e] = true
@@ -496,6 +555,9 @@ function Combat.checkPlayerMelee(player, enemies)
                     local a = player.meleeAimAngle
                     e.vx = (e.vx or 0) + math.cos(a) * s.meleeKnockback
                     e.vy = (e.vy or 0) + math.sin(a) * s.meleeKnockback
+                    if result.target_killed then
+                        playPlayerEnemyKillFeedback(ecx, ecy + 4, { burst_scale = 1.12 })
+                    end
                     if debugLog then
                         debugLog("Melee hit " .. (e.name or "enemy") .. " for " .. tostring(result.final_damage))
                     end

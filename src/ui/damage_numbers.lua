@@ -7,6 +7,7 @@ local DamageNumbers = {}
 
 local items = {}
 local font
+local fontCrit
 
 local function getFont()
     if not font then
@@ -15,21 +16,33 @@ local function getFont()
     return font
 end
 
+local function getFontCrit()
+    if not fontCrit then
+        fontCrit = Font.new(20)
+    end
+    return fontCrit
+end
+
 function DamageNumbers.clear()
     items = {}
 end
 
-function DamageNumbers.spawn(x, y, amount, kind)
+--- opts.was_crit: larger, warmer popup for critical hits (outgoing damage only).
+function DamageNumbers.spawn(x, y, amount, kind, opts)
+    opts = opts or {}
     if not amount or amount <= 0 then return end
+    local isIn = kind == "in"
+    local wasCrit = not isIn and opts.was_crit == true
     table.insert(items, {
-        x = x + (math.random() - 0.5) * 14,
+        x = x + (math.random() - 0.5) * (wasCrit and 18 or 14),
         y = y,
         text = tostring(math.floor(amount)),
-        kind = kind == "in" and "in" or "out",
+        kind = isIn and "in" or "out",
+        crit = wasCrit,
         t = 0,
-        life = 0.9,
-        vy = -38 - math.random() * 18,
-        vx = (math.random() - 0.5) * 24,
+        life = wasCrit and 1.05 or 0.9,
+        vy = wasCrit and (-50 - math.random() * 24) or (-38 - math.random() * 18),
+        vx = (math.random() - 0.5) * (wasCrit and 30 or 24),
     })
 end
 
@@ -83,15 +96,18 @@ function DamageNumbers.draw()
     local vfx = Settings.getVfxMul()
     if vfx <= 0.001 then return end
 
-    local f = getFont()
     local prev = love.graphics.getFont()
-    love.graphics.setFont(f)
 
     for _, p in ipairs(items) do
+        local f = p.crit and getFontCrit() or getFont()
+        love.graphics.setFont(f)
+
         local fade = math.max(0, 1 - (p.t / p.life) ^ 1.15) * vfx
         local r, g, b = 1, 0.92, 0.38
         if p.kind == "in" then
             r, g, b = 1, 0.42, 0.38
+        elseif p.crit then
+            r, g, b = 1, 0.52, 0.16
         elseif p.kind == "xp" then
             r, g, b = 0.4, 0.82, 1.0
         elseif p.kind == "gold" then
@@ -101,7 +117,8 @@ function DamageNumbers.draw()
         elseif p.kind == "weapon" then
             r, g, b = 1.0, 0.6, 0.1
         end
-        local w = (p.kind == "xp" or p.kind == "gold" or p.kind == "health" or p.kind == "weapon") and 96 or 72
+        local w = (p.kind == "xp" or p.kind == "gold" or p.kind == "health" or p.kind == "weapon") and 96
+            or (p.crit and 88 or 72)
         local tx = p.x - w * 0.5
         love.graphics.setColor(r * 0.15, g * 0.15, b * 0.15, fade * 0.95)
         love.graphics.printf(p.text, tx, p.y + 1, w, "center")

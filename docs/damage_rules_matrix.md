@@ -37,6 +37,10 @@ Standard rules apply first. Specific skills, perks, relics, or states may break 
 | `true_damage_hit` | no by default | source-defined | yes if direct, no if secondary | direct only by default | no by default | no | no by default | Payoff / spice, not baseline mitigation gameplay. |
 | `delayed_secondary_hit` | source-defined | yes | no by default | no by default | no by default | depends on family | no by default | Example: follow-up ping from a passive. |
 
+## World collision (projectiles)
+
+- Bullets use a bump axis-aligned box on the `Bullet` entity. The default size is **5×3** world units ([`src/entities/bullet.lua`](../src/entities/bullet.lua)); spawn data from weapons/attack profiles may override `w` / `h`. This default is for **readability and hit feel**, not a separate damage category.
+
 ## Reading guide
 
 - `direct_hit` is the main strike.
