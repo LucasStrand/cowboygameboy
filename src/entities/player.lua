@@ -1184,6 +1184,26 @@ function Player:draw()
         love.graphics.setColor(1, 1, 1)
     end
 
+    local function drawContactShadow(cx0, footY0, grounded, blocking, dashing)
+        local rx = grounded and 8.4 or 6.7
+        local ry = grounded and 3.0 or 2.4
+        local alpha = grounded and 0.2 or 0.12
+        if blocking then
+            rx = rx + 1.4
+            ry = ry + 0.45
+            alpha = alpha + 0.03
+        end
+        if dashing then
+            rx = rx * 1.22
+            alpha = alpha + 0.02
+        end
+        love.graphics.setColor(0, 0, 0, alpha)
+        love.graphics.ellipse("fill", cx0, footY0 - 1, rx, ry)
+        love.graphics.setColor(0.24, 0.18, 0.14, alpha * 0.38)
+        love.graphics.ellipse("line", cx0, footY0 - 1, rx * 0.92, ry * 0.9)
+        love.graphics.setColor(1, 1, 1)
+    end
+
     if not self.dying then
         local bw, bh = 48, 3
         local barX = self.x + self.w * 0.5 - bw * 0.5
@@ -1224,6 +1244,7 @@ function Player:draw()
     local cx = self.x + self.w / 2
     local footY = self.y + self.h
     if self.dying then
+        drawContactShadow(cx, footY, true, false, false)
         local u = math.min(1, self.deathTimer / Player.DEATH_DURATION)
         local ease = 1 - math.cos(u * math.pi * 0.5)
         local ang = (self.facingRight and -1 or 1) * math.rad(82) * ease
@@ -1236,6 +1257,7 @@ function Player:draw()
         self.anim:drawCentered(cx, footY, self.facingRight, 0, alpha)
         love.graphics.pop()
     else
+        drawContactShadow(cx, footY, self.grounded, self.blocking, self.dashTimer > 0)
         local jx, jy = 0, 0
         if (self.monsterJitteryTimer or 0) > 0 then
             local mul = self.monsterJitterShakeMul or 0.35

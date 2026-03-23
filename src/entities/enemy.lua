@@ -740,6 +740,20 @@ function Enemy:draw(player, camera, shakeX, shakeY, room)
         end
     end
     local c = self.color
+    local shadowCx = self.x + self.w * 0.5
+    local shadowY = self.y + self.h - 1
+    local shadowRx = math.max(5.5, self.w * (self.flying and 0.48 or 0.42))
+    local shadowRy = math.max(2.2, shadowRx * (self.flying and 0.34 or 0.25))
+    local shadowAlpha = self.flying and 0.13 or 0.18
+    if self.elite then
+        shadowRx = shadowRx * 1.08
+        shadowRy = shadowRy * 1.08
+    end
+    love.graphics.setColor(0, 0, 0, shadowAlpha)
+    love.graphics.ellipse("fill", shadowCx, shadowY, shadowRx, shadowRy)
+    love.graphics.setColor(0.22, 0.17, 0.12, shadowAlpha * 0.38)
+    love.graphics.ellipse("line", shadowCx, shadowY, shadowRx * 0.92, shadowRy * 0.88)
+    love.graphics.setColor(1, 1, 1)
 
     if self.elite and self.typeId ~= "bandit" and self.typeId ~= "buzzard" and self.typeId ~= "gunslinger"
         and self.typeId ~= "necromancer" and self.typeId ~= "nightborne"

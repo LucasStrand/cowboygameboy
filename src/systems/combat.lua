@@ -19,6 +19,13 @@ end
 function Combat.spawnBullet(world, data)
     local b = Bullet.new(data)
     world:add(b, b.x, b.y, b.w, b.h)
+    local flashScale = 1
+    if data.ultBullet then
+        flashScale = 1.8
+    elseif data.explosive then
+        flashScale = 1.25
+    end
+    ImpactFX.spawnMuzzle(data.x, data.y, data.angle or 0, data.fromEnemy, flashScale)
     return b
 end
 
@@ -51,6 +58,7 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
                 local aoeDamage = math.floor(b.damage * 0.5)
                 local bx = b.x + b.w / 2
                 local by = b.y + b.h / 2
+                ImpactFX.spawnExplosion(bx, by, explosionRadius)
                 local aoeHits = 0
                 for _, e in ipairs(enemies) do
                     if e.alive and e ~= b.hitEnemy then
@@ -93,6 +101,14 @@ end
 
 function Combat.onEnemyKilled(enemy, player)
     local drops = {}
+    local deathCx = enemy.x + enemy.w * 0.5
+    local deathCy = enemy.y + enemy.h * 0.52
+
+    if enemy.elite or enemy.typeId == "ogreboss" then
+        ImpactFX.spawnExplosion(deathCx, deathCy, math.max(48, enemy.w * 1.8))
+    else
+        ImpactFX.spawn(deathCx, deathCy, "hit_enemy", 0.85)
+    end
 
     -- Build ultimate charge
     player:addUltCharge()

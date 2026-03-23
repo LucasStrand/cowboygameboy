@@ -21,10 +21,12 @@ function Bullet.new(data)
     self.isBullet = true
     self.alive = true
     self.lifetime = 3
+    self.age = 0
     return self
 end
 
 function Bullet:update(dt, world)
+    self.age = self.age + dt
     self.lifetime = self.lifetime - dt
     if self.lifetime <= 0 then
         self.alive = false
@@ -104,6 +106,45 @@ function Bullet:draw()
     local cy = self.y + self.h * 0.5
     local len = self.ultBullet and 8.5 or 5.5
     local halfW = self.ultBullet and 1.15 or 0.95
+    local trailLen = self.ultBullet and 22 or 14
+    local glowR, glowG, glowB = 1, 0.92, 0.72
+    local trailAlpha = self.ultBullet and 0.34 or 0.22
+
+    if self.explosive then
+        trailLen = trailLen + 4
+    end
+
+    if self.ultBullet then
+        glowR, glowG, glowB = 1.0, 0.72, 0.2
+    elseif self.fromEnemy then
+        glowR, glowG, glowB = 1.0, 0.45, 0.38
+        trailAlpha = 0.18
+    else
+        glowR, glowG, glowB = 1.0, 0.88, 0.62
+    end
+
+    local prevBlendMode, prevAlphaMode = love.graphics.getBlendMode()
+    local prevLineWidth = love.graphics.getLineWidth()
+    love.graphics.setBlendMode("add", "alphamultiply")
+    love.graphics.setLineWidth(self.ultBullet and 3.2 or 2.2)
+    love.graphics.setColor(glowR, glowG, glowB, trailAlpha)
+    love.graphics.line(
+        cx - math.cos(self.angle) * trailLen,
+        cy - math.sin(self.angle) * trailLen,
+        cx,
+        cy
+    )
+    love.graphics.setColor(1, 1, 1, trailAlpha * 0.72)
+    love.graphics.line(
+        cx - math.cos(self.angle) * trailLen * 0.45,
+        cy - math.sin(self.angle) * trailLen * 0.45,
+        cx,
+        cy
+    )
+    love.graphics.setColor(glowR, glowG, glowB, trailAlpha * 0.8)
+    love.graphics.circle("fill", cx, cy, self.ultBullet and 2.6 or 1.8)
+    love.graphics.setLineWidth(prevLineWidth)
+    love.graphics.setBlendMode(prevBlendMode, prevAlphaMode)
 
     love.graphics.push()
     love.graphics.translate(cx, cy)
