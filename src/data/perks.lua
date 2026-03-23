@@ -1,4 +1,5 @@
 local Perks = {}
+local GameRng = require("src.systems.game_rng")
 
 Perks.pool = {
     -- Common (60% weight)
@@ -6,6 +7,11 @@ Perks.pool = {
         id = "damage_up",
         name = "Steady Hand",
         description = "+15% damage",
+        tooltip_key = "perk_damage_up",
+        tooltip_tokens = {
+            bonus_pct = 15,
+        },
+        tags = { "theme:damage", "reward:neutral", "role:power" },
         rarity = "common",
         weight = 15,
         apply = function(player)
@@ -16,6 +22,11 @@ Perks.pool = {
         id = "speed_up",
         name = "Quick Draw Boots",
         description = "+12% move speed",
+        tooltip_key = "perk_speed_up",
+        tooltip_tokens = {
+            bonus_pct = 12,
+        },
+        tags = { "theme:mobility", "reward:neutral", "role:power" },
         rarity = "common",
         weight = 15,
         apply = function(player)
@@ -26,6 +37,11 @@ Perks.pool = {
         id = "hp_up",
         name = "Tough Hide",
         description = "+20% max HP",
+        tooltip_key = "perk_hp_up",
+        tooltip_tokens = {
+            bonus_pct = 20,
+        },
+        tags = { "theme:defense", "reward:neutral", "role:power" },
         rarity = "common",
         weight = 15,
         apply = function(player)
@@ -38,6 +54,11 @@ Perks.pool = {
         id = "armor_up",
         name = "Iron Gut",
         description = "+1 armor",
+        tooltip_key = "perk_armor_up",
+        tooltip_tokens = {
+            armor = 1,
+        },
+        tags = { "theme:defense", "reward:neutral", "role:power" },
         rarity = "common",
         weight = 15,
         apply = function(player)
@@ -50,6 +71,11 @@ Perks.pool = {
         id = "fast_reload",
         name = "Sleight of Hand",
         description = "30% faster reload",
+        tooltip_key = "perk_fast_reload",
+        tooltip_tokens = {
+            bonus_pct = 30,
+        },
+        tags = { "attack:projectile", "theme:reload", "reward:support", "role:power" },
         rarity = "uncommon",
         weight = 8,
         apply = function(player)
@@ -60,17 +86,27 @@ Perks.pool = {
         id = "extra_bullet",
         name = "Extended Cylinder",
         description = "+1 bullet in cylinder",
+        tooltip_key = "perk_extra_bullet",
+        tooltip_tokens = {
+            amount = 1,
+        },
+        tags = { "attack:projectile", "theme:ammo", "reward:support", "role:power" },
         rarity = "uncommon",
         weight = 8,
         apply = function(player)
             player.stats.cylinderSize = player.stats.cylinderSize + 1
-            player.ammo = player.ammo + 1
+            player:addAmmoToActiveSlot(1, "perk:extra_bullet")
         end
     },
     {
         id = "lifesteal",
         name = "Blood Thirst",
         description = "Heal 5 HP on kill",
+        tooltip_key = "perk_lifesteal",
+        tooltip_tokens = {
+            amount = 5,
+        },
+        tags = { "theme:sustain", "reward:neutral", "role:power" },
         rarity = "uncommon",
         weight = 7,
         apply = function(player)
@@ -81,6 +117,11 @@ Perks.pool = {
         id = "luck_up",
         name = "Lucky Charm",
         description = "+15% luck",
+        tooltip_key = "perk_luck_up",
+        tooltip_tokens = {
+            bonus_pct = 15,
+        },
+        tags = { "theme:luck", "reward:neutral", "role:power" },
         rarity = "uncommon",
         weight = 7,
         apply = function(player)
@@ -93,6 +134,12 @@ Perks.pool = {
         id = "scattershot",
         name = "Scattershot",
         description = "Fire 3 bullets in a spread",
+        tooltip_key = "perk_scattershot",
+        tooltip_tokens = {
+            projectiles = 3,
+            spread_angle = 0.25,
+        },
+        tags = { "attack:projectile", "theme:multishot", "reward:support", "role:power" },
         rarity = "rare",
         weight = 3,
         apply = function(player)
@@ -104,6 +151,8 @@ Perks.pool = {
         id = "explosive_rounds",
         name = "Explosive Rounds",
         description = "Bullets explode on hit (AOE)",
+        tooltip_key = "perk_explosive_rounds",
+        tags = { "attack:projectile", "damage:aoe", "theme:explosive", "reward:pivot", "role:power" },
         rarity = "rare",
         weight = 3,
         apply = function(player)
@@ -114,6 +163,11 @@ Perks.pool = {
         id = "ricochet",
         name = "Ricochet",
         description = "Bullets bounce once off walls",
+        tooltip_key = "perk_ricochet",
+        tooltip_tokens = {
+            ricochet_count = 1,
+        },
+        tags = { "attack:projectile", "theme:ricochet", "reward:pivot", "role:power" },
         rarity = "rare",
         weight = 2,
         apply = function(player)
@@ -121,23 +175,55 @@ Perks.pool = {
         end
     },
     {
-        id = "dead_eye",
-        name = "Dead Eye",
-        description = "Slow-mo for 3s after reload",
-        rarity = "rare",
-        weight = 2,
-        apply = function(player)
-            player.stats.deadEye = true
-        end
-    },
-    {
         id = "akimbo",
         name = "Akimbo",
         description = "Dual-wield: fire both guns at once",
+        tooltip_key = "perk_akimbo",
+        tags = { "attack:projectile", "theme:multishot", "reward:pivot", "role:power" },
         rarity = "rare",
         weight = 2,
         apply = function(player)
             player.stats.akimbo = true
+        end
+    },
+    {
+        id = "phantom_third",
+        name = "Phantom Third",
+        description = "Every 3rd hit on the same target triggers a delayed true-damage ping",
+        tooltip_key = "perk_phantom_third",
+        presentation_hooks = {
+            on_proc = "phantom_third_payoff",
+        },
+        rarity = "rare",
+        weight = 2,
+        tags = { "damage:true", "setup:proc", "theme:proc", "reward:pivot", "role:power" },
+        proc_rules = {
+            {
+                id = "third_hit_true_ping",
+                trigger = "OnHit",
+                source_owner_type = "weapon_slot",
+                source_actor_kind = "player",
+                packet_kind = "direct_hit",
+                counter = {
+                    mode = "source_target_hits",
+                    every_n = 3,
+                },
+                effect = {
+                    type = "delayed_damage",
+                    delay = 0.08,
+                    family = "true",
+                    damage_scale = 0.35,
+                    min_damage = 4,
+                    can_crit = false,
+                    counts_as_hit = false,
+                    can_trigger_on_hit = false,
+                    can_trigger_proc = false,
+                    can_lifesteal = false,
+                },
+            },
+        },
+        apply = function(player)
+            local _ = player
         end
     },
 }
@@ -166,7 +252,7 @@ function Perks.rollPerks(count, luck)
             end
         end
 
-        local roll = math.random() * totalWeight
+        local roll = GameRng.randomFloat("perks.roll.weight." .. i, 0, totalWeight)
         local cumulative = 0
         for _, perk in ipairs(available) do
             if not usedIds[perk.id] then
@@ -194,5 +280,14 @@ Perks.rarityColors = {
     uncommon = {0.2, 0.8, 0.2},
     rare = {0.9, 0.7, 0.1},
 }
+
+Perks.byId = {}
+for _, perk in ipairs(Perks.pool) do
+    Perks.byId[perk.id] = perk
+end
+
+function Perks.getById(id)
+    return Perks.byId[id]
+end
 
 return Perks

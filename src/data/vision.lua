@@ -8,12 +8,13 @@
 ]]
 local Vision = {}
 
---- Base screen radius (pixels); ellipse stretches ~1.38 along aim / ~0.82 across.
-Vision.VISION_SCREEN_RADIUS = 400
+--- Base screen radius (pixels); tuned for clearer navigation in night rooms.
+Vision.VISION_SCREEN_RADIUS = 460
 
---- Ellipse axes as multiples of VISION_SCREEN_RADIUS (must match world_lighting shader).
-Vision.LIGHT_RADIUS_ALONG = 1.38
-Vision.LIGHT_RADIUS_ACROSS = 0.82
+--- Ellipse axes as multiples of VISION_SCREEN_RADIUS (mirrored into world_lighting shader uniforms).
+--- Keep the lamp slightly forward-biased, but much less tunnel-like than before.
+Vision.LIGHT_RADIUS_ALONG = 1.24
+Vision.LIGHT_RADIUS_ACROSS = 1.02
 
 --- World radius used to mark explored fog cells (matches outer reach of vision).
 function Vision.worldExploreRadius(cameraZoom)

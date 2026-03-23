@@ -8,6 +8,14 @@ local ImpactFX = require("src.systems.impact_fx")
 local GearIcons = require("src.ui.gear_icons")
 local Font = require("src.ui.font")
 local Buffs = require("src.systems.buffs")
+local DamagePacket = require("src.systems.damage_packet")
+local DamageResolver = require("src.systems.damage_resolver")
+local GameRng = require("src.systems.game_rng")
+local RunMetadata = require("src.systems.run_metadata")
+local SourceRef = require("src.systems.source_ref")
+local StatRuntime = require("src.systems.stat_runtime")
+local WeaponRuntime = require("src.systems.weapon_runtime")
+local Perks = require("src.data.perks")
 
 -- Monster Energy (saloon): each drink heals to full; walk-speed bonus stacks with diminishing returns.
 local MONSTER_MOVE_FIRST = 44
@@ -75,6 +83,31 @@ local AIM_FACE_DEADZONE = 3
 -- Head/gun draw: turn relative to body forward so we never flip the cowboy upside down
 local MAX_HEAD_TURN = 1.32 -- ~75° each way from facing
 
+local STAT_RUNTIME_COMPARE_KEYS = {
+    "maxHP",
+    "moveSpeed",
+    "damageMultiplier",
+    "armor",
+    "luck",
+    "pickupRadius",
+    "reloadSpeed",
+    "cylinderSize",
+    "bulletSpeed",
+    "bulletDamage",
+    "bulletCount",
+    "spreadAngle",
+    "lifestealOnKill",
+    "ricochetCount",
+    "meleeDamage",
+    "meleeRange",
+    "meleeCooldown",
+    "meleeKnockback",
+    "blockReduction",
+    "blockMobility",
+    "shootCooldown",
+    "inaccuracy",
+}
+
 local function angleWrapPi(a)
     while a > math.pi do a = a - 2 * math.pi end
     while a < -math.pi do a = a + 2 * math.pi end
@@ -85,8 +118,43 @@ local function angleDiff(a, b)
     return angleWrapPi(a - b)
 end
 
+local function weaponSourceRef(player, slotIndex, gun, parent_source_id)
+    return SourceRef.new({
+        owner_actor_id = player.actorId or "player",
+        owner_source_type = slotIndex and "weapon_slot" or "player",
+        owner_source_id = gun and gun.id or ("slot_" .. tostring(slotIndex or player.activeWeaponSlot or 1)),
+        parent_source_id = parent_source_id,
+    })
+end
+
+local function compareStatRuntime(player, gun, live_stats)
+    if not DEBUG or not debugLog then
+        return
+    end
+
+    local ctx = StatRuntime.build_player_context(player, gun, PLAYER_BASE_GUN_STATS)
+    local computed = StatRuntime.compute_actor_stats(ctx)
+    local exported = StatRuntime.export_legacy_stats(computed)
+    player._statRuntimeMismatchCache = player._statRuntimeMismatchCache or {}
+    local cacheKey = gun and gun.id or "melee"
+    player._statRuntimeMismatchCache[cacheKey] = player._statRuntimeMismatchCache[cacheKey] or {}
+
+    for _, key in ipairs(STAT_RUNTIME_COMPARE_KEYS) do
+        local live = live_stats[key]
+        local next_value = exported[key]
+        if live ~= nil and next_value ~= nil then
+            local mismatch = tostring(live) .. "!=" .. tostring(next_value)
+            if live ~= next_value and player._statRuntimeMismatchCache[cacheKey][key] ~= mismatch then
+                player._statRuntimeMismatchCache[cacheKey][key] = mismatch
+                debugLog(string.format("[stat_runtime] %s mismatch for %s: live=%s runtime=%s", cacheKey, key, tostring(live), tostring(next_value)))
+            end
+        end
+    end
+end
+
 function Player.new(x, y)
     local self = setmetatable({}, Player)
+    self.actorId = "player"
     self.x = x
     self.y = y
     self.w = 16
@@ -136,6 +204,7 @@ function Player.new(x, y)
         blockMobility = 0,
     }
 
+    self.baseGunStats = PLAYER_BASE_GUN_STATS
     self.hp = self.stats.maxHP
     self.ammo = self.stats.cylinderSize
     self.reloading = false
@@ -168,13 +237,9 @@ function Player.new(x, y)
         shield = Weapons.defaults.shield,
     }
 
-    -- Weapon slots: [1] = primary (always ranged), [2] = secondary (ranged or nil for melee)
-    self.weapons = {
-        [1] = { gun = Guns.default, ammo = Guns.default.baseStats.cylinderSize,
-                reloading = false, reloadTimer = 0, shootCooldown = 0 },
-        [2] = nil,  -- nil = melee/shield mode (legacy)
-    }
+    self.weapons = {}
     self.activeWeaponSlot = 1
+    WeaponRuntime.initPlayerLoadout(self, Guns.default, nil)
 
     -- Crouch / platform-drop
     self.crouching        = false
@@ -208,8 +273,15 @@ function Player.new(x, y)
 
     self.perks = {}
 
-    -- Buff/debuff tracker
-    self.buffs = Buffs.newTracker()
+    -- Shared status runtime for player buffs/debuffs and control-state.
+    self.statuses = Buffs.newTracker({
+        owner_actor_id = self.actorId,
+    }, {
+        owner_actor = self,
+        owner_actor_id = self.actorId,
+        owner_kind = "player",
+        cc_profile = "normal",
+    })
 
     -- Monster Energy (saloon): cumulative drinks this run — move bonus + rare speech / visual jitter
     self.monsterDrinks = 0
@@ -251,104 +323,100 @@ function Player:shieldAllowsAutoBlock()
     return st and st.allowAutoBlock and true or false
 end
 
+function Player:getWeaponRuntime(slotIndex)
+    return WeaponRuntime.getSlot(self, slotIndex)
+end
+
+function Player:getActiveWeaponRuntime()
+    return WeaponRuntime.getActiveSlot(self)
+end
+
+function Player:getResolvedWeaponStats(slotIndex)
+    return WeaponRuntime.getResolvedStats(self, slotIndex)
+end
+
+function Player:getActiveSlotMode()
+    local slot = self:getActiveWeaponRuntime()
+    return slot and slot.mode or "melee"
+end
+
+function Player:addAmmoToSlot(slotIndex, amount, reason)
+    return WeaponRuntime.addAmmo(self, slotIndex, amount, reason)
+end
+
+function Player:addAmmoToActiveSlot(amount, reason)
+    return self:addAmmoToSlot(self.activeWeaponSlot, amount, reason)
+end
+
+function Player:syncLegacyWeaponViews()
+    WeaponRuntime.syncLegacyViews(self)
+end
+
+function Player:debugDumpWeaponRuntime(reason)
+    WeaponRuntime.debugDump(self, reason)
+end
+
 --- Returns the gun definition for the active weapon slot, or nil if melee.
 function Player:getActiveGun()
-    local slot = self.weapons[self.activeWeaponSlot]
-    return slot and slot.gun or nil
+    local slot = self:getActiveWeaponRuntime()
+    return slot and slot.weapon_def or nil
 end
 
 --- Returns the gun definition for the off-hand weapon slot, or nil.
 function Player:getOffhandGun()
     local otherSlot = self.activeWeaponSlot == 1 and 2 or 1
-    local slot = self.weapons[otherSlot]
-    return slot and slot.gun or nil
+    local slot = self:getWeaponRuntime(otherSlot)
+    return slot and slot.weapon_def or nil
 end
 
 --- Slot index for automatic gunfire: active slot when a gun is in hand; in melee stance, primary (1) then secondary.
 function Player:getWeaponSlotForAutoFire()
-    if self:getActiveGun() then
+    if self:getActiveSlotMode() == "weapon" then
         return self.activeWeaponSlot
     end
-    if self.weapons[1] and self.weapons[1].gun then return 1 end
-    if self.weapons[2] and self.weapons[2].gun then return 2 end
+    local slot1 = self:getWeaponRuntime(1)
+    local slot2 = self:getWeaponRuntime(2)
+    if slot1 and slot1.mode == "weapon" then return 1 end
+    if slot2 and slot2.mode == "weapon" then return 2 end
     return nil
 end
 
 --- True when akimbo perk is active AND both slots have ranged weapons.
 function Player:isAkimbo()
-    return self.stats.akimbo and self.weapons[1] and self.weapons[1].gun
-           and self.weapons[2] and self.weapons[2].gun
+    local slot1 = self:getWeaponRuntime(1)
+    local slot2 = self:getWeaponRuntime(2)
+    return self.stats.akimbo
+        and slot1 and slot1.mode == "weapon"
+        and slot2 and slot2.mode == "weapon"
 end
 
 function Player:getEffectiveStats()
-    return self:getEffectiveStatsForGun(self:getActiveGun())
+    if self:getActiveSlotMode() == "weapon" then
+        return self:getResolvedWeaponStats(self.activeWeaponSlot) or self:getEffectiveStatsForGun(self:getActiveGun())
+    end
+    return self:getEffectiveStatsForGun(nil)
 end
 
 --- Combat stats for a specific gun (perk deltas applied to that weapon's base), like melee coexisting with gun.
 function Player:getEffectiveStatsForGun(gun)
-    local s = {}
-    for k, v in pairs(self.stats) do
-        s[k] = v
-    end
-
-    -- Hat / vest / boots / shield — not melee (knife is merged below when secondary slot is free).
-    for slot, gear in pairs(self.gear) do
-        if gear and slot ~= "melee" and gear.stats then
-            for stat, val in pairs(gear.stats) do
-                if s[stat] ~= nil then
-                    s[stat] = s[stat] + val
-                end
-            end
-        end
-    end
-
-    -- Melee: only when no gun in slot 2. Use equipped knife or default (pickups clear gear.melee
-    -- but you still have the knife when secondary is empty).
-    if not (self.weapons[2] and self.weapons[2].gun) then
-        local m = self.gear.melee or Weapons.defaults.melee
-        if m and m.stats then
-            for stat, val in pairs(m.stats) do
-                if s[stat] ~= nil then
-                    s[stat] = s[stat] + val
-                end
-            end
-        end
-    end
-
+    local resolved
     if gun then
-        for stat, baseDefault in pairs(PLAYER_BASE_GUN_STATS) do
-            local perkDelta = self.stats[stat] - baseDefault
-            s[stat] = gun.baseStats[stat] + perkDelta
-        end
-        s.shootCooldown = gun.baseStats.shootCooldown
-        s.inaccuracy    = gun.baseStats.inaccuracy or 0
+        resolved = WeaponRuntime.getResolvedStatsForGun(self, gun)
     else
-        s.shootCooldown = 0.38
-        s.inaccuracy    = 0
+        local ctx = StatRuntime.build_player_context(self, nil, self.baseGunStats)
+        local computed = StatRuntime.compute_actor_stats(ctx)
+        resolved = StatRuntime.export_legacy_stats(computed)
     end
 
-    if (self.monsterMoveBonus or 0) > 0 then
-        s.moveSpeed = s.moveSpeed + self.monsterMoveBonus
-    end
-
-    -- Apply buff/debuff stat modifiers
-    if self.buffs then
-        local mods = Buffs.getStatMods(self.buffs)
-        for stat, val in pairs(mods) do
-            if s[stat] ~= nil then
-                s[stat] = s[stat] + val
-            end
-        end
-    end
-
-    return s
+    compareStatRuntime(self, gun, resolved)
+    return resolved
 end
 
 --- True if any ranged slot can fire (for akimbo auto-fire; each gun has its own cadence).
 function Player:canAnyAkimboGunFire()
     for i = 1, 2 do
-        local w = self.weapons[i]
-        if w and w.gun and w.ammo > 0 and not w.reloading and (w.shootCooldown or 0) <= 0 then
+        local w = self:getWeaponRuntime(i)
+        if w and w.mode == "weapon" and (w.ammo or 0) > 0 and (w.reload_timer or 0) <= 0 and (w.cooldown_timer or 0) <= 0 then
             return true
         end
     end
@@ -363,8 +431,6 @@ function Player:update(dt, world, enemies)
         self.anim:update(dt)
         return
     end
-
-    local effectiveStats = self:getEffectiveStats()
 
     -- I-frames
     if self.iframes > 0 then
@@ -383,8 +449,19 @@ function Player:update(dt, world, enemies)
         end
     end
 
-    -- Update buff/debuff system
-    Buffs.update(self.buffs, dt, self)
+    -- Update shared status runtime before movement/combat gates.
+    Buffs.update(self.statuses, dt, {
+        owner_actor = self,
+        target_kind = "player",
+        world = world,
+    })
+    if self.dying then
+        self.deathTimer = self.deathTimer + dt
+        self.anim:update(dt)
+        return
+    end
+    local effectiveStats = self:getEffectiveStats()
+    local control = Buffs.getControlState(self.statuses)
 
     if self.monsterSpeechText then
         self.monsterSpeechLife = (self.monsterSpeechLife or 0) + dt
@@ -394,69 +471,7 @@ function Player:update(dt, world, enemies)
         end
     end
 
-    -- Shoot cooldown + reload: akimbo = each slot independent (like melee + gun); else mirror active slot on self
-    if self:isAkimbo() then
-        for i = 1, 2 do
-            local w = self.weapons[i]
-            if w and w.gun then
-                if (w.shootCooldown or 0) > 0 then
-                    w.shootCooldown = w.shootCooldown - dt
-                end
-                if w.reloading then
-                    w.reloadTimer = w.reloadTimer - dt
-                    if w.reloadTimer <= 0 then
-                        w.reloading = false
-                        local gunBase = w.gun.baseStats.cylinderSize
-                        local perkDelta = self.stats.cylinderSize - PLAYER_BASE_GUN_STATS.cylinderSize
-                        w.ammo = gunBase + perkDelta
-                        w.reloadTimer = 0
-                        Sfx.play("reload")
-                        if i == self.activeWeaponSlot and self.stats.deadEye then
-                            self.deadEyeTimer = 3.0
-                        end
-                    end
-                end
-            end
-        end
-        local a = self.weapons[self.activeWeaponSlot]
-        if a then
-            self.ammo = a.ammo
-            self.reloading = a.reloading
-            self.reloadTimer = a.reloadTimer
-            self.shootCooldown = a.shootCooldown or 0
-        end
-    else
-        -- Non-akimbo: each slot ticks independently (primary keeps cooling/reloading while melee stance)
-        for i = 1, 2 do
-            local w = self.weapons[i]
-            if w and w.gun then
-                if (w.shootCooldown or 0) > 0 then
-                    w.shootCooldown = w.shootCooldown - dt
-                end
-                if w.reloading then
-                    w.reloadTimer = w.reloadTimer - dt
-                    if w.reloadTimer <= 0 then
-                        w.reloading = false
-                        local gunBase = w.gun.baseStats.cylinderSize
-                        local perkDelta = self.stats.cylinderSize - PLAYER_BASE_GUN_STATS.cylinderSize
-                        w.ammo = gunBase + perkDelta
-                        w.reloadTimer = 0
-                        Sfx.play("reload")
-                        if i == self.activeWeaponSlot and self.stats.deadEye then
-                            self.deadEyeTimer = 3.0
-                        end
-                    end
-                end
-            end
-        end
-        local slot = self.weapons[self.activeWeaponSlot]
-        if slot and slot.gun then
-            self.ammo = slot.ammo
-            self.reloading = slot.reloading
-            self.reloadTimer = slot.reloadTimer
-            self.shootCooldown = slot.shootCooldown or 0
-        end
-    end
+    WeaponRuntime.tick(self, dt)
 
     -- Melee cooldown + swing window
     if self.meleeCooldown > 0 then
@@ -499,7 +514,8 @@ function Player:update(dt, world, enemies)
         self.dropThroughTimer = math.max(0, self.dropThroughTimer - dt)
     end
 
-    local blockRooted = self.blocking and effectiveStats.blockMobility <= 0
+    local hardLocked = control.stunned
+    local blockRooted = hardLocked or (self.blocking and effectiveStats.blockMobility <= 0)
 
     -- Dash timers
     if self.dashTimer > 0 then
@@ -519,7 +535,9 @@ function Player:update(dt, world, enemies)
     -- Horizontal movement (dash overrides walk; rooted block = no move)
     local moveLeft = love.keyboard.isDown("a") or love.keyboard.isDown("left")
     local moveRight = love.keyboard.isDown("d") or love.keyboard.isDown("right")
-    if self.dashTimer > 0 and not blockRooted then
+    if hardLocked then
+        self.vx = 0
+    elseif self.dashTimer > 0 and not blockRooted then
         self.vx = self.dashDir * DASH_SPEED
     elseif blockRooted then
         self.vx = 0
@@ -658,6 +676,9 @@ end
 
 function Player:jump()
     local s = self:getEffectiveStats()
+    if Buffs.getControlState(self.statuses).stunned then
+        return
+    end
     if self.blocking and s.blockMobility <= 0 then
         return
     end
@@ -674,6 +695,7 @@ end
 
 function Player:tryDash()
     if self.combatDisabled then return end
+    if Buffs.getControlState(self.statuses).stunned then return end
     local s = self:getEffectiveStats()
     if self.blocking and s.blockMobility <= 0 then
         return
@@ -708,75 +730,32 @@ end
 
 --- Fire one weapon slot (each gun has its own cooldown, damage, and reload — akimbo works like gun + melee coexistence).
 function Player:shootFromSlot(slotIndex, mx, my)
-    local slot = self.weapons[slotIndex]
-    if not slot or not slot.gun then return nil end
-    if slot.reloading or (slot.shootCooldown or 0) > 0 then return nil end
-    if slot.ammo <= 0 then
-        self:startReloadSlot(slotIndex)
+    if Buffs.getControlState(self.statuses).stunned then
         return nil
     end
-
-    local gun = slot.gun
-    local effectiveStats = self:getEffectiveStatsForGun(gun)
-
-    slot.ammo = slot.ammo - 1
-    slot.shootCooldown = gun.baseStats.shootCooldown
-
-    if slotIndex == self.activeWeaponSlot then
-        self.ammo = slot.ammo
-        self.shootCooldown = slot.shootCooldown
-    end
+    local fired = WeaponRuntime.fireSlot(self, slotIndex, mx, my)
+    if not fired then return nil end
 
     if not self:isAkimbo() then
         self.anim:play("shoot", true)
     end
-
-    local cx = self.x + self.w / 2
-    local cy = self.y + self.h / 2
-    local angle = math.atan2(my - cy, mx - cx)
-
-    local inacc = effectiveStats.inaccuracy or 0
-    if inacc > 0 then
-        angle = angle + (math.random() - 0.5) * 2 * inacc
-    end
-
-    local bullets = {}
-    local count = effectiveStats.bulletCount
-
-    for i = 1, count do
-        local a = angle
-        if count > 1 then
-            local spread = effectiveStats.spreadAngle
-            a = angle - spread / 2 + spread * ((i - 1) / (count - 1))
-        end
-        table.insert(bullets, {
-            x = cx,
-            y = cy,
-            angle = a,
-            speed = effectiveStats.bulletSpeed,
-            damage = math.floor(effectiveStats.bulletDamage * effectiveStats.damageMultiplier),
-            ricochet = effectiveStats.ricochetCount,
-            explosive = effectiveStats.explosiveRounds,
-        })
-    end
     Sfx.play("shoot")
-
-    if gun.onShoot then
-        gun.onShoot(self, angle)
+    if fired.muzzle_fx_id then
+        local cx = self.x + self.w * 0.5
+        local cy = self.y + self.h * 0.5
+        local tip = fired.weapon_def and fired.weapon_def.id == "blunderbuss" and 24 or 18
+        ImpactFX.spawn(
+            cx + math.cos(fired.angle) * tip,
+            cy + math.sin(fired.angle) * tip,
+            fired.muzzle_fx_id,
+            {
+                angle = fired.angle,
+                scale_mul = fired.explosion_tier == "large" and 1.15 or 1.0,
+            }
+        )
     end
-
-    if slot.ammo <= 0 then
-        self:startReloadSlot(slotIndex)
-    end
-
-    if slotIndex == self.activeWeaponSlot then
-        self.ammo = slot.ammo
-        self.reloading = slot.reloading
-        self.reloadTimer = slot.reloadTimer
-        self.shootCooldown = slot.shootCooldown
-    end
-
-    return bullets
+    self:syncLegacyWeaponViews()
+    return fired.bullets
 end
 
 function Player:shoot(mx, my)
@@ -874,6 +853,7 @@ end
 
 function Player:meleeAttack(aimX, aimY)
     if self.combatDisabled then return false end
+    if Buffs.getControlState(self.statuses).stunned then return false end
     local s = self:getEffectiveStats()
     if self.meleeCooldown > 0 or s.meleeDamage <= 0 then return false end
     local cx = self.x + self.w * 0.5
@@ -888,7 +868,7 @@ function Player:meleeAttack(aimX, aimY)
     self.meleeHitEnemies = {}
     self.anim:play("melee", true)
     Sfx.play("melee_swing")
-    -- Row 1 of Retro Impact Effect Pack 1 A (see impact_fx.lua ANIM.melee)
+-- Row 1 of RetroImpactEffectPack1A (see impact_fx.lua ANIM.melee)
     do
         local tip = 22
         local a = self.meleeAimAngle
@@ -919,33 +899,27 @@ end
 
 --- Start reload for one weapon slot (akimbo: each gun reloads on its own timeline).
 function Player:startReloadSlot(slotIndex)
-    local slot = self.weapons[slotIndex]
-    if not slot or not slot.gun then return end
-    if slot.reloading then return end
-    local perkDelta = self.stats.cylinderSize - PLAYER_BASE_GUN_STATS.cylinderSize
-    local cap = slot.gun.baseStats.cylinderSize + perkDelta
-    if slot.ammo >= cap then return end
-    local reloadDelta = self.stats.reloadSpeed - PLAYER_BASE_GUN_STATS.reloadSpeed
-    slot.reloading = true
-    slot.reloadTimer = slot.gun.baseStats.reloadSpeed + reloadDelta
-    if slotIndex == self.activeWeaponSlot then
-        self.reloading = true
-        self.reloadTimer = slot.reloadTimer
+    if WeaponRuntime.startReload(self, slotIndex) then
+        if slotIndex == self.activeWeaponSlot then
+            self:syncLegacyWeaponViews()
+        end
         self.anim:play("holster_spin", true)
     end
 end
 
 function Player:reload()
-    if self.reloading then return end
-    if not self:getActiveGun() then return end
-    if self.ammo >= self:getEffectiveStats().cylinderSize then return end
+    if Buffs.getControlState(self.statuses).stunned then return end
+    local slot = self:getActiveWeaponRuntime()
+    if not slot or slot.mode ~= "weapon" then return end
+    if (slot.reload_timer or 0) > 0 then return end
+    if (slot.ammo or 0) >= WeaponRuntime.getAmmoCapacity(self, self.activeWeaponSlot) then return end
     self:startReloadSlot(self.activeWeaponSlot)
 end
 
 --- Dead Man's Hand ultimate: mark all enemies and fire explosive barrage.
 --- Returns true if activation succeeded.
 function Player:tryActivateUlt()
-    if self.dying then return false end
+    if self.dying then return false, 0 end
     if self.ultActive then return false end
     if self.ultCharge < 1 then return false end
     self.ultCharge = 0
@@ -969,33 +943,97 @@ function Player:addUltCharge(amount)
     end
 end
 
-function Player:takeDamage(amount)
-    if self.dying then return false end
-    if self.devGodMode then return false end
-    if self.iframes > 0 then return false end
+function Player:get_defense_state(packet)
+    local stats = self:getEffectiveStats()
+    local allow_block = not (packet and packet.metadata and packet.metadata.ignore_block)
+    return {
+        armor = stats.armor or 0,
+        magic_resist = stats.magicResist or 0,
+        armor_shred = self.armorShred or 0,
+        magic_shred = self.magicShred or 0,
+        incoming_damage_mul = self.incomingDamageMul or 1,
+        incoming_physical_mul = self.incomingPhysicalMul or 1,
+        incoming_magical_mul = self.incomingMagicalMul or 1,
+        block_damage_mul = (allow_block and self.blocking and (stats.blockReduction or 0) > 0)
+            and (1 - stats.blockReduction)
+            or 1,
+    }
+end
 
-    local es = self:getEffectiveStats()
+function Player:getProcRules()
+    local out = {}
+    for _, perk_id in ipairs(self.perks or {}) do
+        local perk = Perks.getById and Perks.getById(perk_id) or nil
+        for _, rule in ipairs((perk and perk.proc_rules) or {}) do
+            out[#out + 1] = {
+                rule = rule,
+                meta = { kind = "perk", perk = perk },
+            }
+        end
+    end
+    return out
+end
 
-    -- Blocking absorbs a fraction of incoming damage (default shield has blockReduction from gear)
-    if self.blocking and (es.blockReduction or 0) > 0 then
-        amount = math.max(1, math.floor(amount * (1 - es.blockReduction)))
+function Player:getEquipmentState()
+    return nil
+end
+
+function Player:takeDamage(amount, packet)
+    packet = packet or DamagePacket.new({
+        kind = "direct_hit",
+        family = "physical",
+        amount = amount,
+        source = SourceRef.new({ owner_actor_id = "unknown_actor", owner_source_type = "unknown_source", owner_source_id = "unknown_source" }),
+        tags = { "incoming" },
+        target_id = self.actorId,
+        metadata = {
+            source_context_kind = "snapshot_only",
+        },
+    })
+
+    local result = DamageResolver.resolve_direct_hit({
+        packet = packet,
+        source_actor = nil,
+        target_actor = self,
+        target_kind = "player",
+    })
+
+    return result.applied, result.final_damage
+
+end
+
+function Player:applyResolvedDamage(result, _, packet)
+    local packet_kind = packet and packet.kind or "direct_hit"
+    local bypass_iframes = packet_kind == "status_tick" or packet_kind == "status_payoff_hit"
+    if self.dying or self.devGodMode or ((not bypass_iframes) and self.iframes > 0) then
+        return false, 0, false
     end
 
-    local finalDamage = math.max(1, amount - es.armor)
-    self.hp = self.hp - finalDamage
-    self.iframes = 0.5
-    Sfx.play("hurt")
+    local before = self.hp
+    self.hp = self.hp - (result.final_damage or 0)
+    if not bypass_iframes then
+        self.iframes = 0.5
+        Sfx.play("hurt")
+    end
 
     if debugLog then
         local suffix = self.blocking and " [blocked]" or ""
-        debugLog(string.format("Took %d dmg  HP %d→%d%s", finalDamage, self.hp + finalDamage, self.hp, suffix))
+        debugLog(string.format(
+            "Took %d dmg  HP %d -> %d%s [%s]",
+            result.final_damage or 0,
+            before,
+            self.hp,
+            suffix,
+            tostring(packet and packet.family or "physical")
+        ))
     end
 
-    if self.hp <= 0 then
+    local killed = self.hp <= 0
+    if killed then
         self:beginDeath()
     end
 
-    return true, finalDamage
+    return true, result.final_damage or 0, killed
 end
 
 function Player:heal(amount)
@@ -1017,37 +1055,25 @@ function Player:consumeMonsterEnergy()
             MONSTER_JITTER_BASE_CHANCE + (n - 2) * MONSTER_JITTER_PER_DRINK
         )
     end
-    if math.random() < jitterChance then
+    if GameRng.randomChance("player.monster_energy.jitter", jitterChance) then
         -- Longer / shakier as drinks mount (still mild on 2nd drink)
         local intensity = math.min(1.15, 0.35 + (n - 2) * 0.18)
-        self.monsterJitteryTimer = (6.0 + intensity * 5.0) + math.random() * (3.0 + intensity * 2.0)
+        self.monsterJitteryTimer = (6.0 + intensity * 5.0) + GameRng.randomFloat("player.monster_energy.jitter_duration", 0, 3.0 + intensity * 2.0)
         self.monsterJitterShakeMul = intensity
-        Buffs.apply(self.buffs, "jitter")
+        Buffs.apply(self.statuses, "jitter")
     end
 
     -- Apply speed buff through buff system
-    Buffs.apply(self.buffs, "speed_boost")
+    Buffs.apply(self.statuses, "speed_boost")
 
     self.monsterSpeechText = nil
-    if math.random() < MONSTER_SPEECH_CHANCE then
-        self.monsterSpeechText = MONSTER_SPEECH_LINES[math.random(#MONSTER_SPEECH_LINES)]
+    if GameRng.randomChance("player.monster_energy.speech", MONSTER_SPEECH_CHANCE) then
+        self.monsterSpeechText = MONSTER_SPEECH_LINES[GameRng.random("player.monster_energy.speech_line", #MONSTER_SPEECH_LINES)]
         self.monsterSpeechLife = 0
     end
 
     local maxHP = self:getEffectiveStats().maxHP
     self:heal(maxHP)
-end
-
-function Player:applyBuff(id, stacks)
-    return Buffs.apply(self.buffs, id, stacks)
-end
-
-function Player:removeBuff(id)
-    Buffs.remove(self.buffs, id, self)
-end
-
-function Player:hasBuff(id)
-    return Buffs.has(self.buffs, id)
 end
 
 function Player:addXP(amount)
@@ -1061,8 +1087,31 @@ function Player:addXP(amount)
     return false
 end
 
-function Player:addGold(amount)
+function Player:addGold(amount, reason)
+    amount = math.floor(tonumber(amount) or 0)
+    if amount == 0 then
+        return 0
+    end
     self.gold = self.gold + amount
+    if self.runMetadata then
+        RunMetadata.recordEconomy(self.runMetadata, "earned", amount, reason or "gold_gain")
+    end
+    return amount
+end
+
+function Player:spendGold(amount, reason)
+    amount = math.max(0, math.floor(tonumber(amount) or 0))
+    if amount <= 0 then
+        return true, 0
+    end
+    if self.gold < amount then
+        return false, amount
+    end
+    self.gold = self.gold - amount
+    if self.runMetadata then
+        RunMetadata.recordEconomy(self.runMetadata, "spent", amount, reason or "gold_spend")
+    end
+    return true, amount
 end
 
 function Player:equipGear(gear)
@@ -1070,77 +1119,37 @@ function Player:equipGear(gear)
     if gear.stats.maxHP then
         self.hp = math.min(self:getEffectiveStats().maxHP, self.hp + gear.stats.maxHP)
     end
+    self:syncLegacyWeaponViews()
 end
 
 function Player:applyPerk(perk)
     table.insert(self.perks, perk.id)
     perk.apply(self)
+    self:syncLegacyWeaponViews()
 end
 
 --- Save active slot state from live fields, then restore the target slot.
 --- Always toggles 1 <-> 2 so Tab can highlight which slot a ground weapon will replace
 --- (including when slot 2 is empty / melee).
 function Player:switchWeapon()
-    -- Save current slot state
-    local cur = self.weapons[self.activeWeaponSlot]
-    if cur then
-        cur.ammo         = self.ammo
-        cur.reloading    = self.reloading
-        cur.reloadTimer  = self.reloadTimer
-        cur.shootCooldown = self.shootCooldown
+    if Buffs.getControlState(self.statuses).stunned then
+        return
     end
-
-    local newSlot = self.activeWeaponSlot == 1 and 2 or 1
-    local target = self.weapons[newSlot]
-
-    self.activeWeaponSlot = newSlot
-
-    if target and target.gun then
-        self.ammo          = target.ammo
-        self.reloading     = target.reloading
-        self.reloadTimer   = target.reloadTimer
-        self.shootCooldown = target.shootCooldown or 0
-    else
-        -- Empty secondary: melee / no gun — nothing to mirror on self.*
-        self.ammo          = 0
-        self.reloading     = false
-        self.reloadTimer   = 0
-        self.shootCooldown = 0
-    end
-
+    WeaponRuntime.switchActiveSlot(self)
+    self:syncLegacyWeaponViews()
     self.anim:play("holster", true)
 end
 
 --- Equip a gun definition into a weapon slot (1 or 2). Resets ammo to full.
 --- Auto-switches to the new weapon slot for immediate feedback.
 function Player:equipWeapon(gunDef, slotIndex)
-    slotIndex = slotIndex or 2
-
-    -- Save current active slot state before switching
-    local curSlot = self.weapons[self.activeWeaponSlot]
-    if curSlot then
-        curSlot.ammo         = self.ammo
-        curSlot.reloading    = self.reloading
-        curSlot.reloadTimer  = self.reloadTimer
-        curSlot.shootCooldown = self.shootCooldown
+    if Buffs.getControlState(self.statuses).stunned then
+        return
     end
+    slotIndex = slotIndex or 2
+    WeaponRuntime.equipWeapon(self, gunDef, slotIndex)
+    self:syncLegacyWeaponViews()
 
-    self.weapons[slotIndex] = {
-        gun          = gunDef,
-        ammo         = gunDef.baseStats.cylinderSize,
-        reloading    = false,
-        reloadTimer  = 0,
-        shootCooldown = 0,
-    }
-
-    -- Auto-switch to the newly equipped weapon
-    self.activeWeaponSlot = slotIndex
-    self.ammo         = gunDef.baseStats.cylinderSize
-    self.reloading    = false
-    self.reloadTimer  = 0
-    self.shootCooldown = 0
-
-    -- Replacing secondary with a gun drops the knife from the loadout (dual-wield = no melee).
     if slotIndex == 2 then
         self.gear.melee = nil
     end
@@ -1243,8 +1252,9 @@ function Player:draw()
             jy = (math.cos(t * 19.1) + math.sin(t * 14.4)) * 0.95 * mul
         end
         -- Buff system jitter (stacks with monster jitter)
-        if self.buffs then
-            local vis = Buffs.getVisuals(self.buffs)
+        local statusTracker = self.statuses or self.buffs
+        if statusTracker then
+            local vis = Buffs.getVisuals(statusTracker)
             if vis.jitterAmp > 0 then
                 local f = vis.jitterFreq
                 jx = jx + math.sin(t * f * 1.13) * vis.jitterAmp

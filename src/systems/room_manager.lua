@@ -7,6 +7,7 @@ local Worlds = require("src.data.worlds")
 local RoomProps = require("src.systems.room_props")
 local Enemy = require("src.entities.enemy")
 local bump = require("lib.bump")
+local GameRng = require("src.systems.game_rng")
 
 local RoomManager = {}
 RoomManager.__index = RoomManager
@@ -23,7 +24,7 @@ function RoomManager.new(worldId)
     self.nightVisualsOverride = nil
     --- When true, `generateSequence` uses only `RoomData.devArena` (sandbox).
     self.devArenaMode = false
-    self.worldId = worldId or "forest"
+    self.worldId = worldId or Worlds.default or "forest"
     self.worldDef = Worlds.get(self.worldId)
     return self
 end
@@ -72,7 +73,7 @@ function RoomManager:generateSequence()
             if #pool == 0 then
                 pool = RoomData.pool or {}
             end
-            local room = pool[math.random(#pool)]
+            local room = pool[GameRng.random("room_manager.room_pick", #pool)]
             table.insert(self.roomSequence, room)
         end
     end

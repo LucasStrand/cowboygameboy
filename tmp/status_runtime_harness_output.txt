@@ -1,0 +1,62 @@
+== scenario: bleed / burn tick pacing ==
+[event] status_applied status=bleed reason=
+[event] status_applied status=burn reason=
+[assert] PASS no bleed tick before 0.5s
+[assert] PASS no burn tick before 0.5s
+[debug] [damage_resolver] kind=status_tick family=magical source=debug_tool/status_harness:burn target=tick_target rolled=6 crit=false defense=10 final=5
+[event] status_ticked status=burn reason=
+[debug] [damage_resolver] kind=status_tick family=physical source=debug_tool/status_harness:bleed target=tick_target rolled=4 crit=false defense=20 final=3
+[event] status_ticked status=bleed reason=
+[assert] PASS bleed ticks at 0.5s pacing
+[assert] PASS burn ticks at 0.5s pacing
+[debug] [damage_resolver] kind=status_tick family=magical source=debug_tool/status_harness:burn target=tick_target rolled=6 crit=false defense=10 final=5
+[event] status_ticked status=burn reason=
+[debug] [damage_resolver] kind=status_tick family=physical source=debug_tool/status_harness:bleed target=tick_target rolled=4 crit=false defense=20 final=3
+[event] status_ticked status=bleed reason=
+[assert] PASS bleed ticks again at 1.0s pacing
+[assert] PASS burn ticks again at 1.0s pacing
+== scenario: shock overload + stun DR ==
+[event] status_applied status=shock reason=
+[event] status_stacked status=shock reason=
+[event] status_stacked status=shock reason=
+[debug] [damage_resolver] kind=status_payoff_hit family=magical source=debug_tool/status_harness:shock target=shock_target rolled=12 crit=false defense=0 final=12
+[event] status_removed status=shock reason=consume
+[event] status_applied status=stun reason=
+[assert] PASS shock third stack still applies
+[assert] PASS shock overload consumes shock stacks
+[assert] PASS shock overload applies stun
+[assert] PASS shock overload produced magical payoff hit
+[assert] PASS first stun DR duration is base 0.8
+[event] status_refreshed status=stun reason=
+[assert] PASS second stun DR halves duration
+[event] status_refreshed status=stun reason=
+[assert] PASS third stun DR quarters duration
+[assert] PASS fourth stun hits hard-cc immunity
+== scenario: status ordering ==
+[event] status_applied status=speed_boost reason=
+[event] status_applied status=wet reason=
+[event] status_applied status=burn reason=
+[event] status_applied status=stun reason=
+[ordering] stun,burn,wet,speed_boost
+[assert] PASS status HUD ordering sorts by visual priority
+== scenario: remove-op behavior ==
+[event] status_applied status=speed_boost reason=
+[event] status_applied status=bleed reason=
+[event] status_applied status=shock reason=
+[event] status_applied status=stun reason=
+[event] status_removed status=bleed reason=cleanse
+[event] status_removed status=stun reason=cleanse
+[event] status_removed status=shock reason=cleanse
+[assert] PASS cleanse removes negative statuses including hard cc
+[assert] PASS cleanse leaves positive boons intact
+[event] status_removed status=speed_boost reason=purge
+[assert] PASS purge removes positive boons
+[assert] PASS purge removes speed_boost
+[event] status_applied status=shock reason=
+[event] status_removed status=shock reason=consume
+[assert] PASS consume removes targeted status
+[assert] PASS consume emits status_removed with consume reason
+[event] status_applied status=wet reason=
+[event] status_expired status=wet reason=expire
+[assert] PASS expire removes timed status
+SUMMARY: PASS

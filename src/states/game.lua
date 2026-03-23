@@ -17,9 +17,14 @@ local DamageNumbers = require("src.ui.damage_numbers")
 local Font = require("src.ui.font")
 local Cursor = require("src.ui.cursor")
 local TextLayout = require("src.ui.text_layout")
+local ContentTooltips = require("src.systems.content_tooltips")
+local RewardRuntime = require("src.systems.reward_runtime")
+local RunMetadata = require("src.systems.run_metadata")
+local MetaRuntime = require("src.systems.meta_runtime")
 local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
+local Shop = require("src.systems.shop")
 local TileRenderer = require("src.systems.tile_renderer")
 local RoomProps = require("src.systems.room_props")
 local Wind = require("src.systems.wind")
@@ -31,6 +36,13 @@ local MusicDirector = require("src.systems.music_director")
 local WorldLighting = require("src.systems.world_lighting")
 local Vision = require("src.data.vision")
 local GameDevApply = require("src.states.game_dev_apply")
+local CombatEvents = require("src.systems.combat_events")
+local DamagePacket = require("src.systems.damage_packet")
+local GameRng = require("src.systems.game_rng")
+local ProcRuntime = require("src.systems.proc_runtime")
+local DevEventEcho = require("src.systems.dev_event_echo")
+local PresentationRuntime = require("src.systems.presentation_runtime")
+local SourceRef = require("src.systems.source_ref")
 
 local game = {}
 game._runtime = {}
@@ -68,10 +80,81 @@ local pendingGameOver = nil
 --- When true, we're in editor test-play mode — death/door returns to editor.
 local editorTestMode = false
 
+local function classifyDamageBreakdown(payload)
+    local breakdown = {}
+    local source_ref = payload and payload.source_ref or {}
+    local source_type = source_ref and source_ref.owner_source_type or nil
+    local family = payload and payload.family or nil
+    local packet_kind = payload and payload.packet_kind or nil
+
+    if source_type == "melee" then
+        breakdown.melee = true
+    elseif source_type == "ultimate" then
+        breakdown.ultimate = true
+    elseif source_type == "perk" then
+        breakdown.proc = true
+    end
+
+    if packet_kind == "delayed_secondary_hit" then
+        breakdown.explosion = true
+    end
+
+    for _, tag in ipairs((payload and payload.tags) or {}) do
+        if tag == "ultimate" then
+            breakdown.ultimate = true
+        elseif tag == "proc" then
+            breakdown.proc = true
+        elseif tag == "explosion" or tag == "secondary" then
+            breakdown.explosion = true
+        end
+    end
+
+    if family == "physical" then
+        breakdown.physical = true
+    elseif family == "magical" then
+        breakdown.magical = true
+    elseif family == "true" then
+        breakdown.true_damage = true
+    end
+
+    return breakdown
+end
+
+local function buildDamageTraceDetail(payload)
+    local source_ref = payload and payload.source_ref or {}
+    return {
+        amount = payload and payload.final_applied_damage or 0,
+        source_type = source_ref and source_ref.owner_source_type or "unknown",
+        source_id = source_ref and source_ref.owner_source_id or "unknown",
+        parent_source_id = source_ref and source_ref.parent_source_id or nil,
+        packet_kind = payload and payload.packet_kind or "unknown",
+        family = payload and payload.family or "unknown",
+        target_id = payload and payload.target_id or "unknown",
+        tags = payload and payload.tags or {},
+        room_id = currentRoom and currentRoom.id or nil,
+        room_name = currentRoom and currentRoom.name or nil,
+        room_index = roomManager and roomManager.currentRoomIndex or nil,
+        world_id = roomManager and roomManager.worldId or nil,
+        world_name = roomManager and roomManager.worldDef and roomManager.worldDef.name or nil,
+    }
+end
+
+--- Incoming damage to the player: same trace shape plus readable enemy label when available.
+local function buildIncomingDamageDetail(payload)
+    local base = buildDamageTraceDetail(payload)
+    local src = payload and payload.source_actor or nil
+    if src and src.isEnemy then
+        base.source_name = src.name or src.typeId
+        base.enemy_type_id = src.typeId
+    end
+    return base
+end
+
 -- Ultimate: Dead Man's Hand (single table to avoid upvalue bloat)
 local ult = { flashAlpha = 0, shotFlashScreen = 0, vignetteAlpha = 0, rings = {}, pulseTimer = 0 }
 local devPanelState = {
     open = false,
+    pauseGameplay = true,
     scroll = 0,
     hover = nil,
     rows = nil,
@@ -91,8 +174,12 @@ local PLAYER_RELOAD_NOISE_RADIUS = 170
 local PLAYER_MELEE_NOISE_RADIUS = 135
 local DEV_SPAWN_COUNTS = { 1, 5, 10 }
 local DEV_GROUND_SUPPORT_DEPTH = 6
-local DEV_PANEL_HINT = "F2 close | ESC/right click cancel | left click world spawn | wheel scroll"
-local DEV_PANEL_HELP = "F2 / ESC close  ·  click section headers  ·  wheel scroll"
+local DEV_PANEL_HINT = "F1 close | ESC/right click cancel | left click world spawn | wheel scroll"
+local DEV_PANEL_HELP = "F1 / ESC close  ·  click section headers  ·  wheel scroll"
+
+local function devToolsEnabled()
+    return DEBUG or DEV_TOOLS_ENABLED
+end
 
 --- Spawn world gold pickups (same as loot) instead of crediting instantly — for dev cheats.
 local function spawnCheatGoldDrops(amount)
@@ -105,11 +192,11 @@ local function spawnCheatGoldDrops(amount)
         local v = base + (i <= rem and 1 or 0)
         if v <= 0 then break end
         local spread = (i - 1 - (n - 1) * 0.5) * 18
-        local px = player.x + player.w / 2 - pw / 2 + spread + (math.random() - 0.5) * 8
-        local py = player.y - 6 - math.random() * 16
+        local px = player.x + player.w / 2 - pw / 2 + spread + (GameRng.randomFloat("game.debug_gold.px", 0, 1) - 0.5) * 8
+        local py = player.y - 6 - GameRng.randomFloat("game.debug_gold.py", 0, 16)
         local p = Pickup.new(px, py, "gold", v)
-        p.vy = -150 - math.random() * 130
-        p.vx = (math.random() - 0.5) * 200
+        p.vy = -150 - GameRng.randomFloat("game.debug_gold.vy", 0, 130)
+        p.vx = (GameRng.randomFloat("game.debug_gold.vx", 0, 1) - 0.5) * 200
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end
@@ -129,7 +216,7 @@ local function handleDebugAction(action)
         spawnCheatGoldDrops(10)
         DevLog.push("sys", "Debug: +10 gold (drops)")
     elseif action == "debug_sub_gold" then
-        player.gold = math.max(0, player.gold - 10)
+        player:spendGold(10, "dev_sub_gold")
         DevLog.push("sys", "Debug: -10 gold")
     end
 end
@@ -147,14 +234,40 @@ local devClampScroll
 local devRebuildPanelRows
 
 local function defaultDevPanelSections()
-    return {
-        debug = true,
-        player = true,
-        world = true,
-        npc = true,
+    local sections = {
+        debug = false,
+        player = false,
+        quick = false,
+        world = false,
+        npc = false,
         weapons = false,
         perks = false,
+        rewards = false,
+        meta = false,
+        statuses = false,
     }
+    sections.player = true
+    sections.world = true
+    return sections
+end
+
+local function devBootPanelSections()
+    local sections = {
+        debug = false,
+        player = false,
+        quick = false,
+        world = false,
+        npc = false,
+        weapons = false,
+        perks = false,
+        rewards = false,
+        meta = false,
+        statuses = false,
+    }
+    sections.quick = true
+    sections.rewards = true
+    sections.meta = true
+    return sections
 end
 
 local function defaultDevNpcSpawn()
@@ -175,9 +288,50 @@ local function pointInRect(x, y, rx, ry, rw, rh)
     return x >= rx and x <= rx + rw and y >= ry and y <= ry + rh
 end
 
+local function getDebugConsoleLayout()
+    local panelX = GAME_WIDTH - 260
+    local consoleGap = 12
+    local consoleH = 240
+    local consoleW = math.min(720, math.max(420, panelX - 24))
+    local consoleX = math.max(12, panelX - consoleW - consoleGap)
+    return consoleX, 60, consoleW, consoleH
+end
+
 local function currentDevSpawnCount()
     local idx = devNpcSpawn and devNpcSpawn.countIndex or 1
     return DEV_SPAWN_COUNTS[idx] or 1
+end
+
+local function nearestLivingEnemyLabel()
+    if not player or not enemies then
+        return "none"
+    end
+
+    local px = player.x + player.w * 0.5
+    local py = player.y + player.h * 0.5
+    local bestEnemy = nil
+    local bestDistSq = math.huge
+
+    for _, enemy in ipairs(enemies) do
+        if enemy and enemy.alive then
+            local ex = enemy.x + enemy.w * 0.5
+            local ey = enemy.y + enemy.h * 0.5
+            local dx = ex - px
+            local dy = ey - py
+            local distSq = dx * dx + dy * dy
+            if distSq < bestDistSq then
+                bestDistSq = distSq
+                bestEnemy = enemy
+            end
+        end
+    end
+
+    if not bestEnemy then
+        return "none"
+    end
+
+    local dist = math.sqrt(bestDistSq)
+    return string.format("%s  %.0fpx", bestEnemy.name or bestEnemy.typeId or "enemy", dist)
 end
 
 local function getDevSpawnLabel(typeId)
@@ -457,12 +611,10 @@ local function drawActiveDevSpawnPreview()
 end
 
 local function drawDevPanelOverlay()
-    if not DEBUG or not devPanelState.open or not devPanelState.rows or not player then
+    if not devToolsEnabled() or not devPanelState.open or not devPanelState.rows or not player then
         return
     end
 
-    love.graphics.setColor(0, 0, 0, 0.38)
-    love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Font.new(16)
     end
@@ -475,9 +627,6 @@ local function drawDevPanelOverlay()
         title = game.devPanelTitleFont,
         row = game.devPanelRowFont,
     })
-    love.graphics.setFont(game.devPanelRowFont)
-    love.graphics.setColor(0.55, 0.55, 0.58)
-    love.graphics.printf(DEV_PANEL_HINT or DEV_PANEL_HELP, px, math.min(py + ph + 6, GAME_HEIGHT - 20), pw, "center")
 end
 
 local function emitEnemyNoise(x, y, radius, kind)
@@ -638,6 +787,7 @@ local DOOR_INTERACT_PAD = 10
 
 -- Must be declared before any helper that reads it (Lua local scope starts at declaration)
 local CAM_ZOOM = 3
+local MAX_GAMEPLAY_ASPECT = 16 / 9
 
 -- Dead Cells-style camera settings
 local CAM_LERP_SPEED   = 5      -- how fast camera catches up (higher = snappier)
@@ -647,10 +797,21 @@ local CAM_GROUNDED_Y   = -15    -- slight upward bias when grounded (see more fl
 local camTargetX, camTargetY = 400, 200
 local camCurrentX, camCurrentY = 400, 200
 
+local function getGameplayCameraScale()
+    local maxViewWidthAtBaseZoom = math.floor(GAME_HEIGHT * MAX_GAMEPLAY_ASPECT / CAM_ZOOM + 0.5)
+    local minScaleForAspect = GAME_WIDTH / math.max(1, maxViewWidthAtBaseZoom)
+    return math.max(CAM_ZOOM, minScaleForAspect)
+end
+
+local function getGameplayViewSize()
+    local scale = getGameplayCameraScale()
+    return GAME_WIDTH / scale, GAME_HEIGHT / scale, scale
+end
+
 local function updateCamera(dt, snap)
     if not currentRoom or not camera or not player then return end
-    local viewW = GAME_WIDTH / CAM_ZOOM
-    local viewH = GAME_HEIGHT / CAM_ZOOM
+    local viewW, viewH, scale = getGameplayViewSize()
+    camera.scale = scale
     local px = player.x + player.w / 2
     local py = player.y + player.h / 2
 
@@ -727,8 +888,7 @@ local function drawExitBlockedOffscreenArrows()
     if not blinkOn then return end
 
     local camX, camY = camera:position()
-    local viewW = GAME_WIDTH / CAM_ZOOM
-    local viewH = GAME_HEIGHT / CAM_ZOOM
+    local viewW, viewH = getGameplayViewSize()
     local viewL = camX - viewW / 2
     local viewT = camY - viewH / 2
     local viewR = camX + viewW / 2
@@ -773,8 +933,7 @@ local function drawExitArrow()
 
     local door = currentRoom.door
     local camX, camY = camera:position()
-    local viewW = GAME_WIDTH / CAM_ZOOM
-    local viewH = GAME_HEIGHT / CAM_ZOOM
+    local viewW, viewH = getGameplayViewSize()
     local viewL = camX - viewW / 2
     local viewT = camY - viewH / 2
     local viewR = camX + viewW / 2
@@ -824,6 +983,16 @@ local function tryExitThroughDoor()
     end
     roomManager:onRoomCleared()
     if roomManager:isCheckpoint() then
+        if game._runtime and game._runtime.runMetadata then
+            RunMetadata.recordCheckpoint(game._runtime.runMetadata, {
+                world_id = roomManager and roomManager.worldId or nil,
+                world_name = roomManager and roomManager.worldDef and roomManager.worldDef.name or nil,
+                room_index = roomManager and roomManager.currentRoomIndex or nil,
+                total_cleared = roomManager and roomManager.totalRoomsCleared or nil,
+                difficulty = roomManager and roomManager.difficulty or nil,
+                dev_arena = roomManager and roomManager.devArenaMode == true,
+            })
+        end
         local saloon = require("src.states.saloon")
         Gamestate.push(saloon, player, roomManager)
     else
@@ -877,10 +1046,14 @@ local function pauseMenuEntries()
     }
 end
 
-local function pauseMenuButtonLayout()
+local function pauseMenuButtonLayout(variant)
     local screenW, screenH = GAME_WIDTH, GAME_HEIGHT
     local bw, bh = 340, 48
     local gap = 10
+    if variant == "large" then
+        bw, bh = 420, 60
+        gap = 12
+    end
     local list = pauseMenuEntries()
     local totalH = #list * bh + (#list - 1) * gap
     local startY = screenH * 0.38 - totalH * 0.5
@@ -936,7 +1109,7 @@ end
 local function drawCharacterSheet()
     if not player then return end
     local pad = 14
-    local w, h = 300, 292
+    local w, h = 332, 452
     local x, y = 18, 56
     love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
     love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -963,33 +1136,67 @@ local function drawCharacterSheet()
     py = py + 22
     love.graphics.print("Perks:", x + pad, py)
     py = py + 18
-    if #player.perks == 0 then
+    local perksList = player.perks or {}
+    if #perksList == 0 then
         love.graphics.setColor(0.55, 0.52, 0.48)
         love.graphics.print("(none yet)", x + pad, py)
         py = py + 20
     else
         love.graphics.setColor(0.78, 0.85, 0.72)
-        local ptext = table.concat(player.perks, ", ")
+        local ptext = table.concat(ContentTooltips.getPerkNames(player), ", ")
         local tw = w - 2 * pad
         local _, lines = game.charSheetBodyFont:getWrap(ptext, tw)
         love.graphics.printf(ptext, x + pad, py, tw, "left")
         py = py + #lines * game.charSheetBodyFont:getHeight() + 8
     end
-    love.graphics.setColor(0.88, 0.82, 0.72)
-    local function gearLine(slot, label)
-        local g = player.gear[slot]
-        local name = g and g.name or "—"
-        return string.format("%s: %s", label, name)
+    local tw = w - 2 * pad
+    local function drawWrappedBulletLines(lines, color)
+        love.graphics.setColor(color[1], color[2], color[3], color[4] or 1)
+        for _, line in ipairs(lines or {}) do
+            local text = "• " .. line
+            local _, wrapped = game.charSheetBodyFont:getWrap(text, tw)
+            love.graphics.printf(text, x + pad + 4, py, tw - 4, "left")
+            py = py + math.max(1, #wrapped) * game.charSheetBodyFont:getHeight() + 2
+        end
     end
-    love.graphics.print(gearLine("hat", "Hat"), x + pad, py)
+    local function drawWrappedSectionLines(lines, color)
+        drawWrappedBulletLines(lines, color)
+        py = py + 4
+    end
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    love.graphics.print("Weapons:", x + pad, py)
     py = py + 18
-    love.graphics.print(gearLine("vest", "Vest"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("boots", "Boots"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("melee", "Melee"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("shield", "Shield"), x + pad, py)
+    for slotIndex = 1, 2 do
+        local slot = player.weapons and player.weapons[slotIndex] or nil
+        local gun = slot and slot.gun or nil
+        local slotLabel = string.format("Slot %d%s: %s",
+            slotIndex,
+            player.activeWeaponSlot == slotIndex and " [active]" or "",
+            gun and gun.name or "Empty"
+        )
+        love.graphics.setColor(0.88, 0.82, 0.72)
+        love.graphics.print(slotLabel, x + pad, py)
+        py = py + 18
+        if gun then
+            drawWrappedSectionLines(ContentTooltips.getLines("gun", gun), { 0.72, 0.8, 0.88, 1 })
+        else
+            py = py + 4
+        end
+    end
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    local function drawGearBlock(slot, label)
+        local g = player.gear[slot]
+        love.graphics.print(string.format("%s: %s", label, g and g.name or "—"), x + pad, py)
+        py = py + 18
+        if g then
+            drawWrappedSectionLines(ContentTooltips.getLines("gear", g), { 0.75, 0.84, 0.74, 1 })
+        end
+    end
+    drawGearBlock("hat", "Hat")
+    drawGearBlock("vest", "Vest")
+    drawGearBlock("boots", "Boots")
+    drawGearBlock("melee", "Melee")
+    drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
     local ck = Keybinds.formatActionKey("character")
@@ -1001,8 +1208,11 @@ devClampScroll = function()
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Font.new(16)
     end
-    local _, _, _, ph = getDevPanelLayout()
-    local maxS = DevPanel.maxScroll(devPanelState.rows, game.devPanelTitleFont, ph)
+    if not game.devPanelRowFont then
+        game.devPanelRowFont = Font.new(13)
+    end
+    local _, _, pw, ph = getDevPanelLayout()
+    local maxS = DevPanel.maxScroll(devPanelState.rows, game.devPanelTitleFont, game.devPanelRowFont, pw, ph)
     devPanelState.scroll = math.max(0, math.min(maxS, devPanelState.scroll))
 end
 
@@ -1041,8 +1251,67 @@ local function syncCurrentRoomNightMode()
     end
 end
 
+local function queueRunRecap(outcome, source)
+    if pendingGameOver or not player then
+        return
+    end
+
+    local profile = RewardRuntime.buildProfile(player, {
+        source = source or "run_end",
+    })
+    local buildSnapshot = RunMetadata.snapshotBuild(player, profile)
+    local roomsCleared = roomManager and roomManager.totalRoomsCleared or 0
+    local perksCount = player.perks and #player.perks or 0
+
+    if game._runtime and game._runtime.runMetadata then
+        local vis = 0
+        local st = player.statuses
+        if st and st.instances then
+            for _ in pairs(st.instances) do
+                vis = vis + 1
+            end
+        end
+        RunMetadata.finishRun(game._runtime.runMetadata, {
+            outcome = outcome or "completed",
+            source = source or "run_end",
+            level = player.level,
+            rooms_cleared = roomsCleared,
+            gold = player.gold,
+            perks_count = perksCount,
+            total_damage_dealt = game._runtime.runMetadata.combat
+                and game._runtime.runMetadata.combat.total_damage_dealt
+                or 0,
+            damage_breakdown = game._runtime.runMetadata.combat
+                and game._runtime.runMetadata.combat.breakdown
+                or nil,
+            dominant_tags = profile and profile.dominant_tags or nil,
+            build_snapshot = buildSnapshot,
+            visible_buff_count = vis,
+        })
+    end
+
+    pendingGameOver = {
+        level = player.level,
+        roomsCleared = roomsCleared,
+        gold = player.gold,
+        perksCount = perksCount,
+        runMetadata = game._runtime and game._runtime.runMetadata or nil,
+        outcome = outcome or "completed",
+    }
+end
+
 devRebuildPanelRows = function()
+    if game._runtime and game._runtime.devRewardLab then
+        game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
+            source = "dev_panel",
+        }))
+    end
+    local metaSummary = MetaRuntime.summarize(game._runtime and game._runtime.runMetadata or nil, {
+        roomsCleared = roomManager and roomManager.totalRoomsCleared or 0,
+        perksCount = player and player.perks and #player.perks or 0,
+    })
     devPanelState.rows = DevPanel.buildRows({
+        gameplayPaused = devPanelState.pauseGameplay,
         showHitboxes = devShowHitboxes,
         nightOverride = roomManager and roomManager.nightVisualsOverride,
         bossFightActive = currentRoom and currentRoom.bossFight,
@@ -1055,25 +1324,44 @@ devRebuildPanelRows = function()
             placement = devNpcSpawn and devNpcSpawn.placement,
             preview = devNpcSpawn and devNpcSpawn.preview,
         },
+        statusLab = {
+            nearestEnemyLabel = nearestLivingEnemyLabel(),
+        },
+        rewardLab = {
+            offers = (game._runtime.devRewardLab and game._runtime.devRewardLab.shop and game._runtime.devRewardLab.shop.items) or {},
+            profileSummary = (game._runtime.devRewardLab and game._runtime.devRewardLab.profileSummary) or "none",
+            gold = player and player.gold or 0,
+            shopRerollCost = (game._runtime.devRewardLab and game._runtime.devRewardLab.shop and game._runtime.devRewardLab.shop.getRerollCost and game._runtime.devRewardLab.shop:getRerollCost()) or 0,
+            levelupRerollCost = RewardRuntime.getRerollCost("levelup", game._runtime and game._runtime.runMetadata or nil),
+        },
+        metaLab = {
+            summary = metaSummary,
+        },
     })
 end
 
 do
-    local r = game._runtime
-    r.devRebuildPanelRows = devRebuildPanelRows
-    r.devClampScroll = devClampScroll
-    r.syncCurrentRoomNightMode = syncCurrentRoomNightMode
-    r.clearDevNpcPlacement = clearDevNpcPlacement
-    r.startDevNpcPlacement = startDevNpcPlacement
-    r.getMouseWorldPosition = getMouseWorldPosition
-    r.updateDevSpawnPreview = updateDevSpawnPreview
-    r.currentDevSpawnCount = currentDevSpawnCount
-    r.pendingEnemiesIncoming = pendingEnemiesIncoming
-    r.spawnCheatGoldDrops = spawnCheatGoldDrops
+    local function bindRuntimeHelpers()
+        local r = game._runtime
+        r.devRebuildPanelRows = devRebuildPanelRows
+        r.devClampScroll = devClampScroll
+        r.syncCurrentRoomNightMode = syncCurrentRoomNightMode
+        r.clearDevNpcPlacement = clearDevNpcPlacement
+        r.startDevNpcPlacement = startDevNpcPlacement
+        r.getMouseWorldPosition = getMouseWorldPosition
+        r.updateDevSpawnPreview = updateDevSpawnPreview
+        r.currentDevSpawnCount = currentDevSpawnCount
+        r.pendingEnemiesIncoming = pendingEnemiesIncoming
+        r.spawnCheatGoldDrops = spawnCheatGoldDrops
+        r.queueRunRecap = queueRunRecap
+    end
+
+    bindRuntimeHelpers()
+    game._bindRuntimeHelpers = bindRuntimeHelpers
 end
 
 local function openDevPanel()
-    if not DEBUG then return end
+    if not devToolsEnabled() then return end
     if not devPanelState.sections then
         devPanelState.sections = defaultDevPanelSections()
     end
@@ -1081,8 +1369,10 @@ local function openDevPanel()
         devNpcSpawn = defaultDevNpcSpawn()
     end
     devPanelState.open = true
+    devPanelState.pauseGameplay = false
     characterSheetOpen = false
     devPanelState.scroll = 0
+    devPanelState.hover = nil
     devRebuildPanelRows()
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Font.new(16)
@@ -1104,35 +1394,23 @@ local function devApplyAction(id)
     r.characterSheetOpen = characterSheetOpen
     r.devShowHitboxes = devShowHitboxes
     r.gameRef = game
+    r.devRewardLab = game._runtime.devRewardLab
     GameDevApply.apply(id, r)
     doorOpen = r.doorOpen
     characterSheetOpen = r.characterSheetOpen
     devShowHitboxes = r.devShowHitboxes
+    game._runtime.devRewardLab = r.devRewardLab
 end
 
-function game:enter(_, opts)
+local function initGameplaySessionState(opts)
     introCD.active = false
     introCD.n = 0
     introCD.segT = 0
     introCD.overlayFade = 0
-
-    world = bump.newWorld(32)
-    camera = Camera(400, 200)
-    camera.scale = CAM_ZOOM
-    camCurrentX, camCurrentY = 400, 200
-    camTargetX, camTargetY = 400, 200
-    player = Player.new(50, 300)
-    player.autoGun = Settings.getDefaultAutoGun()
-    world:add(player, player.x, player.y, player.w, player.h)
-    player.isPlayer = true
-
-    bullets = {}
-    enemies = {}
-    pickups = {}
-    enemyNoiseEvents = {}
-    shakeTimer = 0
-    shakeIntensity = 0
-    gameTimer = 0
+    devPanelState.open = false
+    devPanelState.pauseGameplay = false
+    devPanelState.scroll = 0
+    devPanelState.hover = nil
     doorOpen = false
     doorAnimFrame = 1
     doorAnimTimer = 0
@@ -1150,17 +1428,113 @@ function game:enter(_, opts)
     devPanelState.open = false
     devPanelState.scroll = 0
     devPanelState.hover = nil
-    devPanelState.sections = defaultDevPanelSections()
+    devPanelState.sections = (opts and opts.devBoot) and devBootPanelSections() or defaultDevPanelSections()
     devNpcSpawn = defaultDevNpcSpawn()
     devShowHitboxes = true
+end
 
-    devArenaMode = opts and opts.devArena == true
+local function initGameplayRuntime(opts)
+    game._runtime = {}
+    CombatEvents.clear()
+    if game._bindRuntimeHelpers then
+        game._bindRuntimeHelpers()
+    end
+    game._runtime.runSeed = (opts and opts.runSeed) or GameRng.seedFromTime()
+    game._runtime.rng = GameRng.new(game._runtime.runSeed)
+    GameRng.setCurrent(game._runtime.rng)
+    game._runtime.devRewardLab = {
+        shop = Shop.new(1),
+        profileSummary = "uninitialized",
+    }
+    CombatEvents.subscribe("OnKill", function(payload)
+        if not payload or payload.target_kind ~= "enemy" then
+            return
+        end
+        local target = payload.target_actor
+        if not target or target.cc_profile ~= "boss" then
+            return
+        end
+        if not game._runtime or not game._runtime.runMetadata then
+            return
+        end
+        RunMetadata.recordBossKilled(game._runtime.runMetadata, target, {
+            room_id = currentRoom and currentRoom.id or nil,
+            room_name = currentRoom and currentRoom.name or nil,
+            world_id = roomManager and roomManager.worldId or nil,
+            world_name = roomManager and roomManager.worldDef and roomManager.worldDef.name or nil,
+            room_index = roomManager and roomManager.currentRoomIndex or nil,
+            total_cleared = roomManager and roomManager.totalRoomsCleared or nil,
+            difficulty = roomManager and roomManager.difficulty or nil,
+            dev_arena = roomManager and roomManager.devArenaMode == true,
+        })
+    end)
+    CombatEvents.subscribe("OnDamageTaken", function(payload)
+        if not payload or payload.target_kind ~= "enemy" then
+            return
+        end
+        if payload.source_actor_kind ~= "player" then
+            return
+        end
+        if not game._runtime or not game._runtime.runMetadata then
+            return
+        end
+        RunMetadata.recordDamageDealt(
+            game._runtime.runMetadata,
+            payload.final_applied_damage,
+            classifyDamageBreakdown(payload),
+            buildDamageTraceDetail(payload)
+        )
+    end)
+    CombatEvents.subscribe("OnDamageTaken", function(payload)
+        if not payload or payload.target_kind ~= "player" then
+            return
+        end
+        if not game._runtime or not game._runtime.runMetadata then
+            return
+        end
+        RunMetadata.recordDamageToPlayer(game._runtime.runMetadata, buildIncomingDamageDetail(payload))
+    end)
+end
+
+local function initGameplayWorld()
+    world = bump.newWorld(32)
+    camera = Camera(400, 200)
+    camera.scale = getGameplayCameraScale()
+    camCurrentX, camCurrentY = 400, 200
+    camTargetX, camTargetY = 400, 200
+    player = Player.new(50, 300)
+    player.runMetadata = game._runtime.runMetadata
+    player.autoGun = Settings.getDefaultAutoGun()
+    game._runtime.procRuntime = ProcRuntime.init(player)
+    game._runtime.presentationRuntime = PresentationRuntime.init()
+    world:add(player, player.x, player.y, player.w, player.h)
+    player.isPlayer = true
+
+    bullets = {}
+    enemies = {}
+    pickups = {}
+    enemyNoiseEvents = {}
+    shakeTimer = 0
+    shakeIntensity = 0
+    gameTimer = 0
+    Combat.setExplosiveShakeHook(function(duration, intensity)
+        duration = tonumber(duration) or 0
+        intensity = tonumber(intensity) or 0
+        if duration <= 0 or intensity <= 0 then
+            return
+        end
+        shakeTimer = math.max(shakeTimer or 0, duration)
+        shakeIntensity = math.max(shakeIntensity or 0, intensity)
+    end)
+end
+
+local function configureGameplayRun(opts)
     local worldId = (opts and opts.worldId) or Worlds.order[1]
+    devArenaMode = opts and opts.devArena == true
     roomManager = RoomManager.new(worldId)
     roomManager.devArenaMode = devArenaMode
     currentTheme = roomManager:getTheme()
 
-    -- Activate world-specific atmosphere systems
     if worldId == "train" then
         Wind.activate()
         TrainRenderer.preload()
@@ -1169,15 +1543,33 @@ function game:enter(_, opts)
     end
 
     local worldDef = Worlds.get(worldId)
+    game._runtime.runMetadata = RunMetadata.new(game._runtime.runSeed, {
+        world_id = worldId,
+        world_name = worldDef and worldDef.name or worldId,
+        dev_arena = opts and opts.devArena == true,
+    })
+    player.runMetadata = game._runtime.runMetadata
+    game._runtime.devRewardLab.shop = Shop.new(roomManager.difficulty or 1, player, {
+        run_metadata = game._runtime.runMetadata,
+        source = "dev_arena_shop",
+        room_manager = roomManager,
+    })
+    game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
+        source = "dev_arena",
+    }))
     local bgPath = worldDef and worldDef.background or Worlds.get(Worlds.order[1]).background
     bgImage = love.graphics.newImage(bgPath)
     bgImage:setWrap("repeat", "clampzero")
+    return worldId, worldDef
+end
 
+local function enterInitialGameplayState(opts, worldId, worldDef)
     local editorRoom = opts and opts.editorRoom
     editorTestMode = (editorRoom ~= nil)
     if editorRoom then
         roomManager:generateSequence()
         DevLog.init()
+        DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
         DevLog.push("sys", "Editor test play")
         currentRoom = roomManager:loadRoom(editorRoom, world, player)
         enemies = currentRoom.enemies
@@ -1185,7 +1577,12 @@ function game:enter(_, opts)
     else
         roomManager:generateSequence()
         DevLog.init()
+        DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
         if devArenaMode then
+            DevEventEcho.init()
+            if opts and opts.devBoot then
+                DevLog.push("sys", "CLI dev boot active")
+            end
             DevLog.push("sys", "Dev arena started")
             loadNextRoom()
         else
@@ -1194,7 +1591,13 @@ function game:enter(_, opts)
             Gamestate.push(saloonState, player, roomManager)
         end
     end
+end
+
+local function finalizeGameplayEnter(opts)
     devRebuildPanelRows()
+    if opts and opts.openDevPanel and devToolsEnabled() then
+        openDevPanel()
+    end
 
     if opts and opts.introCountdown and Gamestate.current() == game then
         introCD.active = true
@@ -1211,6 +1614,15 @@ function game:enter(_, opts)
         Cursor.setGameplay()
         MusicDirector.onEnterGameplay()
     end
+end
+
+function game:enter(_, opts)
+    initGameplayRuntime(opts)
+    initGameplaySessionState(opts)
+    initGameplayWorld()
+    local worldId, worldDef = configureGameplayRun(opts)
+    enterInitialGameplayState(opts, worldId, worldDef)
+    finalizeGameplayEnter(opts)
 end
 
 function game:leave()
@@ -1257,6 +1669,16 @@ function loadNextRoom()
 
     currentRoom = roomManager:loadRoom(roomData, world, player)
     enemies = currentRoom.enemies
+    RunMetadata.recordRoom(game._runtime.runMetadata, currentRoom, {
+        world_id = roomManager and roomManager.worldId or nil,
+        room_index = roomManager.currentRoomIndex,
+        total_cleared = roomManager.totalRoomsCleared,
+        difficulty = roomManager.difficulty or 1,
+        dev_arena = roomManager.devArenaMode == true,
+    })
+    game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
+        source = "room_load",
+    }))
     -- Snap camera to player on room load (no lerp lag)
     updateCamera(0, true)
     if roomManager.devArenaMode then
@@ -1285,7 +1707,7 @@ function game:update(dt)
 
     if paused then return end
 
-    if devPanelState.open then
+    if devPanelState.open and devPanelState.pauseGameplay ~= false then
         if player and player.dying then
             devPanelState.open = false
             clearDevNpcPlacement(false)
@@ -1337,14 +1759,57 @@ function game:update(dt)
                     local ty = target.y + target.h / 2
                     local angle = math.atan2(ty - py, tx - px)
                     local effectiveStats = player:getEffectiveStats()
+                    local source_ref = SourceRef.new({
+                        owner_actor_id = player.actorId or "player",
+                        owner_source_type = "ultimate",
+                        owner_source_id = "dead_mans_hand",
+                    })
+                    local base_damage = (effectiveStats.bulletDamage or 0) * 3
+                    local packet = DamagePacket.new({
+                        kind = "direct_hit",
+                        family = "physical",
+                        base_min = base_damage,
+                        base_max = base_damage,
+                        can_crit = true,
+                        counts_as_hit = true,
+                        can_trigger_on_hit = true,
+                        can_trigger_proc = true,
+                        can_lifesteal = true,
+                        source = source_ref,
+                        tags = { "projectile", "ultimate" },
+                        snapshot_data = {
+                            source_context = {
+                                base_min = base_damage,
+                                base_max = base_damage,
+                                damage = effectiveStats.damageMultiplier or 1,
+                                physical_damage = 0,
+                                magical_damage = 0,
+                                true_damage = 0,
+                                crit_chance = effectiveStats.critChance or 0,
+                                crit_damage = effectiveStats.critDamage or 1.5,
+                                armor_pen = effectiveStats.armorPen or 0,
+                                magic_pen = effectiveStats.magicPen or 0,
+                            },
+                        },
+                        metadata = {
+                            explosion_radius = 60,
+                            explosion_damage_scale = 0.5,
+                        },
+                    })
                     local b = Combat.spawnBullet(world, {
                         x = px, y = py,
                         angle = angle,
                         speed = effectiveStats.bulletSpeed * 2.0,
-                        damage = effectiveStats.bulletDamage * 3,
+                        damage = base_damage,
                         explosive = true,
                         ricochet = 0,
                         ultBullet = true,
+                        packet = packet,
+                        source_actor = player,
+                        source_ref = source_ref,
+                        packet_kind = "direct_hit",
+                        damage_family = "physical",
+                        damage_tags = { "projectile", "ultimate" },
                     })
                     table.insert(bullets, b)
                     Sfx.play("ult_shot", { volume = 0.7 })
@@ -1413,8 +1878,9 @@ function game:update(dt)
     end
 
     local camX, camY = camera:position()
-    local halfW = GAME_WIDTH / (2 * CAM_ZOOM)
-    local halfH = GAME_HEIGHT / (2 * CAM_ZOOM)
+    local _, _, gameplayScale = getGameplayViewSize()
+    local halfW = GAME_WIDTH / (2 * gameplayScale)
+    local halfH = GAME_HEIGHT / (2 * gameplayScale)
     local viewL, viewT = camX - halfW, camY - halfH
     local viewR, viewB = camX + halfW, camY + halfH
 
@@ -1422,7 +1888,7 @@ function game:update(dt)
     Wind.update(dt, camX, camY, halfW * 2, halfH * 2)
 
     if currentRoom and currentRoom.nightMode and currentRoom.fogExplored and player and not player.dying then
-        Vision.markFogExplored(currentRoom, player, CAM_ZOOM)
+        Vision.markFogExplored(currentRoom, player, getGameplayCameraScale())
     end
 
     local autoTx, autoTy
@@ -1489,17 +1955,17 @@ function game:update(dt)
             local bulletData
             local gunForShake
             if player:isAkimbo() then
-                if not player.reloading and player.shootCooldown <= 0 and player.ammo > 0 then
+                if player:canAnyAkimboGunFire() then
                     bulletData = player:shoot(tx, ty)
                     gunForShake = player:getActiveGun()
                 end
             else
                 local s = player:getWeaponSlotForAutoFire()
                 if s then
-                    local w = player.weapons[s]
-                    if not w.reloading and (w.shootCooldown or 0) <= 0 and w.ammo > 0 then
+                    local w = player:getWeaponRuntime(s)
+                    if w and w.mode == "weapon" and (w.reload_timer or 0) <= 0 and (w.cooldown_timer or 0) <= 0 and (w.ammo or 0) > 0 then
                         bulletData = player:shootFromSlot(s, tx, ty)
-                        gunForShake = w.gun
+                        gunForShake = w.weapon_def
                     end
                 end
             end
@@ -1550,13 +2016,21 @@ function game:update(dt)
     i = 1
     while i <= #enemies do
         local e = enemies[i]
-        if e.alive then
-            local bulletData = e:update(dt, world, enemyContext)
-            if bulletData then
-                local b = Combat.spawnBullet(world, bulletData)
-                Sfx.play("shoot", { volume = 0.35 })
-                table.insert(bullets, b)
-            end
+            if e.alive then
+                local bulletData = e:update(dt, world, enemyContext)
+                if bulletData then
+                    bulletData.source_ref = bulletData.source_ref or SourceRef.new({
+                        owner_actor_id = e.actorId or e.typeId or "enemy",
+                        owner_source_type = "enemy_attack",
+                        owner_source_id = e.typeId or e.name or "enemy",
+                    })
+                    bulletData.packet_kind = bulletData.packet_kind or "direct_hit"
+                    bulletData.damage_family = bulletData.damage_family or "physical"
+                    bulletData.damage_tags = bulletData.damage_tags or { "projectile", "enemy" }
+                    local b = Combat.spawnBullet(world, bulletData)
+                    Sfx.play("shoot", { volume = 0.35 })
+                    table.insert(bullets, b)
+                end
             if isOutOfBounds(e, currentRoom) then
                 e.alive = false
                 e.isEnemy = false
@@ -1685,12 +2159,7 @@ function game:update(dt)
         if not pendingGameOver then
             DevLog.push("sys", string.format("Player died  lv%d  %d rooms  $%d",
                 player.level, roomManager.totalRoomsCleared, player.gold))
-            pendingGameOver = {
-                level = player.level,
-                roomsCleared = roomManager.totalRoomsCleared,
-                gold = player.gold,
-                perksCount = #player.perks,
-            }
+            queueRunRecap("death", "player_death")
         end
         return
     end
@@ -1701,7 +2170,7 @@ end
 
 function game:keypressed(key)
     if introCD.active then
-        if key == "f2" and DEBUG then
+        if key == "f1" and devToolsEnabled() then
             openDevPanel()
             return
         end
@@ -1712,7 +2181,24 @@ function game:keypressed(key)
         return
     end
 
-    if DEBUG and devPanelState.open then
+    local _, _, _, consoleH = getDebugConsoleLayout()
+    if DEBUG then
+        if key == "end" then
+            DevLog.followConsole()
+            return
+        elseif key == "pageup" then
+            DevLog.scrollConsole(10, consoleH)
+            return
+        elseif key == "pagedown" then
+            DevLog.scrollConsole(-10, consoleH)
+            return
+        elseif key == "home" then
+            DevLog.scrollConsole(9999, consoleH)
+            return
+        end
+    end
+
+    if devToolsEnabled() and devPanelState.open then
         if key == "escape" then
             if devNpcSpawn and devNpcSpawn.placement then
                 clearDevNpcPlacement(true)
@@ -1722,15 +2208,16 @@ function game:keypressed(key)
                 devPanelState.open = false
                 devPanelState.hover = nil
             end
-        elseif key == "f2" then
+            return
+        elseif key == "f1" then
             devPanelState.open = false
             devPanelState.hover = nil
             clearDevNpcPlacement(false)
+            return
         end
-        return
     end
 
-    if key == "f2" and DEBUG then
+    if key == "f1" and devToolsEnabled() then
         openDevPanel()
         return
     end
@@ -1871,13 +2358,16 @@ end
 
 function game:mousemoved(x, y, dx, dy)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelState.open and devPanelState.rows then
+    if devToolsEnabled() and devPanelState.open and devPanelState.rows then
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Font.new(16)
         end
+        if not game.devPanelRowFont then
+            game.devPanelRowFont = Font.new(13)
+        end
         local px, py, pw, ph = getDevPanelLayout()
         if pointInRect(gx, gy, px, py, pw, ph) then
-            devPanelState.hover = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont)
+            devPanelState.hover = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
         else
             devPanelState.hover = nil
         end
@@ -1904,7 +2394,7 @@ function game:mousemoved(x, y, dx, dy)
         end
         pauseMenu.hoverIndex = nil
         if pauseMenu.view == "main" then
-            for i, r in ipairs(pauseMenuButtonLayout()) do
+            for i, r in ipairs(pauseMenuButtonLayout("large")) do
                 if pauseHitRect(gx, gy, r) then
                     pauseMenu.hoverIndex = i
                     pauseMenu.selectedIndex = i
@@ -1913,7 +2403,7 @@ function game:mousemoved(x, y, dx, dy)
             end
         else
             if not game.pauseMenuButtonFont then
-                game.pauseMenuButtonFont = Font.new(22)
+                game.pauseMenuButtonFont = Font.new(26)
             end
             local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, gx, gy, game.pauseMenuButtonFont)
             if h then
@@ -1940,19 +2430,27 @@ end
 
 function game:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelState.open and devPanelState.rows then
+    if devToolsEnabled() and devPanelState.open and devPanelState.rows then
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Font.new(16)
         end
+        if not game.devPanelRowFont then
+            game.devPanelRowFont = Font.new(13)
+        end
         local px, py, pw, ph = getDevPanelLayout()
+        local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
         local insidePanel = pointInRect(gx, gy, px, py, pw, ph)
+        local insideConsole = pointInRect(gx, gy, consoleX - 4, consoleY - 4, consoleW + 8, consoleH)
         if insidePanel then
             if button == 1 then
-                local hit = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont)
+                local hit = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
                 if hit then
                     devApplyAction(hit)
                 end
             end
+            return
+        end
+        if insideConsole then
             return
         end
         if devNpcSpawn and devNpcSpawn.placement and camera then
@@ -1974,7 +2472,7 @@ function game:mousepressed(x, y, button)
     if paused then
         if button ~= 1 then return end
         if pauseMenu.view == "main" then
-            for _, r in ipairs(pauseMenuButtonLayout()) do
+            for _, r in ipairs(pauseMenuButtonLayout("large")) do
                 if pauseHitRect(gx, gy, r) then
                     if r.id == "resume" then
                         paused = false
@@ -1991,7 +2489,7 @@ function game:mousepressed(x, y, button)
             end
         else
             if not game.pauseMenuButtonFont then
-                game.pauseMenuButtonFont = Font.new(22)
+                game.pauseMenuButtonFont = Font.new(26)
             end
             local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, gx, gy, game.pauseMenuButtonFont)
             local r = SettingsPanel.applyHit(h, player)
@@ -2066,9 +2564,24 @@ function game:mousereleased(x, y, button)
 end
 
 function game:wheelmoved(x, y)
-    if not DEBUG or not devPanelState.open then return end
-    devPanelState.scroll = devPanelState.scroll - y * 36
-    devClampScroll()
+    if not devToolsEnabled() then return end
+    local mx, my = love.mouse.getPosition()
+    local gx, gy = windowToGame(mx, my)
+    local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+    local overConsole = pointInRect(gx, gy, consoleX - 4, consoleY - 4, consoleW + 8, consoleH)
+    if devPanelState.open then
+        local px, py, pw, ph = getDevPanelLayout()
+        if pointInRect(gx, gy, px, py, pw, ph) then
+            devPanelState.scroll = devPanelState.scroll - y * 36
+            devClampScroll()
+        elseif overConsole then
+            DevLog.scrollConsole(y * 3, consoleH)
+        end
+        return
+    end
+    if overConsole then
+        DevLog.scrollConsole(y * 3, consoleH)
+    end
 end
 
 function game:draw()
@@ -2099,8 +2612,7 @@ function game:draw()
         local camX, camY = camera:position()
 
         -- Parallax background — tiles horizontally, scrolls at 30% of camera speed
-        local viewW = GAME_WIDTH / CAM_ZOOM
-        local viewH = GAME_HEIGHT / CAM_ZOOM
+        local viewW, viewH = getGameplayViewSize()
         if bgImage then
             love.graphics.setColor(1, 1, 1)
             local bgW = bgImage:getWidth()
@@ -2193,8 +2705,9 @@ function game:draw()
         end
 
         if nightMode then
-            local fogHalfW = GAME_WIDTH / (2 * CAM_ZOOM)
-            local fogHalfH = GAME_HEIGHT / (2 * CAM_ZOOM)
+            local _, _, gameplayScale = getGameplayViewSize()
+            local fogHalfW = GAME_WIDTH / (2 * gameplayScale)
+            local fogHalfH = GAME_HEIGHT / (2 * gameplayScale)
             local fogVL, fogVT = camX - fogHalfW, camY - fogHalfH
             local fogVR, fogVB = camX + fogHalfW, camY + fogHalfH
             Vision.drawFogOfWar(currentRoom, fogVL, fogVT, fogVR, fogVB)
@@ -2332,6 +2845,8 @@ function game:draw()
             roomsCleared = pendingGameOver.roomsCleared,
             gold = pendingGameOver.gold,
             perksCount = pendingGameOver.perksCount,
+            runMetadata = pendingGameOver.runMetadata,
+            outcome = pendingGameOver.outcome,
             backgroundImage = snapshot,
         }
         pendingGameOver = nil
@@ -2351,7 +2866,12 @@ function game:draw()
 
         -- HUD (screen space)
         HUD.draw(player)
-        DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
+        if DEBUG then
+            HUD.drawReadabilityTierDebug(GAME_WIDTH, GAME_HEIGHT)
+        end
+        if not DEBUG then
+            DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
+        end
         if roomManager then
             HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
         end
@@ -2420,7 +2940,7 @@ function game:draw()
                 game.pauseTitleFont = Font.new(32)
             end
             if not game.pauseMenuButtonFont then
-                game.pauseMenuButtonFont = Font.new(22)
+                game.pauseMenuButtonFont = Font.new(26)
             end
             if not game.pauseHintFont then
                 game.pauseHintFont = Font.new(15)
@@ -2434,7 +2954,7 @@ function game:draw()
                 love.graphics.setColor(1, 0.86, 0.28, 0.95)
                 love.graphics.printf("PAUSED", 0, GAME_HEIGHT * 0.16, GAME_WIDTH, "center")
 
-                local rects = pauseMenuButtonLayout()
+                local rects = pauseMenuButtonLayout("large")
                 for i, r in ipairs(rects) do
                     local hover = (pauseMenu.hoverIndex == i) or (pauseMenu.hoverIndex == nil and pauseMenu.selectedIndex == i)
                     if hover then
@@ -2499,6 +3019,18 @@ function game:draw()
             game.debugFont = Font.new(11)
         end
         love.graphics.setFont(game.debugFont)
+        local bulletDamage = es.bulletDamage or 0
+        local damageMultiplier = es.damageMultiplier or 1
+        local moveSpeed = es.moveSpeed or 0
+        local bulletCount = es.bulletCount or 0
+        local spreadAngle = es.spreadAngle or 0
+        local ricochetCount = es.ricochetCount or 0
+        local ricochetLabel = es.explosiveRounds and "0 (LOCKED)" or tostring(ricochetCount)
+        local armor = es.armor or 0
+        local lifestealOnKill = es.lifestealOnKill or 0
+        local reloadSpeed = es.reloadSpeed or 0
+        local cylinderSize = es.cylinderSize or 0
+        local luck = es.luck or 0
 
         -- Stats panel (right side)
         local panelX = GAME_WIDTH - 260
@@ -2509,33 +3041,35 @@ function game:draw()
         love.graphics.print("-- EFFECTIVE STATS --", panelX, py)
         py = py + 16
         love.graphics.setColor(0.8, 1, 0.8)
-        love.graphics.print(string.format("DMG: %.0f x%.2f  SPD: %.0f", es.bulletDamage, es.damageMultiplier, es.moveSpeed), panelX, py)
+        love.graphics.print(string.format("DMG: %.0f x%.2f  SPD: %.0f", bulletDamage, damageMultiplier, moveSpeed), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Bullets: %d  Spread: %.2f", es.bulletCount, es.spreadAngle), panelX, py)
+        love.graphics.print(string.format("Bullets: %d  Spread: %.2f", bulletCount, spreadAngle), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Ricochet: %d  Explosive: %s", es.ricochetCount, tostring(es.explosiveRounds)), panelX, py)
+        love.graphics.print(string.format("Ricochet: %s  Explosive: %s", ricochetLabel, tostring(es.explosiveRounds)), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Armor: %d  Lifesteal: %d", es.armor, es.lifestealOnKill), panelX, py)
+        love.graphics.print(string.format("Armor: %d  Lifesteal: %d", armor, lifestealOnKill), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Reload: %.2fs  Cylinder: %d", es.reloadSpeed, es.cylinderSize), panelX, py)
+        love.graphics.print(string.format("Reload: %.2fs  Cylinder: %d", reloadSpeed, cylinderSize), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("DeadEye: %s  Luck: %.2f", tostring(es.deadEye), es.luck), panelX, py)
+        love.graphics.print(string.format("DeadEye: %s  Luck: %.2f", tostring(es.deadEye), luck), panelX, py)
         py = py + 20
 
         -- Perks list
+        local dbgPerks = player.perks or {}
         love.graphics.setColor(0, 1, 0)
-        love.graphics.print("-- PERKS (" .. #player.perks .. ") --", panelX, py)
+        love.graphics.print("-- PERKS (" .. #dbgPerks .. ") --", panelX, py)
         py = py + 16
         love.graphics.setColor(0.8, 1, 0.8)
-        if #player.perks == 0 then
+        if #dbgPerks == 0 then
             love.graphics.print("(none)", panelX, py)
         else
-            love.graphics.print(table.concat(player.perks, ", "), panelX, py)
+            love.graphics.print(table.concat(dbgPerks, ", "), panelX, py)
         end
         py = py + 20
 
-        -- Dev log
-        DevLog.draw(panelX, py, 250)
+        -- Dev log: wide console to the left of the stat panel.
+        local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+        DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
     end
 
     drawDevPanelOverlay()

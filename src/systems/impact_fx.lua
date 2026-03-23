@@ -1,84 +1,210 @@
--- Impact visual effects — animated sprite sheet particles that play once and die.
--- Uses "Retro Impact Effect Pack 1 A.png" (512×1536, 64×64 frames, 8 cols × 24 rows).
+-- Impact visual effects: sheet-driven one-shot animations with named effect ids.
 
 local Settings = require("src.systems.settings")
 
 local ImpactFX = {}
 
-local FRAME_SIZE = 64
-local COLS       = 8       -- max frames per row in the sheet grid
-local FPS        = 18
-local SCALE      = 0.5     -- default for hit sparks (32×32 in world)
--- Melee: row 8 = diagonal slash streaks (reads as a swing; row 1 is a tiny hit puff on black)
-local MELEE_ROW            = 8
-local MELEE_SCALE          = 0.95  -- ~61px — large enough to read crisp pixels from the 64× sheet
-local MELEE_ROW_FRAMES     = 8
+local DEFAULT_FRAME_SIZE = 64
+local DEFAULT_COLS = 8
+local DEFAULT_BLEND_MODE = "add"
+local DEFAULT_ALPHA_MODE = "alphamultiply"
 
-local sheet = nil
-local quads = {}   -- quads[row][col]  (1-indexed, row = animation, col = frame)
-
--- Row indices in the sheet (1-indexed) — chosen by visual inspection:
-local ANIM = {
-    hit_enemy = 1,   -- starburst (bullet-on-enemy)
-    hit_wall  = 4,   -- small sparks (bullet-on-wall)
-    melee     = MELEE_ROW,
+local SHEETS = {
+    pack1a = {
+        path = "assets/Retro Impact Effect Pack ALL/RetroImpactEffectPack1A.png",
+        frame_size = DEFAULT_FRAME_SIZE,
+        cols = DEFAULT_COLS,
+    },
+    pack3a = {
+        path = "assets/Retro Impact Effect Pack ALL/RetroImpactEffectPack3A.png",
+        frame_size = DEFAULT_FRAME_SIZE,
+        cols = DEFAULT_COLS,
+    },
 }
 
-local active = {}  -- list of playing effects
+local EFFECTS = {
+    hit_enemy = {
+        sheet_id = "pack1a",
+        row = 1,
+        start_frame = 1,
+        end_frame = 8,
+        fps = 18,
+        scale = 0.5,
+        blend_mode = DEFAULT_BLEND_MODE,
+        alpha_mode = DEFAULT_ALPHA_MODE,
+    },
+    hit_wall = {
+        sheet_id = "pack1a",
+        row = 4,
+        start_frame = 1,
+        end_frame = 8,
+        fps = 18,
+        scale = 0.5,
+        blend_mode = DEFAULT_BLEND_MODE,
+        alpha_mode = DEFAULT_ALPHA_MODE,
+    },
+    melee = {
+        sheet_id = "pack1a",
+        row = 8,
+        start_frame = 1,
+        end_frame = 8,
+        fps = 18,
+        scale = 0.95,
+        blend_mode = DEFAULT_BLEND_MODE,
+        alpha_mode = DEFAULT_ALPHA_MODE,
+        rotation_mode = "follow_angle",
+    },
+    explosion_small = {
+        sheet_id = "pack3a",
+        row = 9,
+        start_frame = 1,
+        end_frame = 5,
+        fps = 18,
+        scale = 0.98,
+        blend_mode = DEFAULT_BLEND_MODE,
+        alpha_mode = DEFAULT_ALPHA_MODE,
+        recommended_radius = 44,
+        recommended_sfx = "explosion",
+        recommended_shake = { duration = 0.09, intensity = 2.0 },
+    },
+    explosion_medium = {
+        sheet_id = "pack3a",
+        row = 10,
+        start_frame = 1,
+        end_frame = 6,
+        fps = 17,
+        scale = 1.18,
+        blend_mode = DEFAULT_BLEND_MODE,
+        alpha_mode = DEFAULT_ALPHA_MODE,
+        recommended_radius = 60,
+        recommended_sfx = "explosion",
+        recommended_shake = { duration = 0.13, intensity = 2.8 },
+    },
+    explosion_large = {
+        sheet_id = "pack3a",
+        row = 11,
+        start_frame = 1,
+        end_frame = 6,
+        fps = 16,
+        scale = 1.42,
+        blend_mode = DEFAULT_BLEND_MODE,
+        alpha_mode = DEFAULT_ALPHA_MODE,
+        recommended_radius = 78,
+        recommended_sfx = "ult_explosion",
+        recommended_shake = { duration = 0.18, intensity = 3.8 },
+    },
+    muzzle_explosive_shotgun = {
+        sheet_id = "pack3a",
+        row = 7,
+        start_frame = 1,
+        end_frame = 6,
+        fps = 22,
+        scale = 1.05,
+        blend_mode = DEFAULT_BLEND_MODE,
+        alpha_mode = DEFAULT_ALPHA_MODE,
+        rotation_mode = "follow_angle",
+        lifetime_jitter = 0.015,
+    },
+}
 
-local function init()
-    if sheet then return end
-    sheet = love.graphics.newImage("assets/Retro Impact Effect Pack ALL/Retro Impact Effect Pack 1 A.png")
-    sheet:setFilter("nearest", "nearest")
-    local sw, sh = sheet:getDimensions()
-    local rows = math.floor(sh / FRAME_SIZE)
-    for r = 1, rows do
-        quads[r] = {}
-        for c = 1, COLS do
-            quads[r][c] = love.graphics.newQuad(
-                (c - 1) * FRAME_SIZE, (r - 1) * FRAME_SIZE,
-                FRAME_SIZE, FRAME_SIZE, sw, sh
+local sheetCache = {}
+local active = {}
+
+local function loadSheet(sheet_id)
+    local cached = sheetCache[sheet_id]
+    if cached then
+        return cached
+    end
+
+    local spec = SHEETS[sheet_id]
+    if not spec then
+        error("Unknown impact FX sheet id: " .. tostring(sheet_id))
+    end
+
+    local image = love.graphics.newImage(spec.path)
+    image:setFilter("nearest", "nearest")
+    local sw, sh = image:getDimensions()
+    local rows = math.floor(sh / spec.frame_size)
+    local quads = {}
+    for row = 1, rows do
+        quads[row] = {}
+        for col = 1, spec.cols do
+            quads[row][col] = love.graphics.newQuad(
+                (col - 1) * spec.frame_size,
+                (row - 1) * spec.frame_size,
+                spec.frame_size,
+                spec.frame_size,
+                sw,
+                sh
             )
         end
     end
+
+    cached = {
+        image = image,
+        frame_size = spec.frame_size,
+        cols = spec.cols,
+        quads = quads,
+    }
+    sheetCache[sheet_id] = cached
+    return cached
 end
 
---- Spawn an impact effect at world position (cx, cy).
---- `kind` is one of: "hit_enemy", "hit_wall", "melee"
---- `scale` overrides the default draw scale (default = SCALE = 0.5, i.e. 32×32)
---- `angle` rotates the sprite around its center (radians, default 0)
-function ImpactFX.spawn(cx, cy, kind, scale, angle)
-    init()
-    local row = ANIM[kind or "hit_enemy"] or 1
-    local maxFrame = COLS
-    local defScale = SCALE
-    if kind == "melee" then
-        maxFrame = MELEE_ROW_FRAMES
-        defScale = MELEE_SCALE
+function ImpactFX.getDefinition(effect_id)
+    return EFFECTS[effect_id or "hit_enemy"] or EFFECTS.hit_enemy
+end
+
+function ImpactFX.spawn(cx, cy, effect_id, opts, legacy_angle)
+    local effect = ImpactFX.getDefinition(effect_id)
+    local options = opts
+    if type(options) ~= "table" then
+        options = {
+            scale_mul = opts,
+            angle = legacy_angle,
+        }
     end
-    table.insert(active, {
-        x     = cx,
-        y     = cy,
-        row   = row,
-        frame = 1,
+
+    local scale_mul = options.scale_mul or 1
+    local jitter = effect.lifetime_jitter or 0
+    local lifetime_offset = 0
+    if jitter > 0 then
+        lifetime_offset = (love.math.random() * 2 - 1) * jitter
+    end
+
+    active[#active + 1] = {
+        x = cx,
+        y = cy,
+        effect_id = effect_id or "hit_enemy",
+        frame = effect.start_frame or 1,
         timer = 0,
-        scale = (scale ~= nil) and scale or defScale,
-        angle = angle or 0,
-        maxFrame = maxFrame,
-    })
+        fps = effect.fps or 18,
+        scale = (effect.scale or 1) * scale_mul,
+        angle = options.angle or 0,
+        flip_x = options.flip_x and -1 or 1,
+        flip_y = options.flip_y and -1 or 1,
+        tint = options.tint,
+        frame_start = effect.start_frame or 1,
+        frame_end = effect.end_frame or loadSheet(effect.sheet_id).cols,
+        blend_mode = effect.blend_mode or DEFAULT_BLEND_MODE,
+        alpha_mode = effect.alpha_mode or DEFAULT_ALPHA_MODE,
+        sheet_id = effect.sheet_id,
+        rotation_mode = effect.rotation_mode,
+        lifetime_offset = lifetime_offset,
+    }
 end
 
 function ImpactFX.update(dt)
-    local interval = 1 / FPS
     local i = 1
     while i <= #active do
         local fx = active[i]
-        fx.timer = fx.timer + dt
-        if fx.timer >= interval then
+        local interval = 1 / math.max(1, fx.fps)
+        fx.timer = fx.timer + dt + fx.lifetime_offset
+        fx.lifetime_offset = 0
+        while fx.timer >= interval do
             fx.timer = fx.timer - interval
             fx.frame = fx.frame + 1
         end
-        if fx.frame > (fx.maxFrame or COLS) then
+        if fx.frame > fx.frame_end then
             table.remove(active, i)
         else
             i = i + 1
@@ -87,21 +213,53 @@ function ImpactFX.update(dt)
 end
 
 function ImpactFX.draw()
-    if not sheet then return end
-    local a = Settings.getVfxMul()
-    if a <= 0.001 then return end
-    -- Pack art is on black; additive blend hides black so you see the actual painted pixels.
+    if #active == 0 then
+        return
+    end
+
+    local vfxMul = Settings.getVfxMul()
+    if vfxMul <= 0.001 then
+        return
+    end
+
     local prevBlendMode, prevAlphaMode = love.graphics.getBlendMode()
-    love.graphics.setBlendMode("add", "alphamultiply")
-    love.graphics.setColor(1, 1, 1, a)
+    local currentBlendMode = nil
+    local currentAlphaMode = nil
+
     for _, fx in ipairs(active) do
-        local q = quads[fx.row] and quads[fx.row][fx.frame]
+        local sheet = loadSheet(fx.sheet_id)
+        local q = sheet.quads[ImpactFX.getDefinition(fx.effect_id).row]
+            and sheet.quads[ImpactFX.getDefinition(fx.effect_id).row][fx.frame]
         if q then
-            -- Draw centered with optional rotation (ox/oy = half frame size)
-            love.graphics.draw(sheet, q, fx.x, fx.y, fx.angle, fx.scale, fx.scale,
-                               FRAME_SIZE / 2, FRAME_SIZE / 2)
+            if currentBlendMode ~= fx.blend_mode or currentAlphaMode ~= fx.alpha_mode then
+                love.graphics.setBlendMode(fx.blend_mode, fx.alpha_mode)
+                currentBlendMode = fx.blend_mode
+                currentAlphaMode = fx.alpha_mode
+            end
+
+            local tint = fx.tint
+            if tint then
+                love.graphics.setColor(tint[1] or 1, tint[2] or 1, tint[3] or 1, (tint[4] or 1) * vfxMul)
+            else
+                love.graphics.setColor(1, 1, 1, vfxMul)
+            end
+
+            local sx = fx.scale * fx.flip_x
+            local sy = fx.scale * fx.flip_y
+            love.graphics.draw(
+                sheet.image,
+                q,
+                fx.x,
+                fx.y,
+                fx.rotation_mode == "follow_angle" and fx.angle or 0,
+                sx,
+                sy,
+                sheet.frame_size / 2,
+                sheet.frame_size / 2
+            )
         end
     end
+
     love.graphics.setBlendMode(prevBlendMode, prevAlphaMode)
     love.graphics.setColor(1, 1, 1)
 end
