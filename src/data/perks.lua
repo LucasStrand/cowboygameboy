@@ -1,3 +1,15 @@
+--[[
+  Run-time perks: canonical schema, tags, reward buckets, and proc wiring are documented in
+  docs/perks_and_skills_system.md
+
+  Quick checklist for a new perk:
+  - id (unique), name, description, weight, apply(player)
+  - tooltip_key (+ tooltip_tokens) or tooltip_override
+  - tags: include reward:support | reward:neutral | reward:pivot when you care about level-up buckets
+  - If reward_runtime should infer extra themes: add FEATURE_HINTS[id] in src/systems/reward_runtime.lua
+  - Stat changes: prefer fields that getEffectiveStats / weapon resolution actually read; see stat_registry.lua
+  - Combat logic: prefer proc_rules (+ presentation_hooks.on_proc) over scattered combat branches
+]]
 local Perks = {}
 local GameRng = require("src.systems.game_rng")
 

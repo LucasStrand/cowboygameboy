@@ -51,6 +51,7 @@ The more the game is data-driven, the less you can rely on “we will notice in 
 - `tooltip_key` is the default authoring path
 - `tooltip_override` is for rule-breaking or unusually complex copy
 - the V1 builder supports `perks`, `guns`, `gear`, `statuses`, **`attack_profile`** (Phase 11 enemy offense), and current shop/reward offers
+- perk/skill pipeline, tags, and proc contract: [perks_and_skills_system.md](./perks_and_skills_system.md)
 
 ### V1 contract
 
