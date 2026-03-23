@@ -860,11 +860,12 @@ local function drawFallbackIcon(entry, x, y, scale, alpha)
     love.graphics.print(label, x + icon_size * 0.32, y + icon_size * 0.15)
 end
 
-function Buffs.drawIcons(tracker, x, y, scale)
+function Buffs.drawIcons(tracker, x, y, scale, global_alpha_mul)
     if not tracker then
         return
     end
     scale = scale or 2
+    global_alpha_mul = global_alpha_mul or 1
     local icon_size = 16 * scale
     local gap = 2
     local draw_x = x
@@ -872,9 +873,9 @@ function Buffs.drawIcons(tracker, x, y, scale)
 
     for _, entry in ipairs(entries) do
         local duration = entry.def and definitionDuration(entry.def) or nil
-        local alpha = 1
+        local alpha = global_alpha_mul
         if entry.remaining_duration and entry.remaining_duration ~= math.huge and entry.remaining_duration < 3 then
-            alpha = 0.5 + 0.5 * math.sin(love.timer.getTime() * 8)
+            alpha = alpha * (0.5 + 0.5 * math.sin(love.timer.getTime() * 8))
         end
 
         local icon = getIcon(entry.icon, entry.isBuff)

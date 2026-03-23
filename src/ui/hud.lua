@@ -2,8 +2,14 @@ local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
 local GearIcons = require("src.ui.gear_icons")
 local GoldCoin = require("src.ui.gold_coin")
+local RewardRuntime = require("src.systems.reward_runtime")
+local Buffs = require("src.systems.buffs")
 
 local HUD = {}
+
+-- HUD readability tiers (Phase 9): group A = critical combat, B = status/build secondary, C = inspect-only elsewhere.
+local HUD_GROUP_A = "A: HP/XP, ammo, weapons, ult, gold, room"
+local HUD_GROUP_B = "B: status icons, build tags"
 
 -- ════════════════════════════════════════════════════════
 -- SPRITE SHEET
@@ -497,6 +503,30 @@ function HUD.draw(player)
             drawSprite("coin", gx, coinY, coinScale)
         end
         shadowPrint(goldText, gx + coinSz + 8, gy, 1, 0.92, 0.6, 1)
+
+        local profile = RewardRuntime.buildProfile(player, { source = "hud" })
+        local tags = profile and profile.dominant_tags or {}
+        if #tags > 0 then
+            love.graphics.setFont(HUD._fontHudSm)
+            local maxTags = 3
+            local shown = {}
+            for ti = 1, math.min(maxTags, #tags) do
+                shown[#shown + 1] = tags[ti]
+            end
+            local tagStr = "Build: " .. table.concat(shown, ", ")
+            if #tags > maxTags then
+                tagStr = tagStr .. ", …"
+            end
+            local tagLimit = math.max(120, screenW - gx - 24)
+            if HUD._fontHudSm:getWidth(tagStr) > tagLimit then
+                while #tagStr > 4 and HUD._fontHudSm:getWidth(tagStr .. "…") > tagLimit do
+                    tagStr = tagStr:sub(1, #tagStr - 1)
+                end
+                tagStr = tagStr .. "…"
+            end
+            local tagY = gy + goldLineH + 2
+            shadowPrintf(tagStr, gx, tagY, tagLimit, "left", 0.72, 0.78, 0.86, 0.9)
+        end
     end
 
     -- ── Ammo display (above weapon cluster) ──
@@ -753,7 +783,6 @@ function HUD.draw(player)
     -- ── Active buff/debuff icons (just above HP label, aligned with bar column) ──
     local statusTracker = player.statuses or player.buffs
     if statusTracker then
-        local Buffs = require("src.systems.buffs")
         local lineH = HUD._lineH
         local rowGap = 4
         local bottomPad = 24
@@ -769,10 +798,27 @@ function HUD.draw(player)
         local buffRowH = 16 * buffScale + 3
         local buffY = hpTextY - 8 - buffRowH
         local buffX = math.max(6, iconX - 2)
-        Buffs.drawIcons(statusTracker, buffX, buffY, buffScale)
+        Buffs.drawIcons(statusTracker, buffX, buffY, buffScale, 0.88)
     end
 
     love.graphics.setFont(prevFont)
+    love.graphics.pop()
+    love.graphics.setColor(1, 1, 1)
+end
+
+--- DEBUG-only legend for HUD tier ownership (Phase 9 readability baseline).
+function HUD.drawReadabilityTierDebug(screenW, screenH)
+    ensureFonts()
+    love.graphics.push()
+    love.graphics.origin()
+    love.graphics.setFont(HUD._fontHudSm)
+    local x, y = 8, 96
+    love.graphics.setColor(0, 0, 0, 0.55)
+    love.graphics.rectangle("fill", x - 4, y - 4, 340, 44, 4, 4)
+    love.graphics.setColor(0.78, 0.74, 0.68, 0.95)
+    love.graphics.print(HUD_GROUP_A, x, y)
+    love.graphics.setColor(0.62, 0.7, 0.78, 0.92)
+    love.graphics.print(HUD_GROUP_B, x, y + HUD._lineHSm + 2)
     love.graphics.pop()
     love.graphics.setColor(1, 1, 1)
 end

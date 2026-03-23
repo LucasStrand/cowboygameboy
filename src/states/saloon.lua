@@ -420,7 +420,8 @@ local function drawCharacterSheet()
     py = py + 22
     love.graphics.print("Perks:", x + pad, py)
     py = py + 18
-    if #player.perks == 0 then
+    local perksList = player.perks or {}
+    if #perksList == 0 then
         love.graphics.setColor(0.55, 0.52, 0.48)
         love.graphics.print("(none yet)", x + pad, py)
         py = py + 20
@@ -1754,14 +1755,15 @@ function saloon:draw()
         love.graphics.print(string.format("DeadEye: %s  Luck: %.2f", tostring(es.deadEye), luck), panelX, py)
         py = py + 20
 
+        local dbgPerks = player.perks or {}
         love.graphics.setColor(0, 1, 0)
-        love.graphics.print("-- PERKS (" .. #player.perks .. ") --", panelX, py)
+        love.graphics.print("-- PERKS (" .. #dbgPerks .. ") --", panelX, py)
         py = py + 16
         love.graphics.setColor(0.8, 1, 0.8)
-        if #player.perks == 0 then
+        if #dbgPerks == 0 then
             love.graphics.print("(none)", panelX, py)
         else
-            love.graphics.print(table.concat(player.perks, ", "), panelX, py)
+            love.graphics.print(table.concat(dbgPerks, ", "), panelX, py)
         end
         py = py + 20
 
@@ -2062,6 +2064,14 @@ function drawShop(screenW, screenH)
                 desc = ContentTooltips.getJoinedText("offer", item)
             end
             love.graphics.printf("    " .. tostring(desc or ""), 0, y, screenW, "center")
+            y = y + 20
+            if item.reward_reason and item.reward_reason ~= "" then
+                love.graphics.setFont(fonts.default)
+                love.graphics.setColor(0.65, 0.78, 0.72, 1)
+                love.graphics.printf(item.reward_reason, 56, y, screenW - 112, "center")
+                love.graphics.setFont(fonts.body)
+                y = y + 18
+            end
         end
         y = y + 35
     end

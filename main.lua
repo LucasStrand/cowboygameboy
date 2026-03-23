@@ -73,10 +73,24 @@ function love.load()
     love.graphics.setDefaultFilter("linear", "linear")
     math.randomseed(os.time())
 
-    local Settings = require("src.systems.settings")
     Settings.load()
     Settings.apply()
     ContentValidator.validate_all()
+
+    if hasCliFlag("--phase10-regression") then
+        local Phase10Reg = require("src.systems.phase10_regression")
+        local ok, err = Phase10Reg.run()
+        if ok then
+            print("[phase10-regression] OK")
+        else
+            print("[phase10-regression] FAIL: " .. tostring(err))
+            if os and os.exit then
+                os.exit(1)
+            end
+        end
+        love.event.quit()
+        return
+    end
 
     syncGameDimensions()
     updateCanvasScale()
@@ -106,6 +120,9 @@ function love.resize(w, h)
 end
 
 function love.draw()
+    if not gameCanvas then
+        return
+    end
     -- Render to a canvas matching the window; larger window ⇒ larger canvas ⇒ more world (see camera view).
     -- Table form: temporary stencil buffer for love.graphics.stencil (roulette wheel clip); LOVE 11+.
     love.graphics.setCanvas({ gameCanvas, stencil = true })

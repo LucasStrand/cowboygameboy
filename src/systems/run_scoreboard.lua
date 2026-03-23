@@ -11,16 +11,19 @@ end
 
 local function cloneRuns(runs)
     local out = {}
-    for i, entry in ipairs(runs or {}) do
-        out[i] = {
-            score = tonumber(entry.score or 0) or 0,
-            level = tonumber(entry.level or 0) or 0,
-            rooms = tonumber(entry.rooms or 0) or 0,
-            gold = tonumber(entry.gold or 0) or 0,
-            outcome = entry.outcome or "unknown",
-            world_name = entry.world_name or "unknown",
-            summary = entry.summary or "",
-        }
+    for _, entry in ipairs(runs or {}) do
+        if type(entry) == "table" then
+            out[#out + 1] = {
+                score = math.max(0, tonumber(entry.score or 0) or 0),
+                level = math.max(0, tonumber(entry.level or 0) or 0),
+                rooms = math.max(0, tonumber(entry.rooms or 0) or 0),
+                gold = math.max(0, tonumber(entry.gold or 0) or 0),
+                outcome = type(entry.outcome) == "string" and entry.outcome ~= "" and entry.outcome or "unknown",
+                world_name = type(entry.world_name) == "string" and entry.world_name ~= "" and entry.world_name
+                    or "unknown",
+                summary = type(entry.summary) == "string" and entry.summary or "",
+            }
+        end
     end
     return out
 end
@@ -107,12 +110,17 @@ function RunScoreboard.recordRun(stats, summary)
             and table.concat(summary.dominantTags, ", ")
             or "",
     }
+    local snapshot = cloneRuns(store.runs)
     table.insert(store.runs, entry)
     sortRuns(store.runs)
     while #store.runs > MAX_RUNS do
         table.remove(store.runs)
     end
-    love.filesystem.write(SAVE_PATH, serialize(store.runs))
+    local ok, err = pcall(love.filesystem.write, SAVE_PATH, serialize(store.runs))
+    if not ok then
+        store.runs = snapshot
+        return cloneRuns(store.runs)
+    end
     return cloneRuns(store.runs)
 end
 

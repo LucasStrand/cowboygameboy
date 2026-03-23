@@ -427,6 +427,35 @@ local function apply(id, ctx)
         player.ultCharge = 1
         devRebuildPanelRows()
         devClampScroll()
+    elseif id == "preset_phase10_proc_explosion_stress" then
+        local Guns = require("src.data.guns")
+        local gunDef = Guns.getById("blunderbuss")
+        if gunDef then
+            player:equipWeapon(gunDef, player.activeWeaponSlot)
+        end
+        ensurePerk(player, "phantom_third")
+        ensurePerk(player, "explosive_rounds")
+        player.ultCharge = 1
+        player.hp = player:getEffectiveStats().maxHP
+        devRebuildPanelRows()
+        devClampScroll()
+        DevLog.push("sys", "[dev] preset: Phase 10 proc + explosive stress (blunderbuss)")
+    elseif id == "preset_phase9_clutter_readability" then
+        local Guns = require("src.data.guns")
+        local gunDef = Guns.getById("revolver")
+        if gunDef then
+            player:equipWeapon(gunDef, player.activeWeaponSlot)
+        end
+        ensurePerk(player, "phantom_third")
+        ensurePerk(player, "explosive_rounds")
+        player.ultCharge = 1
+        player.hp = math.max(1, math.floor(player:getEffectiveStats().maxHP * 0.5))
+        applyDebugStatus(player, player, "player", "burn", world)
+        applyDebugStatus(player, player, "player", "shock", world)
+        applyDebugStatus(player, player, "player", "bleed", world)
+        devRebuildPanelRows()
+        devClampScroll()
+        DevLog.push("sys", "[dev] preset: Phase 9 clutter (proc + explosive + statuses)")
     elseif id == "force_levelup" then
         devPanelState.open = false
         ctx.characterSheetOpen = false
@@ -502,6 +531,41 @@ local function apply(id, ctx)
         })
         for _, line in ipairs(MetaRuntime.toDebugLines(summary)) do
             DevLog.push("sys", line)
+        end
+    elseif id == "meta_dump_retention" then
+        local rm = player and player.runMetadata
+        local stats = RunMetadata.retentionStats(rm)
+        DevLog.push("sys", "[meta] retention snapshot (counts vs caps):")
+        for k, v in pairs(stats) do
+            DevLog.push("sys", string.format("[meta]   %s = %s", tostring(k), tostring(v)))
+        end
+    elseif id == "meta_dump_last_damage" then
+        local rm = player and player.runMetadata
+        local c = rm and rm.combat or nil
+        local last = c and c.last_damage_to_player or nil
+        local proc = c and c.last_major_proc or nil
+        if not last then
+            DevLog.push("sys", "[meta] last_damage_to_player: (none)")
+        else
+            DevLog.push("sys", string.format(
+                "[meta] last_damage_to_player: amt=%s type=%s id=%s kind=%s fam=%s src_name=%s",
+                tostring(last.amount),
+                tostring(last.source_type),
+                tostring(last.source_id),
+                tostring(last.packet_kind),
+                tostring(last.family),
+                tostring(last.source_name or "-")
+            ))
+        end
+        if not proc then
+            DevLog.push("sys", "[meta] last_major_proc: (none)")
+        else
+            DevLog.push("sys", string.format(
+                "[meta] last_major_proc: perk=%s rule=%s dmg=%s",
+                tostring(proc.perk_id),
+                tostring(proc.rule_id),
+                tostring(proc.damage)
+            ))
         end
     elseif id == "meta_open_recap" then
         if queueRunRecap then

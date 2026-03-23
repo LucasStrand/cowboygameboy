@@ -1,5 +1,32 @@
 local RunMetadata = {}
 
+-- Phase 10: bounded retention (documented in docs/phases/phase_10_hardening.md)
+RunMetadata.RECAP_EXPORT_VERSION = 1
+RunMetadata.METADATA_RETENTION_VERSION = 1
+
+local MAX_DAMAGE_EVENTS_DEALT = 240
+local MAX_DAMAGE_TO_PLAYER_EVENTS = 120
+local MAX_ECONOMY_EVENTS = 400
+local MAX_BUILD_SNAPSHOTS = 120
+local MAX_ROOMS_RECORDED = 400
+local MAX_REWARDS_OFFERED = 160
+local MAX_REWARDS_CHOSEN = 100
+local MAX_SHOPS_GENERATED = 100
+local MAX_SHOPS_PURCHASED = 160
+local MAX_SHOP_VISITS = 120
+local MAX_REROLL_HISTORY = 80
+local MAX_CHECKPOINT_HISTORY = 120
+local MAX_BOSS_KILL_HISTORY = 64
+
+local function trimArrayFront(arr, maxN)
+    if not arr or not maxN then
+        return
+    end
+    while #arr > maxN do
+        table.remove(arr, 1)
+    end
+end
+
 local function shallowCopy(value)
     local out = {}
     for k, v in pairs(value or {}) do
@@ -46,6 +73,31 @@ local function cloneDamageEvent(event)
     }
 end
 
+--- Damage taken by the player (incoming); separate from damage_events (dealt to enemies).
+local function cloneIncomingDamageSnapshot(detail)
+    if not detail then
+        return nil
+    end
+    local out = {
+        amount = tonumber(detail.amount or 0) or 0,
+        source_type = detail.source_type or "unknown",
+        source_id = detail.source_id or "unknown",
+        parent_source_id = detail.parent_source_id or nil,
+        packet_kind = detail.packet_kind or "unknown",
+        family = detail.family or "unknown",
+        target_id = detail.target_id or "unknown",
+        source_name = detail.source_name or nil,
+        enemy_type_id = detail.enemy_type_id or nil,
+        room_id = detail.room_id or nil,
+        room_name = detail.room_name or nil,
+        room_index = detail.room_index or nil,
+        world_id = detail.world_id or nil,
+        world_name = detail.world_name or nil,
+        tags = cloneList(detail.tags or {}),
+    }
+    return out
+end
+
 local function ensureCombat(meta)
     if not meta then
         return nil
@@ -58,6 +110,7 @@ local function ensureCombat(meta)
     combat.total_damage_dealt = combat.total_damage_dealt or 0
     combat.breakdown = combat.breakdown or defaultDamageBreakdown()
     combat.damage_events = combat.damage_events or {}
+    combat.damage_to_player_events = combat.damage_to_player_events or {}
     return combat
 end
 
@@ -110,6 +163,8 @@ function RunMetadata.new(seed, context)
         combat = {
             total_damage_dealt = 0,
             breakdown = defaultDamageBreakdown(),
+            damage_events = {},
+            damage_to_player_events = {},
         },
         milestones = {
             checkpoints = {
@@ -124,6 +179,34 @@ function RunMetadata.new(seed, context)
         },
         build_snapshots = {},
         run_end = nil,
+    }
+end
+
+function RunMetadata.recordDamageToPlayer(meta, detail)
+    if not meta or not detail then
+        return
+    end
+    local amt = tonumber(detail.amount or 0) or 0
+    if amt <= 0 then
+        return
+    end
+    local combat = ensureCombat(meta)
+    local snap = cloneIncomingDamageSnapshot(detail)
+    combat.last_damage_to_player = snap
+    local ev = combat.damage_to_player_events
+    ev[#ev + 1] = snap
+    trimArrayFront(ev, MAX_DAMAGE_TO_PLAYER_EVENTS)
+end
+
+function RunMetadata.recordMajorProc(meta, info)
+    if not meta or not info then
+        return
+    end
+    local combat = ensureCombat(meta)
+    combat.last_major_proc = {
+        perk_id = info.perk_id,
+        rule_id = info.rule_id,
+        damage = tonumber(info.damage or 0) or 0,
     }
 end
 
@@ -143,10 +226,47 @@ function RunMetadata.recordDamageDealt(meta, amount, breakdown, detail)
     if detail then
         local events = combat.damage_events
         events[#events + 1] = cloneDamageEvent(detail)
-        if #events > 240 then
-            table.remove(events, 1)
-        end
+        trimArrayFront(events, MAX_DAMAGE_EVENTS_DEALT)
     end
+end
+
+--- Counts vs caps for dev / Phase 10 diagnostics (not persisted).
+function RunMetadata.retentionStats(meta)
+    if not meta then
+        return { note = "no metadata" }
+    end
+    local c = meta.combat or {}
+    local e = meta.economy or {}
+    local ms = meta.milestones or {}
+    local cp = ms.checkpoints or {}
+    local bs = ms.bosses or {}
+    return {
+        retention_policy_version = RunMetadata.METADATA_RETENTION_VERSION,
+        damage_events = #(c.damage_events or {}),
+        damage_events_cap = MAX_DAMAGE_EVENTS_DEALT,
+        damage_to_player_events = #(c.damage_to_player_events or {}),
+        damage_to_player_cap = MAX_DAMAGE_TO_PLAYER_EVENTS,
+        economy_events = #(e.events or {}),
+        economy_events_cap = MAX_ECONOMY_EVENTS,
+        rooms = #(meta.rooms or {}),
+        rooms_cap = MAX_ROOMS_RECORDED,
+        build_snapshots = #(meta.build_snapshots or {}),
+        build_snapshots_cap = MAX_BUILD_SNAPSHOTS,
+        rewards_offered = #(meta.rewards and meta.rewards.offered or {}),
+        rewards_offered_cap = MAX_REWARDS_OFFERED,
+        rewards_chosen = #(meta.rewards and meta.rewards.chosen or {}),
+        rewards_chosen_cap = MAX_REWARDS_CHOSEN,
+        shops_generated = #(meta.shops and meta.shops.generated or {}),
+        shops_generated_cap = MAX_SHOPS_GENERATED,
+        shops_purchased = #(meta.shops and meta.shops.purchased or {}),
+        shops_purchased_cap = MAX_SHOPS_PURCHASED,
+        shop_visits = #(meta.shops and meta.shops.visits or {}),
+        shop_visits_cap = MAX_SHOP_VISITS,
+        checkpoint_history = #(cp.history or {}),
+        checkpoint_history_cap = MAX_CHECKPOINT_HISTORY,
+        boss_kill_history = #(bs.history or {}),
+        boss_kill_history_cap = MAX_BOSS_KILL_HISTORY,
+    }
 end
 
 function RunMetadata.recordBuildSnapshot(meta, build_snapshot, reason)
@@ -157,6 +277,7 @@ function RunMetadata.recordBuildSnapshot(meta, build_snapshot, reason)
         build_snapshot.snapshot_reason = reason
     end
     meta.build_snapshots[#meta.build_snapshots + 1] = build_snapshot
+    trimArrayFront(meta.build_snapshots, MAX_BUILD_SNAPSHOTS)
 end
 
 function RunMetadata.snapshotBuild(player, build_profile)
@@ -224,6 +345,7 @@ function RunMetadata.recordRoom(meta, room, extra)
         boss_fight = room and room.bossFight or extra.boss_fight,
         dev_arena = extra.dev_arena == true,
     }
+    trimArrayFront(meta.rooms, MAX_ROOMS_RECORDED)
 end
 
 function RunMetadata.recordRewardOffered(meta, source, offers, build_snapshot)
@@ -236,6 +358,7 @@ function RunMetadata.recordRewardOffered(meta, source, offers, build_snapshot)
         build_snapshot = build_snapshot,
         gold_before = build_snapshot and build_snapshot.gold or nil,
     }
+    trimArrayFront(meta.rewards.offered, MAX_REWARDS_OFFERED)
 end
 
 function RunMetadata.recordRewardChosen(meta, source, chosen, offers, build_snapshot)
@@ -250,6 +373,7 @@ function RunMetadata.recordRewardChosen(meta, source, chosen, offers, build_snap
         gold_after = build_snapshot and build_snapshot.gold or nil,
     }
     RunMetadata.recordBuildSnapshot(meta, build_snapshot, "reward_choice")
+    trimArrayFront(meta.rewards.chosen, MAX_REWARDS_CHOSEN)
 end
 
 function RunMetadata.recordShopGenerated(meta, offers, build_snapshot, extra)
@@ -264,6 +388,7 @@ function RunMetadata.recordShopGenerated(meta, offers, build_snapshot, extra)
         build_snapshot = build_snapshot,
         gold_before = build_snapshot and build_snapshot.gold or nil,
     }
+    trimArrayFront(meta.shops.generated, MAX_SHOPS_GENERATED)
 end
 
 function RunMetadata.recordShopPurchased(meta, item, build_snapshot, extra)
@@ -282,6 +407,7 @@ function RunMetadata.recordShopPurchased(meta, item, build_snapshot, extra)
         gold_after = build_snapshot and build_snapshot.gold or nil,
     }
     RunMetadata.recordBuildSnapshot(meta, build_snapshot, "shop_purchase")
+    trimArrayFront(meta.shops.purchased, MAX_SHOPS_PURCHASED)
 end
 
 function RunMetadata.recordEconomy(meta, kind, amount, reason)
@@ -298,6 +424,7 @@ function RunMetadata.recordEconomy(meta, kind, amount, reason)
     elseif kind == "spent" then
         meta.economy.gold_spent = meta.economy.gold_spent + amount
     end
+    trimArrayFront(meta.economy.events, MAX_ECONOMY_EVENTS)
 end
 
 function RunMetadata.recordShopVisit(meta, info)
@@ -311,6 +438,7 @@ function RunMetadata.recordShopVisit(meta, info)
         gold_before = info.gold_before,
         gold_after = info.gold_after,
     }
+    trimArrayFront(meta.shops.visits, MAX_SHOP_VISITS)
 end
 
 function RunMetadata.recordCheckpoint(meta, info)
@@ -330,7 +458,8 @@ function RunMetadata.recordCheckpoint(meta, info)
         difficulty = info.difficulty,
         dev_arena = info.dev_arena == true,
     }
-    bucket.count = #bucket.history
+    bucket.count = (bucket.count or 0) + 1
+    trimArrayFront(bucket.history, MAX_CHECKPOINT_HISTORY)
 end
 
 function RunMetadata.recordBossKilled(meta, enemy, info)
@@ -362,7 +491,8 @@ function RunMetadata.recordBossKilled(meta, enemy, info)
         difficulty = info.difficulty,
         dev_arena = info.dev_arena == true,
     }
-    bucket.kills = #bucket.history
+    bucket.kills = (bucket.kills or 0) + 1
+    trimArrayFront(bucket.history, MAX_BOSS_KILL_HISTORY)
 end
 
 function RunMetadata.getRerollCount(meta, surface)
@@ -390,6 +520,7 @@ function RunMetadata.recordReroll(meta, surface, cost, before_offers, after_offe
     }
     meta.economy.reroll_counts[surface == "shop" and "shop" or "levelup"] =
         (meta.economy.reroll_counts[surface == "shop" and "shop" or "levelup"] or 0) + 1
+    trimArrayFront(bucket.history, MAX_REROLL_HISTORY)
 end
 
 function RunMetadata.finishRun(meta, info)
@@ -398,6 +529,11 @@ function RunMetadata.finishRun(meta, info)
     end
     info = info or {}
     local combat = ensureCombat(meta)
+    local last_in = combat.last_damage_to_player
+    local last_proc = combat.last_major_proc
+    local dealt = combat.damage_events or {}
+    local first_dealt = dealt[1]
+    local last_dealt = dealt[#dealt]
     meta.run_end = {
         outcome = info.outcome or "completed",
         source = info.source or "run_end",
@@ -408,6 +544,37 @@ function RunMetadata.finishRun(meta, info)
         total_damage_dealt = info.total_damage_dealt or combat.total_damage_dealt or 0,
         damage_breakdown = cloneDamageBreakdown(info.damage_breakdown or combat.breakdown),
         dominant_tags = cloneList(info.dominant_tags),
+        recap_outcome = info.outcome or "completed",
+        last_damage_to_player = last_in and cloneIncomingDamageSnapshot(last_in) or nil,
+        last_major_proc = last_proc
+            and {
+                perk_id = last_proc.perk_id,
+                rule_id = last_proc.rule_id,
+                damage = tonumber(last_proc.damage or 0) or 0,
+            }
+            or nil,
+        visible_buff_count = info.visible_buff_count,
+        damage_trace_primary_source = first_dealt
+            and table.concat({
+                tostring(first_dealt.source_type or "?"),
+                tostring(first_dealt.source_id or "?"),
+                tostring(first_dealt.family or "?"),
+            }, " / ")
+            or nil,
+        damage_trace_last_event_source = last_dealt
+            and table.concat({
+                tostring(last_dealt.source_type or "?"),
+                tostring(last_dealt.source_id or "?"),
+                tostring(last_dealt.family or "?"),
+            }, " / ")
+            or nil,
+        damage_trace_last_incoming_source = last_in
+            and table.concat({
+                tostring(last_in.source_type or "?"),
+                tostring(last_in.source_id or "?"),
+                tostring(last_in.family or "?"),
+            }, " / ")
+            or nil,
     }
     RunMetadata.recordBuildSnapshot(meta, info.build_snapshot, info.snapshot_reason or "run_end")
 end

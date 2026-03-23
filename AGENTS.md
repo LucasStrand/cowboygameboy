@@ -10,6 +10,8 @@ Requirement: LOVE2D 11.5
 love .
 ```
 
+Phase 10 regression (metadata/recap seams): `love . --phase10-regression`
+
 On Windows you can also drag the repo folder onto `love.exe`.
 
 ## Debug and Development Tools
@@ -57,9 +59,8 @@ game -> gameover
 
 ## Current High-Level Status
 
-- Combat/build overhaul is implemented through Phase 8.
-- Phase 8 recap/economy/metadata systems are in code.
-- Phase 9 readability pass is still a plan, not an implemented phase.
+- Combat/build overhaul is implemented through Phase 8, with **Phase 9 slice 1** (readability) and **Phase 10 slice 1** (retention/hardening harness) landed in code.
+- Mid-run save/load of full run metadata remains a future hardening slice.
 
 ## Rendering Notes
 

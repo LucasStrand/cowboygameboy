@@ -13,6 +13,26 @@ local SourceRef = require("src.systems.source_ref")
 
 local Combat = {}
 
+local explosiveShakeHook = nil
+
+--- Optional callback(duration, intensity) from gameplay (e.g. game.lua camera shake) for player explosive hits.
+function Combat.setExplosiveShakeHook(cb)
+    explosiveShakeHook = cb
+end
+
+local function tryExplosiveShake(effect_id)
+    if not explosiveShakeHook then
+        return
+    end
+    local def = ImpactFX.getDefinition(effect_id)
+    local sh = def and def.recommended_shake
+    local dur = sh and tonumber(sh.duration) or nil
+    local intens = sh and tonumber(sh.intensity) or nil
+    if dur and dur > 0 and intens and intens > 0 then
+        explosiveShakeHook(dur, intens)
+    end
+end
+
 -- Must be this close to the player (after attraction) to collect
 local PICKUP_COLLECT_RADIUS = 26
 
@@ -156,7 +176,11 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
                 local metadata = packet.metadata or {}
                 local explosiveHit = b.explosive or metadata.explosion_radius ~= nil
                 if explosiveHit then
-                    ImpactFX.spawn(hitX, hitY, b.impact_fx_id or metadata.impact_fx_id or "explosion_medium")
+                    local fxId = b.impact_fx_id or metadata.impact_fx_id or "explosion_medium"
+                    ImpactFX.spawn(hitX, hitY, fxId)
+                    if not b.fromEnemy then
+                        tryExplosiveShake(fxId)
+                    end
                 else
                     ImpactFX.spawn(hitX, hitY, "hit_enemy", { scale_mul = fxScale })
                 end

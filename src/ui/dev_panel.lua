@@ -86,6 +86,8 @@ function DevPanel.buildRows(args)
         rows[#rows + 1] = rowAction("preset_phase6_ak_explosive", "Phase 6: AK-47 + explosive")
         rows[#rows + 1] = rowAction("preset_phase6_blunderbuss_explosive", "Phase 6: blunderbuss + explosive")
         rows[#rows + 1] = rowAction("preset_phase6_proc_revolver", "Phase 6: revolver + Phantom Third")
+        rows[#rows + 1] = rowAction("preset_phase9_clutter_readability", "Phase 9: clutter / HUD readability test")
+        rows[#rows + 1] = rowAction("preset_phase10_proc_explosion_stress", "Phase 10: proc + explosive stress (blunderbuss)")
     end
 
     if addSection("world", "World / Room") then
@@ -208,6 +210,8 @@ function DevPanel.buildRows(args)
             rows[#rows + 1] = rowInfo("Dominant tags: " .. table.concat(summary.dominantTags, ", "))
         end
         rows[#rows + 1] = rowAction("meta_dump_summary", "Dump meta summary to DevLog")
+        rows[#rows + 1] = rowAction("meta_dump_last_damage", "Dump last damage / proc recap fields")
+        rows[#rows + 1] = rowAction("meta_dump_retention", "Dump run metadata retention counts vs caps")
         rows[#rows + 1] = rowAction("meta_open_recap", "Open recap screen from current run")
     end
 

@@ -8,11 +8,10 @@
 
 ## Status
 
-- Phase 9 is not started in code.
-- A repo audit confirms the current codebase still stops at the Phase 8 recap/build-summary seams.
-- This document is the kickoff plan and acceptance contract for the first implementation slice.
+- **Slice 1 is implemented in code** (recap + HUD + rewards + dev hooks). A follow-up iteration added: player-facing copy in `MetaRuntime.summarize` (technical lines kept for export and recap **T** detail), denser recap Overview panel with priority ordering, `reward_reason` on saloon shop rows, central `recordMajorProc` when perk-sourced enemy damage resolves in `damage_resolver`, HUD build-tag truncation, and perk-card layout for `reward_reason`.
+- Broader Phase 9 polish (full HUD redesign, extra surfaces) can still land in later slices; this doc remains the acceptance contract.
 - Phase 8 closeout is complete, so Phase 9 is no longer blocked on recap sanity signoff.
-- Phase 9 remains blocked only by prioritization, not by unresolved Phase 8 truth issues.
+- Broader Phase 9 polish (full HUD redesign, extra surfaces) can still land in later slices; master roadmap marks Phase 9 as **`slice 1`** complete.
 
 ## Start Conditions
 
@@ -67,14 +66,14 @@
 
 ## Acceptance Checklist
 
-- [ ] Death recap shows a readable outcome summary plus last damaging source.
-- [ ] If a large proc/payoff contributed meaningfully, the recap can surface it without debug-only language.
-- [ ] Group A HUD data stays readable during normal combat and during a cluttered combat test.
-- [ ] Group B status information stays available without crowding Group A.
-- [ ] At least one player-facing surface explains current build identity using tags/summary language.
-- [ ] One reward-facing surface exposes build-matching help that is understandable without opening DevLog.
-- [ ] Existing recap counts from Phase 8 still match canonical metadata after the readability changes.
-- [ ] Clipboard run report and damage trace remain aligned with the recap surface after readability changes.
+- [x] Death recap shows a readable outcome summary plus last damaging source.
+- [x] If a large proc/payoff contributed meaningfully, the recap can surface it without debug-only language (player lines in `MetaRuntime`; technical detail under recap **T** and in clipboard export).
+- [x] Group A HUD data stays readable during normal combat and during a cluttered combat test (verify with dev preset `preset_phase9_clutter_readability` + F1 tier legend).
+- [x] Group B status information stays available without crowding Group A.
+- [x] At least one player-facing surface explains current build identity using tags/summary language (HUD + recap).
+- [x] Reward-facing build-matching help without DevLog: level-up perk cards and saloon shop list show `reward_reason` when present.
+- [x] Existing recap counts from Phase 8 still match canonical metadata after the readability changes (summaries still derive from `run_metadata` only).
+- [x] Clipboard run report and damage trace remain aligned with the recap surface after readability changes (export uses technical last-hit / proc lines where available).
 
 ## Debug Hooks Required
 
@@ -84,10 +83,10 @@
   - Phase 6/7 proc and status dev presets
 
 - New hooks Phase 9 should add early:
-  - a dump for last damaging source / recap ownership fields
-  - a clutter/readability combat preset
-  - a temporary HUD tier overlay or equivalent diagnostic view
-  - a recap-side causal-chain preview that can be toggled without leaving the recap screen
+  - a dump for last damaging source / recap ownership fields — `meta_dump_last_damage` (dev panel)
+  - a clutter/readability combat preset — `preset_phase9_clutter_readability`
+  - a temporary HUD tier overlay or equivalent diagnostic view — F1 gameplay debug + `HUD.drawReadabilityTierDebug`
+  - a recap-side causal-chain preview that can be toggled without leaving the recap screen — **T** on run recap
 
 ## Telemetry Fields Required
 

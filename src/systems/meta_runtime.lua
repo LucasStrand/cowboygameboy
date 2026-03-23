@@ -1,4 +1,5 @@
 local MetaRuntime = {}
+local Perks = require("src.data.perks")
 
 -- Raw run metadata is the canonical source of truth.
 -- This module only derives read-only summaries and presentation text.
@@ -80,6 +81,58 @@ local function recentChosenNames(run_meta)
     return out
 end
 
+-- Player-facing (HUD / recap); no raw packet_kind / family.
+local function formatLastIncomingDamageLinePlayer(d)
+    if not d then
+        return nil
+    end
+    local label = d.source_name or d.enemy_type_id or d.source_id or "Unknown"
+    local amt = tonumber(d.amount or 0) or 0
+    return string.format("From %s · %d damage", tostring(label), amt)
+end
+
+-- Export, dev logs, causal toggle — full trace-style line.
+local function formatLastIncomingDamageLineTechnical(d)
+    if not d then
+        return nil
+    end
+    local label = d.source_name or d.enemy_type_id or d.source_id or "unknown"
+    return string.format(
+        "%s  |  %s  |  %s  |  %d dmg",
+        tostring(label),
+        tostring(d.packet_kind or "?"),
+        tostring(d.family or "?"),
+        tonumber(d.amount or 0) or 0
+    )
+end
+
+local function formatMajorProcLinePlayer(last_proc)
+    if not last_proc or not last_proc.perk_id then
+        return nil
+    end
+    local perk = Perks.getById(last_proc.perk_id)
+    local name = perk and perk.name or last_proc.perk_id
+    return string.format(
+        "%s · %d damage",
+        tostring(name),
+        tonumber(last_proc.damage or 0) or 0
+    )
+end
+
+local function formatMajorProcLineTechnical(last_proc)
+    if not last_proc or not last_proc.perk_id then
+        return nil
+    end
+    local perk = Perks.getById(last_proc.perk_id)
+    local name = perk and perk.name or last_proc.perk_id
+    return string.format(
+        "%s — %s (%d)",
+        tostring(name),
+        tostring(last_proc.rule_id or "proc"),
+        tonumber(last_proc.damage or 0) or 0
+    )
+end
+
 local function cloneDamageBreakdown(breakdown)
     local out = {
         melee = 0,
@@ -113,8 +166,23 @@ function MetaRuntime.summarize(run_meta, fallback)
             totalDamageDealt = 0,
             damageBreakdown = cloneDamageBreakdown(nil),
             dominantTags = {},
+            latestBuild = nil,
             recentChoices = {},
             recentPurchases = {},
+            lastDamageToPlayerLine = nil,
+            lastDamageToPlayerLineTechnical = nil,
+            lastMajorProcLine = nil,
+            lastMajorProcLineTechnical = nil,
+            lastDamageSourceType = nil,
+            lastDamageSourceId = nil,
+            lastDamageFamily = nil,
+            lastDamagePacketKind = nil,
+            lastMajorProcId = nil,
+            visibleBuffCount = nil,
+            recapOutcome = fallback.outcome,
+            damageTracePrimarySource = nil,
+            damageTraceLastEventSource = nil,
+            damageTraceLastIncomingSource = nil,
         }
     end
 
@@ -128,6 +196,9 @@ function MetaRuntime.summarize(run_meta, fallback)
     if #dominant == 0 and latest and latest.build_profile and latest.build_profile.dominant_tags then
         dominant = cloneList(latest.build_profile.dominant_tags)
     end
+
+    local last_in = run_end.last_damage_to_player or combat.last_damage_to_player
+    local last_proc = run_end.last_major_proc or combat.last_major_proc
 
     return {
         outcome = run_end.outcome or fallback.outcome,
@@ -153,6 +224,20 @@ function MetaRuntime.summarize(run_meta, fallback)
         recentPurchases = recentNames(run_meta.shops and run_meta.shops.purchased or {}, "name", 3),
         rewardChoices = #(run_meta.rewards and run_meta.rewards.chosen or {}),
         shopPurchases = #(run_meta.shops and run_meta.shops.purchased or {}),
+        lastDamageToPlayerLine = formatLastIncomingDamageLinePlayer(last_in),
+        lastDamageToPlayerLineTechnical = formatLastIncomingDamageLineTechnical(last_in),
+        lastMajorProcLine = formatMajorProcLinePlayer(last_proc),
+        lastMajorProcLineTechnical = formatMajorProcLineTechnical(last_proc),
+        lastDamageSourceType = last_in and last_in.source_type or nil,
+        lastDamageSourceId = last_in and last_in.source_id or nil,
+        lastDamageFamily = last_in and last_in.family or nil,
+        lastDamagePacketKind = last_in and last_in.packet_kind or nil,
+        lastMajorProcId = last_proc and last_proc.perk_id or nil,
+        visibleBuffCount = run_end.visible_buff_count,
+        recapOutcome = run_end.recap_outcome or run_end.outcome or fallback.outcome,
+        damageTracePrimarySource = run_end.damage_trace_primary_source,
+        damageTraceLastEventSource = run_end.damage_trace_last_event_source,
+        damageTraceLastIncomingSource = run_end.damage_trace_last_incoming_source,
     }
 end
 
@@ -200,6 +285,16 @@ function MetaRuntime.toDebugLines(summary)
     if summary.recentPurchases and #summary.recentPurchases > 0 then
         lines[#lines + 1] = "[meta] recent buys: " .. table.concat(summary.recentPurchases, ", ")
     end
+    if summary.lastDamageToPlayerLineTechnical then
+        lines[#lines + 1] = "[meta] last incoming: " .. tostring(summary.lastDamageToPlayerLineTechnical)
+    elseif summary.lastDamageToPlayerLine then
+        lines[#lines + 1] = "[meta] last incoming: " .. tostring(summary.lastDamageToPlayerLine)
+    end
+    if summary.lastMajorProcLineTechnical then
+        lines[#lines + 1] = "[meta] major proc: " .. tostring(summary.lastMajorProcLineTechnical)
+    elseif summary.lastMajorProcLine then
+        lines[#lines + 1] = "[meta] major proc: " .. tostring(summary.lastMajorProcLine)
+    end
     return lines
 end
 
@@ -240,6 +335,12 @@ function MetaRuntime.toRecapLines(summary)
     end
     if summary.recentPurchases and #summary.recentPurchases > 0 then
         lines[#lines + 1] = "Recent buys: " .. table.concat(summary.recentPurchases, ", ")
+    end
+    if summary.lastDamageToPlayerLine then
+        lines[#lines + 1] = "Last hit taken: " .. tostring(summary.lastDamageToPlayerLine)
+    end
+    if summary.lastMajorProcLine then
+        lines[#lines + 1] = "Major proc: " .. tostring(summary.lastMajorProcLine)
     end
     return lines
 end

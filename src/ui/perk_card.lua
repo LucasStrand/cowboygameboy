@@ -12,6 +12,9 @@ function PerkCard.draw(perks, selectedIndex, hoveredIndex)
     if not PerkCard._font then
         PerkCard._font = Font.new(15)
     end
+    if not PerkCard._fontReason then
+        PerkCard._fontReason = Font.new(12)
+    end
     local prevFont = love.graphics.getFont()
     love.graphics.setFont(PerkCard._font)
 
@@ -58,11 +61,18 @@ function PerkCard.draw(perks, selectedIndex, hoveredIndex)
 
         -- Tooltip
         love.graphics.setColor(0.8, 0.8, 0.8)
-        love.graphics.printf(ContentTooltips.getJoinedText("perk", perk), x + 15, y + 100, CARD_W - 30, "center")
+        love.graphics.printf(ContentTooltips.getJoinedText("perk", perk), x + 15, y + 96, CARD_W - 30, "center")
+
+        if perk.reward_reason and perk.reward_reason ~= "" then
+            love.graphics.setFont(PerkCard._fontReason)
+            love.graphics.setColor(0.65, 0.78, 0.72, 1)
+            love.graphics.printf(perk.reward_reason, x + 10, y + CARD_H - 56, CARD_W - 20, "center")
+            love.graphics.setFont(PerkCard._font)
+        end
 
         -- Key hint
         love.graphics.setColor(0.6, 0.6, 0.6)
-        love.graphics.printf("[" .. i .. "]", x, y + CARD_H - 35, CARD_W, "center")
+        love.graphics.printf("[" .. i .. "]", x, y + CARD_H - 22, CARD_W, "center")
     end
 
     love.graphics.setLineWidth(1)

@@ -662,18 +662,52 @@ function ChunkAssembler.generate(worldId, difficulty, opts)
     return ChunkAssembler.generateFallback(worldId)
 end
 
+local function poolFirst(list)
+    return (type(list) == "table" and list[1]) or nil
+end
+
+local function poolAnyChunk(chunksByType)
+    for _, list in pairs(chunksByType) do
+        local c = poolFirst(list)
+        if c then return c end
+    end
+    return nil
+end
+
 function ChunkAssembler.generateFallback(worldId)
     local chunksByType = ChunkLoader.getPoolByType(worldId)
-    local entrance = chunksByType["entrance"][1]
-    local exit     = chunksByType["exit"][1]
-    local combat   = (chunksByType["combat"] or chunksByType["connector"] or {})[1]
+    local entrance = poolFirst(chunksByType["entrance"])
+    local exitChunk = poolFirst(chunksByType["exit"])
+    local combat = poolFirst(chunksByType["combat"] or chunksByType["connector"])
+
+    if not entrance or not exitChunk then
+        local any = poolAnyChunk(chunksByType)
+        entrance = entrance or any
+        exitChunk = exitChunk or any
+    end
+    if entrance and not exitChunk then exitChunk = entrance end
+    if exitChunk and not entrance then entrance = exitChunk end
+
+    if not entrance or not exitChunk then
+        print("[ChunkAssembler] ERROR: generateFallback: empty chunk pool for world " .. tostring(worldId))
+        return {
+            id = "fallback_empty_" .. tostring(worldId),
+            width = 3 * CELL_W,
+            height = CELL_H,
+            platforms = {},
+            playerSpawn = { x = 60, y = 310 },
+            exitDoor = { x = 3 * CELL_W - 60, y = 328, w = 32, h = 32 },
+            spawns = {},
+            generated = true,
+        }
+    end
 
     local cells = {{col = 1, row = 1, chunk = entrance}}
     if combat then
         cells[#cells + 1] = {col = 2, row = 1, chunk = combat}
-        cells[#cells + 1] = {col = 3, row = 1, chunk = exit}
+        cells[#cells + 1] = {col = 3, row = 1, chunk = exitChunk}
     else
-        cells[#cells + 1] = {col = 2, row = 1, chunk = exit}
+        cells[#cells + 1] = {col = 2, row = 1, chunk = exitChunk}
     end
 
     return flattenToRoom(cells, 3, 1)

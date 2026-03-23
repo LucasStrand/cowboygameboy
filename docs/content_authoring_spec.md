@@ -109,3 +109,8 @@ V1-contract:
 - content kan ange `presentation_hooks`
 - hook ids valideras vid load-time
 - Phase 7 använder detta för proc-payoff-feedback och status lifecycle-feedback utan nya combat-lokala specialfall
+
+## Relaterat
+
+- [authoring_readiness_checklist.md](./authoring_readiness_checklist.md) — kodgrindar innan nytt content (sets, proc-AoE, nya families, boss-paritet).
+- [unified_actor_and_content_vision.md](./unified_actor_and_content_vision.md) — mål vs nuläge: enhetlig actor-modell, offense/defense/inventory.

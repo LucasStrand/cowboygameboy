@@ -30,11 +30,11 @@ Syftet är att:
 | [phases/phase_03_player_loadout_weapon_runtime.md](./phases/phase_03_player_loadout_weapon_runtime.md) | Phase 3 implementation log | `implemented + hardened` |
 | [phases/phase_04_direct_hit_damage_migration.md](./phases/phase_04_direct_hit_damage_migration.md) | Phase 4 implementation log | `implemented + verified` |
 | [phases/phase_05_unified_status_cc_runtime.md](./phases/phase_05_unified_status_cc_runtime.md) | Phase 5 implementation log | `implemented + verified` |
-| [phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md](./phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md) | Phase 6 implementation log | `implemented + live visual closeout pending` |
+| [phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md](./phases/phase_06_explosive_bullet_vfx_and_ricochet_exclusivity.md) | Phase 6 implementation log | `implemented + live visual closeout complete` |
 | [phases/phase_07_content_tooltips_and_presentation_hooks.md](./phases/phase_07_content_tooltips_and_presentation_hooks.md) | Phase 7 implementation log | `implemented v1 slice` |
 | [phases/phase_08_reward_weighting_economy_and_run_metadata.md](./phases/phase_08_reward_weighting_economy_and_run_metadata.md) | Phase 8 implementation log | `implemented + truth gate passed + live recap closeout complete` |
-| [phases/phase_09_ux_readability_pass.md](./phases/phase_09_ux_readability_pass.md) | Phase 9 plan / acceptance contract | `not started` |
-| [phases/phase_10_hardening.md](./phases/phase_10_hardening.md) | Phase 10 plan / acceptance contract | `not started` |
+| [phases/phase_09_ux_readability_pass.md](./phases/phase_09_ux_readability_pass.md) | Phase 9 plan / acceptance contract | `slice 1 implemented` |
+| [phases/phase_10_hardening.md](./phases/phase_10_hardening.md) | Phase 10 plan / acceptance contract | `slice 1 implemented` |
 
 Icke-relevanta markdown-filer i `docs/` för denna roadmap ska lämnas utanför indexet.
 
@@ -46,9 +46,9 @@ Just nu gäller det:
 
 ## Current Repo Position
 
-- Code audit status: the repo is still at Phase 8.
-- Phase 8 systems are implemented in code, backed by the metadata harness, and now closed with a live recap/export pass.
-- Phase 9 remains a planning document only; the recap/HUD readability slice described there is not landed in the current codebase.
+- Code audit status: Phases 2–8 complete; **Phase 9 slice 1** (readability / recap / HUD) and **Phase 10 slice 1** (metadata retention caps, scoreboard write hardening, recap defensive paths, regression harness, dev stress preset) are implemented in code.
+- Canonical truth remains: `run_metadata` → `MetaRuntime.summarize` → recap/export; damage-event rings and long-run metadata tables are **explicitly capped** (see `RunMetadata.retentionStats` and [phase_10_hardening.md](./phases/phase_10_hardening.md)).
+- Regression: run `love . --phase10-regression` from the repo root (prints OK or exits non-zero on failure).
 
 ### Locked
 
@@ -104,11 +104,11 @@ Just nu gäller det:
 - [x] Phase 3: Player/loadout/weapon runtime
 - [x] Phase 4: Direct-hit damage migration `implemented + verified`
 - [x] Phase 5: Status + CC subsystem `implemented + verified`
-- [x] Phase 6: Proc system + rule-breaking overrides `implemented + live visual closeout pending`
+- [x] Phase 6: Proc system + rule-breaking overrides `implemented + live visual closeout complete`
 - [x] Phase 7: Content pipeline + tooltips + presentation hooks `implemented v1 slice`
 - [x] Phase 8: Economy + rewards + meta + run metadata `implemented + truth gate passed + live recap closeout complete`
-- [ ] Phase 9: UX/readability pass
-- [ ] Phase 10: Hardening
+- [x] Phase 9: UX/readability pass `slice 1`
+- [x] Phase 10: Hardening `slice 1`
 
 ## Fasordning
 
@@ -233,7 +233,7 @@ Delar:
 - breadth-first meta
 - run metadata capture
 
-### [ ] Phase 9: UX/readability pass
+### [x] Phase 9: UX/readability pass `slice 1`
 
 Mål:
 
@@ -247,7 +247,7 @@ Delar:
 - build identity support
 - recap och summary
 
-### [ ] Phase 10: Hardening
+### [x] Phase 10: Hardening `slice 1`
 
 Mål:
 
@@ -324,8 +324,8 @@ Delar:
 
 | Del | Status | Nästa steg |
 |---|---|---|
-| Explosive bullet VFX tiers | `implemented + live visual closeout pending` | verifiera live readability och ev. finjustera row-val/scale |
-| Explosive vs ricochet exclusivity | `implemented + live visual closeout pending` | håll kvar som explicit override-regel i framtida content |
+| Explosive bullet VFX tiers | `implemented + live visual closeout complete` | tier scales/fps tuned; wall impacts use lower scale than enemy hits; camera shake on player explosive hits |
+| Explosive vs ricochet exclusivity | `implemented + live visual closeout complete` | håll kvar som explicit override-regel i framtida content |
 | General proc guardrails | `implemented` | återanvänd proc runtime för fler authored passives och overrides |
 | Showcase rule-breaker: third-hit true ping | `implemented` | använd som referensmönster för senare proc-content |
 
@@ -342,8 +342,8 @@ Delar:
 | Del | Status | Nästa steg |
 |---|---|---|
 | Ownership feedback | `implemented v1` | bredda från proc payoff-hook till fler event-owned feedback paths |
-| HUD tiers | `not started` | gruppera A/B/C-info |
-| Recap/post-run summary | `implemented v2` | Phase 9: readability polish, surfacing of causal chains, HUD tiers |
+| HUD tiers | `implemented baseline (slice 1)` | Phase 9 slice 1: Group A/B split + dev clutter preset; full redesign still optional |
+| Recap/post-run summary | `implemented v2` | Phase 9 slice 1 landed; export includes format/retention version lines |
 
 ### Economy / Rewards / Meta
 
@@ -352,7 +352,7 @@ Delar:
 | Reward weighting | `implemented v1` | bredda pool authoring och tuning ovanpå reward runtime |
 | Economy roles | `implemented v1` | cursed/refill-bredd och djupare roll-matris |
 | Meta breadth-first | `deferred` | real persistent unlocks efter stabil meta/recap-seam |
-| Run metadata | `implemented + export seam` | save/load och broader persistence ovanpå samma truth-modell |
+| Run metadata | `implemented + export seam + retention caps` | Phase 10 slice 1: ring buffers / table caps + `retentionStats`; full mid-run save/load still open |
 
 ## Dokumentationskrav när utveckling börjar
 

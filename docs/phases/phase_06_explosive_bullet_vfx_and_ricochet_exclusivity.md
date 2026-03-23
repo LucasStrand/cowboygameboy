@@ -164,13 +164,17 @@
   - `phantom_third`
   - `third_hit_true_ping`
 
-### Still Unverified In Live Visual Play
+### Live visual closeout (code slice)
 
-- Revolver + explosive: confirm the small tier stays readable at gameplay zoom.
-- AK + explosive: confirm the medium tier reads clearly distinct from revolver and blunderbuss.
-- Blunderbuss + explosive: confirm the Dragon's Breath-style muzzle read is obvious in real fights.
-- Compare enemy-hit vs wall-hit explosive feedback in active combat so wall hits do not feel stronger than enemy hits.
-- Final tune pass for row choice, fps, and scale if live combat exposes visual confusion between `small`, `medium`, and `large`.
+- Enemy-hit explosive tiers: **larger scale + slightly faster fps** in `impact_fx.lua` so small/medium/large read more distinctly at gameplay zoom.
+- **Camera shake** on player explosive enemy hits via `Combat.setExplosiveShakeHook` + each tier’s `recommended_shake` (respects Settings screen-shake scale).
+- **Wall explosive impacts** use `scale_mul = 0.78` in `bullet.lua` so they read weaker than same-tier enemy hits.
+- Dev stress preset: `preset_phase10_proc_explosion_stress` (blunderbuss + explosive + Phantom Third).
+
+### Still best verified in manual playtests
+
+- Revolver / AK / blunderbuss identity at your target resolution and zoom.
+- Whether shake + wall scaling feel balanced alongside ult and other camera motion.
 
 ### Bugs / Balance Problems Found During Closeout
 
@@ -207,10 +211,4 @@
 - Phase 6 proc harness artifacts live under:
   - `tmp/phase6_proc_harness/`
   - `tmp/phase6_proc_harness_output.txt`
-- Manual gameplay verification is still required for:
-  - revolver explosive feel
-  - AK explosive feel
-  - blunderbuss Dragon's Breath read
-  - visual tier readability
-  - enemy-hit vs wall-hit feel in actual fights
-  - explosive-vs-ricochet lock behavior in actual fights
+- Manual gameplay verification is still recommended for final juice approval (code closeout above addresses the prior “under-telegraphed” gaps).

@@ -2,6 +2,7 @@ local Gamestate = require("lib.hump.gamestate")
 local Font = require("src.ui.font")
 local Cursor = require("src.ui.cursor")
 local MetaRuntime = require("src.systems.meta_runtime")
+local RunMetadata = require("src.systems.run_metadata")
 local RunScoreboard = require("src.systems.run_scoreboard")
 local Guns = require("src.data.guns")
 local GearData = require("src.data.gear")
@@ -17,16 +18,28 @@ local topRuns = {}
 local runMeta = nil
 local copyMessage = nil
 local copyMessageTimer = 0
+local showCausalDetail = false
+
+--- Larger canvas (tall window) ⇒ scale recap UI so text stays readable (see main.lua syncGameDimensions).
+local function recapUiScale()
+    local h = GAME_HEIGHT or 720
+    return math.max(1, math.min(3, h / 720))
+end
+
+local recapFontScaleKey = nil
 
 local function ensureFonts()
-    if next(fonts) then
+    local sc = recapUiScale()
+    local key = string.format("%.3f", sc)
+    if recapFontScaleKey == key and fonts.title then
         return
     end
+    recapFontScaleKey = key
     fonts = {
-        title = Font.new(32),
-        section = Font.new(18),
-        body = Font.new(14),
-        small = Font.new(12),
+        title = Font.new(math.max(22, math.floor(32 * sc + 0.5))),
+        section = Font.new(math.max(14, math.floor(20 * sc + 0.5))),
+        body = Font.new(math.max(12, math.floor(16 * sc + 0.5))),
+        small = Font.new(math.max(11, math.floor(14 * sc + 0.5))),
     }
 end
 
@@ -84,26 +97,80 @@ local function buildLoadoutRows(build)
     return rows
 end
 
-local function drawPanel(x, y, w, h, title, rows, accent)
+local function truncateRow(s, maxLen)
+    if not s or type(s) ~= "string" then
+        return s
+    end
+    if #s <= maxLen then
+        return s
+    end
+    return s:sub(1, math.max(1, maxLen - 1)) .. "…"
+end
+
+--- opts.body_font — optional font for row text.
+--- Rows use Font:getWrap so multi-line strings do not overlap; spacing = visual lines × font height + rowGap.
+local function drawPanel(x, y, w, h, title, rows, accent, opts)
     accent = accent or { 0.88, 0.72, 0.28 }
-    love.graphics.setColor(0.08, 0.07, 0.06, 0.92)
+    opts = opts or {}
+    local sc = opts.ui_scale or 1
+    local bodyFont = opts.body_font or fonts.body
+    local bottomPad = opts.bottom_pad or math.floor(24 * sc + 0.5)
+    local padX = math.floor(16 * sc + 0.5)
+    local padTitleY = math.floor(14 * sc + 0.5)
+
+    local fontH = bodyFont:getHeight()
+    local bodyLh = bodyFont:getLineHeight()
+    if type(bodyLh) ~= "number" or bodyLh <= 0 then
+        bodyLh = 1
+    end
+    -- printf advances each wrapped line by getHeight() * getLineHeight(); must match or rows overlap.
+    local lineAdvance = fontH * math.max(bodyLh, 1)
+    local rowGap = math.max(4, math.floor(6 * sc + 0.5))
+
+    local secFont = fonts.section
+    local secH = secFont:getHeight() * math.max(secFont:getLineHeight() or 1, 1)
+    local bodyTop = math.max(
+        math.floor(52 * sc + 0.5),
+        padTitleY + secH + math.floor(10 * sc + 0.5)
+    )
+
+    if opts.opaque_fill then
+        love.graphics.setColor(0.08, 0.07, 0.06, 1)
+    else
+        love.graphics.setColor(0.08, 0.07, 0.06, 0.92)
+    end
     love.graphics.rectangle("fill", x, y, w, h, 10, 10)
     love.graphics.setColor(accent[1], accent[2], accent[3], 1)
-    love.graphics.setLineWidth(2)
+    love.graphics.setLineWidth(math.max(1, math.floor(2 * sc + 0.5)))
     love.graphics.rectangle("line", x, y, w, h, 10, 10)
     love.graphics.setFont(fonts.section)
-    love.graphics.printf(title, x + 16, y + 14, w - 32, "left")
+    love.graphics.printf(title, x + padX, y + padTitleY, w - padX * 2, "left")
 
-    local lineY = y + 52
-    love.graphics.setFont(fonts.body)
+    local lineY = y + bodyTop
+    love.graphics.setFont(bodyFont)
     love.graphics.setColor(0.88, 0.84, 0.78, 1)
+    local clipped = false
+    local textW = math.max(40, w - padX * 2)
     for _, row in ipairs(rows or {}) do
-        love.graphics.printf(row, x + 16, lineY, w - 32, "left")
-        lineY = lineY + 26
-        if lineY > y + h - 28 then
+        local text = tostring(row)
+        local _, wrapped = bodyFont:getWrap(text, textW)
+        local numVisualLines = math.max(1, wrapped and #wrapped or 1)
+        local blockH = numVisualLines * lineAdvance + rowGap
+        if lineY + blockH > y + h - bottomPad then
+            clipped = true
             break
         end
+        love.graphics.printf(text, x + padX, lineY, textW, "left")
+        lineY = lineY + blockH
     end
+    if clipped then
+        love.graphics.setColor(0.65, 0.62, 0.58, 1)
+        local ellipsisH = lineAdvance + rowGap
+        if lineY + ellipsisH <= y + h - bottomPad then
+            love.graphics.printf("…", x + padX, lineY, textW, "left")
+        end
+    end
+    love.graphics.setLineWidth(1)
 end
 
 local function joinTags(tags)
@@ -173,6 +240,11 @@ local function buildRunReportText(run_meta, current_summary, current_stats, buil
     local buildStats = build and build.stats or {}
     local lines = {
         "Run Recap Export",
+        string.format(
+            "Format v%d | metadata retention policy v%d",
+            RunMetadata.RECAP_EXPORT_VERSION or 0,
+            RunMetadata.METADATA_RETENTION_VERSION or 0
+        ),
         "================",
         string.format("Outcome: %s", tostring(current_summary.outcome or current_stats.outcome or "unknown")),
         string.format("World: %s", tostring(current_summary.worldName or current_summary.worldId or "unknown")),
@@ -222,6 +294,26 @@ local function buildRunReportText(run_meta, current_summary, current_stats, buil
         lines[#lines + 1] = row
     end
     lines[#lines + 1] = ""
+    lines[#lines + 1] = "Readability (Phase 9)"
+    lines[#lines + 1] = "-------------------"
+    local lastHitTech = current_summary.lastDamageToPlayerLineTechnical or current_summary.lastDamageToPlayerLine
+    local procTech = current_summary.lastMajorProcLineTechnical or current_summary.lastMajorProcLine
+    if lastHitTech then
+        lines[#lines + 1] = "Last hit taken: " .. tostring(lastHitTech)
+    end
+    if procTech then
+        lines[#lines + 1] = "Major proc: " .. tostring(procTech)
+    end
+    if current_summary.damageTracePrimarySource then
+        lines[#lines + 1] = "Damage trace first (dealt): " .. tostring(current_summary.damageTracePrimarySource)
+    end
+    if current_summary.damageTraceLastEventSource then
+        lines[#lines + 1] = "Damage trace last (dealt): " .. tostring(current_summary.damageTraceLastEventSource)
+    end
+    if current_summary.damageTraceLastIncomingSource then
+        lines[#lines + 1] = "Last incoming source id: " .. tostring(current_summary.damageTraceLastIncomingSource)
+    end
+    lines[#lines + 1] = ""
     lines[#lines + 1] = buildDamageTraceText(run_meta)
     return table.concat(lines, "\n")
 end
@@ -248,13 +340,17 @@ function run_recap:enter(_, args)
         outcome = args.outcome or "death",
     }
     runMeta = args.runMetadata
-    summary = MetaRuntime.summarize(args.runMetadata, {
+    local fb = {
         roomsCleared = args.roomsCleared,
         perksCount = args.perksCount,
         outcome = args.outcome or "death",
-    })
+    }
+    local okSum, summ = pcall(MetaRuntime.summarize, args.runMetadata, fb)
+    summary = (okSum and summ) or MetaRuntime.summarize(nil, fb)
     latestBuild = summary.latestBuild or {}
-    topRuns = RunScoreboard.recordRun(stats, summary)
+    local okScore, runsOrErr = pcall(RunScoreboard.recordRun, stats, summary)
+    topRuns = okScore and runsOrErr or RunScoreboard.getRuns()
+    showCausalDetail = false
 end
 
 function run_recap:update(dt)
@@ -267,7 +363,9 @@ function run_recap:update(dt)
 end
 
 function run_recap:keypressed(key)
-    if key == "c" then
+    if key == "t" then
+        showCausalDetail = not showCausalDetail
+    elseif key == "c" then
         copyText("Run report", buildRunReportText(runMeta, summary, stats, latestBuild))
     elseif key == "x" then
         copyText("Damage trace", buildDamageTraceText(runMeta))
@@ -285,43 +383,73 @@ function run_recap:draw()
 
     local screenW = GAME_WIDTH
     local screenH = GAME_HEIGHT
-    local margin = 34
-    local gutter = 18
-    local topY = 28
+    local sc = recapUiScale()
+    local margin = math.floor(34 * sc + 0.5)
+    local gutter = math.floor(18 * sc + 0.5)
+    local topY = math.floor(28 * sc + 0.5)
     local fullW = screenW - margin * 2
     local leftW = math.floor(fullW * 0.34)
     local rightW = fullW - leftW - gutter
     local rightColW = math.floor((rightW - gutter) * 0.5)
     local rightCol2W = rightW - gutter - rightColW
+    local leftX = margin
+    local rightX = leftX + leftW + gutter
+    local highScoresH = math.floor(106 * sc + 0.5)
+    local headerH = math.max(
+        math.floor(140 * sc + 0.5),
+        margin + highScoresH + math.floor(12 * sc + 0.5)
+    )
+    local titleX = leftX + leftW + gutter
+    local titleW = math.max(120, screenW - margin - titleX)
 
     love.graphics.setColor(0.11, 0.09, 0.07, 1)
     love.graphics.rectangle("fill", 0, 0, screenW, screenH)
 
     love.graphics.setColor(0.18, 0.14, 0.11, 1)
-    love.graphics.rectangle("fill", 0, 0, screenW, 140)
-    love.graphics.setFont(fonts.title)
-    love.graphics.setColor(0.96, 0.82, 0.36, 1)
-    love.graphics.printf("RUN RECAP", margin, topY, fullW, "left")
-    love.graphics.setFont(fonts.body)
-    love.graphics.setColor(0.86, 0.8, 0.72, 1)
-    love.graphics.printf(
-        string.format("Outcome  %s   |   Score  %d", string.upper(tostring(summary.outcome or "death")), RunScoreboard.computeScore(stats)),
-        margin,
-        topY + 42,
-        fullW,
-        "left"
-    )
+    love.graphics.rectangle("fill", 0, 0, screenW, headerH)
 
+    -- High-signal lines first so they stay visible if the panel clips.
     local overviewRows = {
         string.format("Level  %d", tonumber(stats.level or 1) or 1),
         string.format("Rooms Cleared  %d", tonumber(summary.roomsCleared or 0) or 0),
         string.format("Bosses Killed  %d", tonumber(summary.bossesKilled or 0) or 0),
         string.format("Perks Picked  %d", tonumber(summary.perksPicked or 0) or 0),
-        string.format("Gold Earned  $%d", tonumber(summary.goldEarned or 0) or 0),
-        string.format("Gold Spent  $%d", tonumber(summary.goldSpent or 0) or 0),
-        string.format("Rerolls  %d", tonumber(summary.rerollsUsed or 0) or 0),
-        string.format("World  %s", tostring(summary.worldName or summary.worldId or "unknown")),
     }
+    if summary.lastDamageToPlayerLine then
+        overviewRows[#overviewRows + 1] = "Last hit  " .. tostring(summary.lastDamageToPlayerLine)
+    end
+    if summary.lastMajorProcLine then
+        overviewRows[#overviewRows + 1] = "Big proc  " .. tostring(summary.lastMajorProcLine)
+    end
+    overviewRows[#overviewRows + 1] = string.format("Gold Earned  $%d", tonumber(summary.goldEarned or 0) or 0)
+    overviewRows[#overviewRows + 1] = string.format("Gold Spent  $%d", tonumber(summary.goldSpent or 0) or 0)
+    overviewRows[#overviewRows + 1] = string.format("Rerolls  %d", tonumber(summary.rerollsUsed or 0) or 0)
+    overviewRows[#overviewRows + 1] = string.format("World  %s", tostring(summary.worldName or summary.worldId or "unknown"))
+    if summary.dominantTags and #summary.dominantTags > 0 then
+        local tagStr = table.concat(summary.dominantTags, ", ")
+        overviewRows[#overviewRows + 1] = truncateRow("Build tags  " .. tagStr, math.floor(72 * sc + 24))
+    end
+    if showCausalDetail then
+        overviewRows[#overviewRows + 1] = "--- Damage trace (detail) ---"
+        if summary.lastDamageToPlayerLineTechnical then
+            overviewRows[#overviewRows + 1] = truncateRow("Last hit detail  " .. tostring(summary.lastDamageToPlayerLineTechnical), 80)
+        end
+        if summary.lastMajorProcLineTechnical then
+            overviewRows[#overviewRows + 1] = truncateRow("Proc detail  " .. tostring(summary.lastMajorProcLineTechnical), 80)
+        end
+        if summary.damageTracePrimarySource then
+            overviewRows[#overviewRows + 1] = truncateRow("First dealt: " .. tostring(summary.damageTracePrimarySource), 80)
+        end
+        if summary.damageTraceLastEventSource then
+            overviewRows[#overviewRows + 1] = truncateRow("Last dealt: " .. tostring(summary.damageTraceLastEventSource), 80)
+        end
+        if summary.damageTraceLastIncomingSource then
+            overviewRows[#overviewRows + 1] = truncateRow("Last incoming: " .. tostring(summary.damageTraceLastIncomingSource), 80)
+        end
+        if summary.visibleBuffCount ~= nil then
+            overviewRows[#overviewRows + 1] = "Statuses at end  " .. tostring(summary.visibleBuffCount)
+        end
+    end
 
     local buildStats = latestBuild and latestBuild.stats or {}
     local combatRows = {
@@ -361,30 +489,79 @@ function run_recap:draw()
     end
     local sourceRows = buildSourceSummaryRows(runMeta)
 
-    local leftX = margin
-    local rightX = leftX + leftW + gutter
-    local lowerY = 154
-    local topPanelH = 228
-    local bottomPanelH = screenH - lowerY - topPanelH - gutter - 48
+    -- High Scores first (opaque) so "RUN RECAP" never bleeds through; title only in the column to the right.
+    drawPanel(leftX, margin, leftW, highScoresH, "High Scores", highScoreRows, { 0.9, 0.78, 0.48 }, {
+        ui_scale = sc,
+        opaque_fill = true,
+    })
+
+    love.graphics.setFont(fonts.title)
+    love.graphics.setColor(0.96, 0.82, 0.36, 1)
+    love.graphics.printf("RUN RECAP", titleX, topY, titleW, "left")
+    love.graphics.setFont(fonts.body)
+    love.graphics.setColor(0.86, 0.8, 0.72, 1)
+    love.graphics.printf(
+        string.format(
+            "Outcome  %s   |   Score  %d",
+            string.upper(tostring(summary.outcome or "death")),
+            RunScoreboard.computeScore(stats)
+        ),
+        titleX,
+        topY + fonts.title:getHeight() + math.floor(8 * sc + 0.5),
+        titleW,
+        "left"
+    )
+
+    local lowerY = headerH + math.floor(16 * sc + 0.5)
+    local topPanelH = math.floor(228 * sc + 0.5)
+    local footerReserve = math.floor(48 * sc + 0.5)
+    local bottomPanelH = screenH - lowerY - topPanelH - gutter - footerReserve
+    if bottomPanelH < math.floor(100 * sc + 0.5) then
+        topPanelH = math.max(
+            math.floor(160 * sc + 0.5),
+            screenH - lowerY - gutter - footerReserve - math.floor(100 * sc + 0.5)
+        )
+        bottomPanelH = screenH - lowerY - topPanelH - gutter - footerReserve
+    end
     local perksPanelH = math.floor(bottomPanelH * 0.42)
     local tracePanelY = lowerY + topPanelH + gutter + perksPanelH + gutter
     local tracePanelH = bottomPanelH - perksPanelH - gutter
+    local overviewBottomPad = math.floor(40 * sc + 0.5)
 
-    drawPanel(leftX, lowerY, leftW, screenH - lowerY - 48, "Overview", overviewRows, { 0.93, 0.75, 0.31 })
-    drawPanel(rightX, lowerY, rightColW, topPanelH, "Combat Breakdown", combatRows, { 0.86, 0.46, 0.31 })
-    drawPanel(rightX + rightColW + gutter, lowerY, rightCol2W, topPanelH, "Build Stats", statRows, { 0.74, 0.62, 0.34 })
+    drawPanel(leftX, lowerY, leftW, screenH - lowerY - overviewBottomPad, "Overview", overviewRows, { 0.93, 0.75, 0.31 }, {
+        ui_scale = sc,
+        bottom_pad = math.floor(20 * sc + 0.5),
+    })
+    drawPanel(rightX, lowerY, rightColW, topPanelH, "Combat Breakdown", combatRows, { 0.86, 0.46, 0.31 }, {
+        ui_scale = sc,
+    })
+    drawPanel(rightX + rightColW + gutter, lowerY, rightCol2W, topPanelH, "Build Stats", statRows, { 0.74, 0.62, 0.34 }, {
+        ui_scale = sc,
+    })
 
-    drawPanel(rightX, lowerY + topPanelH + gutter, rightColW, bottomPanelH, "Weapons & Gear", buildLoadoutRows(latestBuild), { 0.57, 0.73, 0.42 })
-    drawPanel(rightX + rightColW + gutter, lowerY + topPanelH + gutter, rightCol2W, perksPanelH, "Perks", buildPerkRows(latestBuild), { 0.55, 0.7, 0.82 })
-    drawPanel(rightX + rightColW + gutter, tracePanelY, rightCol2W, tracePanelH, "Damage Sources", sourceRows, { 0.9, 0.52, 0.44 })
-    drawPanel(leftX, 24, leftW, 106, "High Scores", highScoreRows, { 0.9, 0.78, 0.48 })
+    drawPanel(rightX, lowerY + topPanelH + gutter, rightColW, bottomPanelH, "Weapons & Gear", buildLoadoutRows(latestBuild), { 0.57, 0.73, 0.42 }, {
+        ui_scale = sc,
+    })
+    drawPanel(rightX + rightColW + gutter, lowerY + topPanelH + gutter, rightCol2W, perksPanelH, "Perks", buildPerkRows(latestBuild), { 0.55, 0.7, 0.82 }, {
+        ui_scale = sc,
+    })
+    drawPanel(rightX + rightColW + gutter, tracePanelY, rightCol2W, tracePanelH, "Damage Sources", sourceRows, { 0.9, 0.52, 0.44 }, {
+        ui_scale = sc,
+    })
 
+    local footerY = screenH - math.floor(26 * sc + 0.5)
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(0.78, 0.74, 0.68, 1)
-    love.graphics.printf("C  Copy report   |   X  Copy damage trace   |   ENTER  Retry   |   ESC  Menu", margin, screenH - 26, fullW, "center")
+    love.graphics.printf(
+        "T  Causal detail   |   C  Copy report   |   X  Copy damage trace   |   ENTER  Retry   |   ESC  Menu",
+        margin,
+        footerY,
+        fullW,
+        "center"
+    )
     if copyMessage then
         love.graphics.setColor(0.96, 0.82, 0.36, 1)
-        love.graphics.printf(copyMessage, margin, screenH - 48, fullW, "center")
+        love.graphics.printf(copyMessage, margin, footerY - math.floor(22 * sc + 0.5), fullW, "center")
     end
 end
 

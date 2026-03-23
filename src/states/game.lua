@@ -139,6 +139,17 @@ local function buildDamageTraceDetail(payload)
     }
 end
 
+--- Incoming damage to the player: same trace shape plus readable enemy label when available.
+local function buildIncomingDamageDetail(payload)
+    local base = buildDamageTraceDetail(payload)
+    local src = payload and payload.source_actor or nil
+    if src and src.isEnemy then
+        base.source_name = src.name or src.typeId
+        base.enemy_type_id = src.typeId
+    end
+    return base
+end
+
 -- Ultimate: Dead Man's Hand (single table to avoid upvalue bloat)
 local ult = { flashAlpha = 0, shotFlashScreen = 0, vignetteAlpha = 0, rings = {}, pulseTimer = 0 }
 local devPanelState = {
@@ -1105,7 +1116,8 @@ local function drawCharacterSheet()
     py = py + 22
     love.graphics.print("Perks:", x + pad, py)
     py = py + 18
-    if #player.perks == 0 then
+    local perksList = player.perks or {}
+    if #perksList == 0 then
         love.graphics.setColor(0.55, 0.52, 0.48)
         love.graphics.print("(none yet)", x + pad, py)
         py = py + 20
@@ -1232,6 +1244,13 @@ local function queueRunRecap(outcome, source)
     local perksCount = player.perks and #player.perks or 0
 
     if game._runtime and game._runtime.runMetadata then
+        local vis = 0
+        local st = player.statuses
+        if st and st.instances then
+            for _ in pairs(st.instances) do
+                vis = vis + 1
+            end
+        end
         RunMetadata.finishRun(game._runtime.runMetadata, {
             outcome = outcome or "completed",
             source = source or "run_end",
@@ -1247,6 +1266,7 @@ local function queueRunRecap(outcome, source)
                 or nil,
             dominant_tags = profile and profile.dominant_tags or nil,
             build_snapshot = buildSnapshot,
+            visible_buff_count = vis,
         })
     end
 
@@ -1445,6 +1465,15 @@ local function initGameplayRuntime(opts)
             buildDamageTraceDetail(payload)
         )
     end)
+    CombatEvents.subscribe("OnDamageTaken", function(payload)
+        if not payload or payload.target_kind ~= "player" then
+            return
+        end
+        if not game._runtime or not game._runtime.runMetadata then
+            return
+        end
+        RunMetadata.recordDamageToPlayer(game._runtime.runMetadata, buildIncomingDamageDetail(payload))
+    end)
 end
 
 local function initGameplayWorld()
@@ -1468,6 +1497,15 @@ local function initGameplayWorld()
     shakeTimer = 0
     shakeIntensity = 0
     gameTimer = 0
+    Combat.setExplosiveShakeHook(function(duration, intensity)
+        duration = tonumber(duration) or 0
+        intensity = tonumber(intensity) or 0
+        if duration <= 0 or intensity <= 0 then
+            return
+        end
+        shakeTimer = math.max(shakeTimer or 0, duration)
+        shakeIntensity = math.max(shakeIntensity or 0, intensity)
+    end)
 end
 
 local function configureGameplayRun(opts)
@@ -2790,6 +2828,9 @@ function game:draw()
 
         -- HUD (screen space)
         HUD.draw(player)
+        if DEBUG then
+            HUD.drawReadabilityTierDebug(GAME_WIDTH, GAME_HEIGHT)
+        end
         if not DEBUG then
             DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
         end
@@ -2976,14 +3017,15 @@ function game:draw()
         py = py + 20
 
         -- Perks list
+        local dbgPerks = player.perks or {}
         love.graphics.setColor(0, 1, 0)
-        love.graphics.print("-- PERKS (" .. #player.perks .. ") --", panelX, py)
+        love.graphics.print("-- PERKS (" .. #dbgPerks .. ") --", panelX, py)
         py = py + 16
         love.graphics.setColor(0.8, 1, 0.8)
-        if #player.perks == 0 then
+        if #dbgPerks == 0 then
             love.graphics.print("(none)", panelX, py)
         else
-            love.graphics.print(table.concat(player.perks, ", "), panelX, py)
+            love.graphics.print(table.concat(dbgPerks, ", "), panelX, py)
         end
         py = py + 20
 

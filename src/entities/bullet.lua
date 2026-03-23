@@ -73,7 +73,12 @@ function Bullet:update(dt, world)
                 if not self.fromEnemy then
                     Sfx.play(self.explosion_sfx_id)
                 end
-                ImpactFX.spawn(self.x + self.w / 2, self.y + self.h / 2, self.impact_fx_id or "explosion_medium")
+                ImpactFX.spawn(
+                    self.x + self.w / 2,
+                    self.y + self.h / 2,
+                    self.impact_fx_id or "explosion_medium",
+                    { scale_mul = 0.78 }
+                )
                 self.alive = false
                 return
             elseif self.ricochet > 0 then

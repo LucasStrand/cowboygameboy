@@ -1,8 +1,12 @@
 local CombatEvents = require("src.systems.combat_events")
 local DamagePacket = require("src.systems.damage_packet")
 local GameRng = require("src.systems.game_rng")
+local RunMetadata = require("src.systems.run_metadata")
 local SourceRef = require("src.systems.source_ref")
 local StatRuntime = require("src.systems.stat_runtime")
+
+-- Recap "major proc" line: applied perk-sourced damage to enemies at or above this amount.
+local MAJOR_PROC_RECAP_MIN_DAMAGE = 12
 
 local DamageResolver = {
     _secondary_jobs = {},
@@ -439,6 +443,18 @@ function DamageResolver.resolve_packet(spec)
     result.final_damage = applied_damage or final_damage
     result.target_killed = killed == true
     result.secondary_jobs = createSecondaryJobs(packet, result, target_actor, source_actor)
+
+    if target_kind == "enemy" and source_actor and source_actor.isPlayer and source_actor.runMetadata then
+        local ref = packet.source or result.source_ref
+        local fd = result.final_damage or 0
+        if ref and ref.owner_source_type == "perk" and fd >= MAJOR_PROC_RECAP_MIN_DAMAGE then
+            RunMetadata.recordMajorProc(source_actor.runMetadata, {
+                perk_id = ref.owner_source_id,
+                rule_id = (packet.metadata and packet.metadata.proc_rule_id) or "proc",
+                damage = fd,
+            })
+        end
+    end
 
     for _, job in ipairs(result.secondary_jobs) do
         DamageResolver.enqueueSecondaryJob(job)
