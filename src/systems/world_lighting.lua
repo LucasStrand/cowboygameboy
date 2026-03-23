@@ -9,12 +9,12 @@ local worldCanvas
 local lightingShader
 
 -- Tune: dark fog outside vision; warm pool at player; weak sky fill
-local AMBIENT_RGB = { 0.07, 0.075, 0.095 }
-local PLAYER_LIGHT_RGB = { 1.12, 0.98, 0.82 }
+local AMBIENT_RGB = { 0.09, 0.095, 0.115 }
+local PLAYER_LIGHT_RGB = { 1.18, 1.04, 0.88 }
 local PLAYER_LIGHT_RADIUS = Vision.VISION_SCREEN_RADIUS
 local FILL_LIGHT_RGB = { 0.28, 0.38, 0.55 }
 local FILL_LIGHT_RADIUS = 520
-local FILL_LIGHT_STRENGTH = 0.09
+local FILL_LIGHT_STRENGTH = 0.12
 --- World Y offset above camera center for soft “sky” fill
 local FILL_WORLD_OFFSET_Y = -260
 
@@ -29,6 +29,8 @@ local shaderCode = [[
     extern vec3 lightColor0;
     extern number lightRadius0;
     extern vec2 lightForward0;
+    extern number lightAlongMul0;
+    extern number lightAcrossMul0;
     extern vec2 lightPos1;
     extern vec3 lightColor1;
     extern number lightRadius1;
@@ -68,10 +70,10 @@ local shaderCode = [[
         vec2 u = vec2(-f.y, f.x);
         float ax = dot(d, f);
         float ay = dot(d, u);
-        float rx = r * 1.38;
-        float ry = r * 0.82;
+        float rx = r * max(0.5, lightAlongMul0);
+        float ry = r * max(0.5, lightAcrossMul0);
         float te = length(vec2(ax / rx, ay / ry));
-        return 1.0 / (1.0 + pow(te * 1.9, 2.75));
+        return 1.0 / (1.0 + pow(te * 1.65, 2.2));
     }
 
     float attenSoft(vec2 pixel, vec2 lp, float r)
@@ -114,9 +116,9 @@ local shaderCode = [[
         vec3 lit = texel.rgb * rgb;
         /* Cool dusty fog when total light is low (outside vision) */
         float bright = dot(rgb, vec3(0.299, 0.587, 0.114));
-        float fog = 1.0 - smoothstep(0.06, 0.32, bright);
+        float fog = 1.0 - smoothstep(0.07, 0.34, bright);
         vec3 fogTint = vec3(0.68, 0.74, 1.0);
-        lit = mix(lit, lit * fogTint, fog * 0.38);
+        lit = mix(lit, lit * fogTint, fog * 0.28);
         return vec4(lit, texel.a);
     }
 ]]
@@ -224,6 +226,8 @@ function WorldLighting.apply(worldTex, opts)
         lightingShader:send("lightColor0", { pRgb[1], pRgb[2], pRgb[3] })
         lightingShader:send("lightRadius0", pRad)
         lightingShader:send("lightForward0", lf0)
+        lightingShader:send("lightAlongMul0", Vision.LIGHT_RADIUS_ALONG)
+        lightingShader:send("lightAcrossMul0", Vision.LIGHT_RADIUS_ACROSS)
         lightingShader:send("lightPos1", lp1)
         lightingShader:send("lightColor1", { fRgb[1], fRgb[2], fRgb[3] })
         lightingShader:send("lightRadius1", fRad)

@@ -1,0 +1,13 @@
+hit 1 targetA delayed=0
+hit 2 targetA delayed=0
+hit 3 targetA delayed=1
+hit 1-2 targetB delayed=0
+hit 1-2 shotgun targetA delayed=0
+hit 3 targetB delayed=1
+hit 3 shotgun targetA delayed=1
+observed direct_hits=9
+observed delayed_hits=3
+observed delayed_onhit_events=0
+last delayed source_type=perk
+last delayed parent_source_id=shotgun
+SUMMARY: PASS

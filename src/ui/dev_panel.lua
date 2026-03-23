@@ -8,7 +8,8 @@ local INFO_H = 34
 local SECTION_H = 24
 local GAP = 4
 local PANEL_PAD = 14
-local PANEL_W = 430
+local PANEL_W = 620
+local FOOTER_H = 28
 
 local function rowSection(id, label, open)
     return { kind = "section", id = id, label = label, open = open ~= false }
@@ -23,9 +24,11 @@ local function rowInfo(label)
 end
 
 function DevPanel.panelRect(screenW, screenH)
-    local pw = math.min(PANEL_W, screenW - 24)
-    local ph = math.min(664, screenH - 56)
-    return 12, 44, pw, ph
+    local desiredW = math.min(760, math.max(PANEL_W, math.floor(screenW * 0.66)))
+    local desiredH = math.min(820, math.floor(screenH * 0.88))
+    local pw = math.min(desiredW, screenW - 20)
+    local ph = math.min(desiredH, screenH - 24)
+    return 10, 18, pw, ph
 end
 
 function DevPanel.buildRows(args)
@@ -55,6 +58,10 @@ function DevPanel.buildRows(args)
 
     if addSection("debug", "Debug") then
         rows[#rows + 1] = rowAction(
+            "toggle_dev_pause",
+            (args.gameplayPaused ~= false) and "Gameplay: PAUSED" or "Gameplay: LIVE"
+        )
+        rows[#rows + 1] = rowAction(
             "toggle_hitboxes",
             (args.showHitboxes ~= false) and "Hitboxes: ON" or "Hitboxes: OFF"
         )
@@ -71,6 +78,16 @@ function DevPanel.buildRows(args)
         rows[#rows + 1] = rowAction("xp_50", "+50 XP")
         rows[#rows + 1] = rowAction("xp_200", "+200 XP")
         rows[#rows + 1] = rowAction("force_levelup", "Open level-up choice")
+    end
+
+    if addSection("quick", "Quick Setups") then
+        rows[#rows + 1] = rowInfo("One-click Phase 6 presets for rapid perk/weapon testing.")
+        rows[#rows + 1] = rowAction("preset_phase6_revolver_explosive", "Phase 6: revolver + explosive")
+        rows[#rows + 1] = rowAction("preset_phase6_ak_explosive", "Phase 6: AK-47 + explosive")
+        rows[#rows + 1] = rowAction("preset_phase6_blunderbuss_explosive", "Phase 6: blunderbuss + explosive")
+        rows[#rows + 1] = rowAction("preset_phase6_proc_revolver", "Phase 6: revolver + Phantom Third")
+        rows[#rows + 1] = rowAction("preset_phase9_clutter_readability", "Phase 9: clutter / HUD readability test")
+        rows[#rows + 1] = rowAction("preset_phase10_proc_explosion_stress", "Phase 10: proc + explosive stress (blunderbuss)")
     end
 
     if addSection("world", "World / Room") then
@@ -140,22 +157,119 @@ function DevPanel.buildRows(args)
         end
     end
 
+    if addSection("rewards", "Rewards / Tooltips") then
+        rows[#rows + 1] = rowInfo("Test current reward-facing tooltip surfaces directly in dev arena.")
+        rows[#rows + 1] = rowInfo("Build profile: " .. tostring(args.rewardLab and args.rewardLab.profileSummary or "none"))
+        rows[#rows + 1] = rowInfo(string.format(
+            "Gold: $%d | level-up reroll: $%d | shop reroll: $%d",
+            tonumber(args.rewardLab and args.rewardLab.gold or 0) or 0,
+            tonumber(args.rewardLab and args.rewardLab.levelupRerollCost or 0) or 0,
+            tonumber(args.rewardLab and args.rewardLab.shopRerollCost or 0) or 0
+        ))
+        rows[#rows + 1] = rowAction("reward_dump_profile", "Dump reward profile to DevLog")
+        rows[#rows + 1] = rowAction("reward_dump_pressure", "Dump gold pressure to DevLog")
+        rows[#rows + 1] = rowAction("force_levelup", "Open level-up choice")
+        rows[#rows + 1] = rowAction("reward_refresh_shop", "Refresh dev shop offers")
+        rows[#rows + 1] = rowAction("reward_reroll_shop", "Spend gold and reroll dev shop")
+        local offers = args.rewardLab and args.rewardLab.offers or {}
+        if #offers == 0 then
+            rows[#rows + 1] = rowInfo("No dev shop offers available.")
+        else
+            for i, offer in ipairs(offers) do
+                local price = offer.price and (" $" .. tostring(offer.price)) or ""
+                local sold = offer.sold and " [APPLIED]" or ""
+                local bucket = offer.reward_bucket and (" [" .. tostring(offer.reward_bucket) .. "]") or ""
+                local role = offer.reward_role and (" {" .. tostring(offer.reward_role) .. "}") or ""
+                rows[#rows + 1] = rowAction("reward_apply_shop_offer:" .. tostring(i), string.format("Offer %d: %s%s%s%s%s", i, offer.name or "Offer", bucket, role, price, sold))
+                if offer.description and offer.description ~= "" then
+                    rows[#rows + 1] = rowInfo(offer.description)
+                end
+                if offer.reward_reason and offer.reward_reason ~= "" then
+                    rows[#rows + 1] = rowInfo("Reason: " .. offer.reward_reason)
+                end
+            end
+        end
+    end
+
+    if addSection("meta", "Meta / Recap") then
+        local summary = args.metaLab and args.metaLab.summary or {}
+        rows[#rows + 1] = rowInfo(string.format(
+            "Rooms %d | Checkpoints %d | Bosses %d | Picks %d | Rerolls %d",
+            tonumber(summary.roomsCleared or 0) or 0,
+            tonumber(summary.checkpointsReached or 0) or 0,
+            tonumber(summary.bossesKilled or 0) or 0,
+            tonumber(summary.perksPicked or 0) or 0,
+            tonumber(summary.rerollsUsed or 0) or 0
+        ))
+        rows[#rows + 1] = rowInfo(string.format(
+            "Gold earned $%d | spent $%d",
+            tonumber(summary.goldEarned or 0) or 0,
+            tonumber(summary.goldSpent or 0) or 0
+        ))
+        if summary.dominantTags and #summary.dominantTags > 0 then
+            rows[#rows + 1] = rowInfo("Dominant tags: " .. table.concat(summary.dominantTags, ", "))
+        end
+        rows[#rows + 1] = rowAction("meta_dump_summary", "Dump meta summary to DevLog")
+        rows[#rows + 1] = rowAction("meta_dump_last_damage", "Dump last damage / proc recap fields")
+        rows[#rows + 1] = rowAction("meta_dump_retention", "Dump run metadata retention counts vs caps")
+        rows[#rows + 1] = rowAction("meta_save_snapshot", "Save run metadata snapshot to save folder (Phase 10)")
+        rows[#rows + 1] = rowAction("meta_open_recap", "Open recap screen from current run")
+    end
+
+    if addSection("statuses", "Status Lab") then
+        local nearestEnemyLabel = args.statusLab and args.statusLab.nearestEnemyLabel or "none"
+        rows[#rows + 1] = rowInfo("Dev-only status verification. No live weapon or ultimate hooks.")
+        rows[#rows + 1] = rowInfo("Target enemy: " .. nearestEnemyLabel)
+        rows[#rows + 1] = rowAction("status_dump_player", "Player: dump")
+        rows[#rows + 1] = rowAction("status_clear_player", "Player: clear all")
+        rows[#rows + 1] = rowAction("status_cleanse_player", "Player: cleanse negatives")
+        rows[#rows + 1] = rowAction("status_step_player_1s", "Player: advance statuses 1s")
+        rows[#rows + 1] = rowAction("status_step_player_5s", "Player: advance statuses 5s")
+        rows[#rows + 1] = rowAction("status_player:bleed", "Player: bleed")
+        rows[#rows + 1] = rowAction("status_player:burn", "Player: burn")
+        rows[#rows + 1] = rowAction("status_player:shock", "Player: shock")
+        rows[#rows + 1] = rowAction("status_player:wet", "Player: wet")
+        rows[#rows + 1] = rowAction("status_player:stun", "Player: stun")
+        rows[#rows + 1] = rowAction("status_player:slow", "Player: slow")
+        rows[#rows + 1] = rowAction("status_player:speed_boost", "Player: speed boost")
+        rows[#rows + 1] = rowAction("status_dump_enemy", "Enemy: dump nearest")
+        rows[#rows + 1] = rowAction("status_clear_enemy", "Enemy: clear nearest")
+        rows[#rows + 1] = rowAction("status_purge_enemy", "Enemy: purge positives")
+        rows[#rows + 1] = rowAction("status_consume_enemy_shock", "Enemy: consume shock")
+        rows[#rows + 1] = rowAction("status_step_enemy_1s", "Enemy: advance statuses 1s")
+        rows[#rows + 1] = rowAction("status_step_enemy_5s", "Enemy: advance statuses 5s")
+        rows[#rows + 1] = rowAction("status_enemy:bleed", "Enemy: bleed")
+        rows[#rows + 1] = rowAction("status_enemy:burn", "Enemy: burn")
+        rows[#rows + 1] = rowAction("status_enemy:shock", "Enemy: shock")
+        rows[#rows + 1] = rowAction("status_enemy:wet", "Enemy: wet")
+        rows[#rows + 1] = rowAction("status_enemy:stun", "Enemy: stun")
+        rows[#rows + 1] = rowAction("status_enemy:slow", "Enemy: slow")
+        rows[#rows + 1] = rowAction("status_enemy:speed_boost", "Enemy: speed boost")
+    end
+
     return rows
 end
 
-local function rowHeight(row)
+local function rowHeight(row, rowFont, innerW)
     if row.kind == "section" then
         return SECTION_H + GAP
     elseif row.kind == "info" then
+        if rowFont and innerW then
+            local _, wrapped = rowFont:getWrap(row.label or "", math.max(32, innerW))
+            local lines = math.max(1, #wrapped)
+            local textH = lines * rowFont:getHeight()
+            return math.max(INFO_H, textH + 10) + GAP
+        end
         return INFO_H + GAP
     end
     return ROW_H + GAP
 end
 
-function DevPanel.rowsHeight(rows)
+function DevPanel.rowsHeight(rows, rowFont, panelW)
     local h = 0
+    local innerW = panelW and (panelW - 2 * PANEL_PAD) or nil
     for _, row in ipairs(rows) do
-        h = h + rowHeight(row)
+        h = h + rowHeight(row, rowFont, innerW)
     end
     return h
 end
@@ -164,15 +278,15 @@ function DevPanel.titleBlockHeight(titleFont)
     return PANEL_PAD + titleFont:getHeight() + 12
 end
 
-function DevPanel.maxScroll(rows, titleFont, panelH)
-    local rowsH = DevPanel.rowsHeight(rows)
+function DevPanel.maxScroll(rows, titleFont, rowFont, panelW, panelH)
+    local rowsH = DevPanel.rowsHeight(rows, rowFont, panelW)
     local titleH = DevPanel.titleBlockHeight(titleFont)
-    local viewH = panelH - titleH - PANEL_PAD
+    local viewH = panelH - titleH - PANEL_PAD - FOOTER_H - 8
     if viewH < 40 then return 0 end
     return math.max(0, rowsH - viewH)
 end
 
-function DevPanel.hitTest(rows, mx, my, scrollY, px, py, pw, ph, titleFont)
+function DevPanel.hitTest(rows, mx, my, scrollY, px, py, pw, ph, titleFont, rowFont)
     if mx < px or my < py or mx > px + pw or my > py + ph then
         return nil
     end
@@ -180,18 +294,20 @@ function DevPanel.hitTest(rows, mx, my, scrollY, px, py, pw, ph, titleFont)
     local y = py + DevPanel.titleBlockHeight(titleFont) - scrollY
     local x0 = px + PANEL_PAD
     local innerW = pw - 2 * PANEL_PAD
+    local contentBottom = py + ph - PANEL_PAD - FOOTER_H
 
     for _, row in ipairs(rows) do
+        local h = rowHeight(row, rowFont, innerW)
         if row.kind == "section" then
-            if my >= y and my <= y + SECTION_H and mx >= x0 and mx <= x0 + innerW then
+            if my >= y and my <= y + SECTION_H and mx >= x0 and mx <= x0 + innerW and my < contentBottom then
                 return "section:" .. row.id
             end
         elseif row.kind == "action" then
-            if my >= y and my <= y + ROW_H and mx >= x0 and mx <= x0 + innerW then
+            if my >= y and my <= y + ROW_H and mx >= x0 and mx <= x0 + innerW and my < contentBottom then
                 return row.id
             end
         end
-        y = y + rowHeight(row)
+        y = y + h
     end
 
     return nil
@@ -216,9 +332,12 @@ function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
     local innerY = py + DevPanel.titleBlockHeight(titleFont) - scrollY
     local x0 = px + PANEL_PAD
     local innerW = pw - 2 * PANEL_PAD
+    local contentBottom = py + ph - PANEL_PAD - FOOTER_H
 
+    love.graphics.setScissor(px, py, pw, math.max(0, contentBottom - py))
     love.graphics.setFont(rowFont)
     for _, row in ipairs(rows) do
+        local h = rowHeight(row, rowFont, innerW)
         if row.kind == "section" then
             local hovered = hoverId == ("section:" .. row.id)
             love.graphics.setColor(hovered and 0.16 or 0.11, hovered and 0.13 or 0.1, hovered and 0.08 or 0.07, 0.92)
@@ -226,10 +345,10 @@ function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
             love.graphics.setColor(0.72, 0.63, 0.5, 0.95)
             love.graphics.print((row.open and "v " or "> ") .. row.label, x0, innerY + 2)
         elseif row.kind == "info" then
-            love.graphics.setColor(0.18, 0.18, 0.22, 0.62)
-            love.graphics.rectangle("fill", x0 - 4, innerY - 2, innerW + 8, INFO_H, 4, 4)
+            love.graphics.setColor(0.18, 0.18, 0.22, 0.72)
+            love.graphics.rectangle("fill", x0 - 4, innerY - 2, innerW + 8, h - GAP, 4, 4)
             love.graphics.setColor(0.72, 0.74, 0.78, 0.95)
-            love.graphics.printf(row.label, x0, innerY + 3, innerW, "left")
+            love.graphics.printf(row.label, x0, innerY + 4, innerW, "left")
         else
             local hovered = hoverId == row.id
             if hovered then
@@ -239,10 +358,19 @@ function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
             love.graphics.setColor(hovered and 1 or 0.82, hovered and 0.95 or 0.8, hovered and 0.7 or 0.68)
             love.graphics.print(row.label, x0, innerY + 3)
         end
-        innerY = innerY + rowHeight(row)
+        innerY = innerY + h
     end
 
     love.graphics.setScissor()
+
+    local footerY = py + ph - PANEL_PAD - FOOTER_H + 4
+    love.graphics.setColor(0.1, 0.09, 0.12, 0.95)
+    love.graphics.rectangle("fill", px + 1, footerY - 6, pw - 2, FOOTER_H + PANEL_PAD + 1, 0, 0)
+    love.graphics.setColor(0.26, 0.22, 0.18, 0.95)
+    love.graphics.line(x0 - 4, footerY - 6, x0 + innerW + 4, footerY - 6)
+    love.graphics.setFont(rowFont)
+    love.graphics.setColor(0.55, 0.55, 0.58)
+    love.graphics.printf("F1 close  |  gameplay stays live  |  wheel scroll", x0, footerY, innerW, "center")
 end
 
 return DevPanel

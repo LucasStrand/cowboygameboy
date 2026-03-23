@@ -1,4 +1,5 @@
 local Guns = {}
+local GameRng = require("src.systems.game_rng")
 
 -- All gun definitions.  Each weapon's baseStats REPLACE the player's default
 -- gun stats when the weapon is active.  Perk bonuses are applied on top via
@@ -31,6 +32,11 @@ Guns.pool = {
         rarity      = "common",
         dropWeight  = 0,            -- 0 = starter only
         ammoType    = "cylinder",   -- HUD render style
+        attack_profile_id = "projectile_basic",
+        tooltip_key = "gun_revolver",
+        tags = { "attack:projectile", "weapon:revolver" },
+        capabilities = {},
+        rules = {},
         sprite      = "ColtSingleActionArmy.png",
         -- Sprite origin: fraction of 32x32 where the grip is (for rotation pivot)
         spriteOrigin = { x = 0.25, y = 0.55 },
@@ -57,6 +63,13 @@ Guns.pool = {
         rarity      = "uncommon",
         dropWeight  = 8,
         ammoType    = "double_barrel",
+        attack_profile_id = "projectile_spread",
+        tooltip_key = "gun_blunderbuss",
+        tags = { "attack:projectile", "weapon:shotgun", "attack:recoil_mobility" },
+        capabilities = {},
+        rules = {
+            recoil_only_when_aiming_down = true,
+        },
         sprite      = "Blunderbuss.png",
         spriteOrigin = { x = 0.3, y = 0.55 },
         spriteScale  = 0.75,
@@ -93,6 +106,11 @@ Guns.pool = {
         rarity      = "rare",
         dropWeight  = 4,
         ammoType    = "magazine",
+        attack_profile_id = "projectile_basic",
+        tooltip_key = "gun_ak47",
+        tags = { "attack:projectile", "weapon:rifle" },
+        capabilities = {},
+        rules = {},
         sprite      = "AK47.png",
         spriteOrigin = { x = 0.22, y = 0.50 },
         spriteScale  = 0.72,
@@ -141,7 +159,7 @@ function Guns.rollDrop(luck)
     end
     if totalWeight <= 0 then return nil end
 
-    local roll = math.random() * totalWeight
+    local roll = GameRng.randomFloat("guns.roll_drop.weight", 0, totalWeight)
     local cumulative = 0
     for _, gun in ipairs(Guns.pool) do
         if gun.dropWeight > 0 then

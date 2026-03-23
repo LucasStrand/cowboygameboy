@@ -62,9 +62,7 @@ local function menuButtons()
         { id = "start", label = "Start game" },
         { id = "editor", label = "World Editor" },
     }
-    if DEV_TOOLS_ENABLED or DEBUG then
-        list[#list + 1] = { id = "dev_arena", label = "Dev arena" }
-    end
+    list[#list + 1] = { id = "dev_arena", label = "Dev arena" }
     list[#list + 1] = { id = "settings", label = "Settings" }
     list[#list + 1] = { id = "quit", label = "Quit" }
     return list

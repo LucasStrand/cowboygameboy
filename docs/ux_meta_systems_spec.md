@@ -1,6 +1,6 @@
 # Six Chambers UX and Meta Systems Spec
 
-Det här dokumentet låser riktningen för:
+This document locks direction for:
 
 - combat readability
 - feedback ownership
@@ -10,424 +10,219 @@ Det här dokumentet låser riktningen för:
 - reward pools
 - meta unlock philosophy
 - run metadata
+- performance, debug, and runtime support
 
-Målet är att djupa system ska kännas smarta och satisfierande, inte bara kaotiska.
+Goal: deep systems should feel smart and satisfying, not merely chaotic.
 
 ## 1. Combat readability
 
-Combat måste designas så att spelaren kan läsa:
+Combat must let the player read:
 
-- vad som träffade
-- vem som orsakade effekten
-- vilken typ av skada det var
-- vad som faktiskt dödade målet
+- what hit
+- who caused the effect
+- what damage type it was
+- what actually killed the target
 
-### Tre lager av läsbarhet
+### Three layers
 
-#### Lager 1: Primär tydlighet
+**Primary** — must read in the middle of a fight:
 
-Det spelaren måste kunna läsa direkt i strid:
+- which attacks are yours
+- which projectiles are dangerous
+- which target is marked, vulnerable, or stunned
+- when a major payoff happens
 
-- vilken attack som är min
-- vilka projektiler som är farliga
-- vilken target som är markerad, sårbar eller stunned
-- när en stor payoff händer
+**Secondary** — not every frame, but understandable afterward:
 
-#### Lager 2: Sekundär tydlighet
+- chain lightning jumped from your proc
+- burn killed the target, not the main hit
+- delayed detonation came from an earlier mark
 
-Saker som inte måste läsas varje frame, men som ska gå att förstå:
-
-- chain lightning hoppade från min proc
-- burn dödade målet, inte huvudträffen
-- delayed detonation kom från en tidigare mark
-
-#### Lager 3: Debug / recap
-
-När det blir riktigt stökigt bör spelet kunna ge förklaring i efterhand:
+**Recap / debug** — when it gets noisy, explain after the fact:
 
 - death recap
 - hit summary
 - last damaging source
-- ikon eller logg för senaste stora proc
+- icon or log for the latest major proc
 
-### Huvudregel för presentation
+### Presentation default
 
-- direct hits får starkast feedback
-- big proc eller payoff får näst starkast feedback
-- background damage som DoT och aura-ticks får svagare feedback
-- delayed hits behöver tydlig setup eller tydlig ägare innan de går av
+- direct hits get the strongest feedback
+- big procs or payoffs the next strongest
+- background damage (DoT, aura ticks) weaker
+- delayed hits need clear setup or a clear owner before they resolve
 
-Ju viktigare ett gameplaybeslut är, desto tydligare ska dess payoff vara visuellt och ljudmässigt.
+The more important a gameplay decision is, the clearer its payoff should be visually and in audio.
 
 ## 2. Feedback ownership
 
-När något händer måste spelaren kunna förstå om det kom från:
+The player should understand whether something came from:
 
-- vapnet
-- relicen
-- passiven
-- en tidigare status
+- the weapon
+- a relic
+- a passive
+- an earlier status
 
-### Rekommenderad standard
+Important secondary effects should have an **ownership signature**: color, icon, sound, small label, or visual motif tied to the source.
 
-Alla viktiga secondary effects bör ha en ägarsignatur.
+Strong passives should have three beats: **setup**, **trigger**, **result**. Example: a delayed true-damage ping should mark the target first; when the ping fires, reuse the same color, symbol, or SFX.
 
-Det kan vara:
+## 3. HUD priority
 
-- unik färgton
-- särskild ikon
-- särskilt ljud
-- liten textetikett
-- visuellt motiv kopplat till källan
+The player may track potions, boons, statuses, cooldowns, passive counters, active weapon, offhand, reload, marks/charges — not everything gets equal HUD weight.
 
-### Starka passives bör ha tre steg av feedback
-
-- setup feedback
-- trigger feedback
-- result feedback
-
-Exempel:
-
-Om ett vapens passive sätter upp en delayed true-damage-ping bör målet först få markering eller ikon, och när pinget går av bör samma färg, symbol eller SFX användas igen.
-
-## 3. HUD pressure
-
-Spelaren kan behöva hålla koll på:
-
-- potions
-- boons
-- statuses
-- cooldowns
-- passive counters
-- active weapon
-- offhand state
-- reload state
-- mark / charge states
-
-Allt får inte ha samma HUD-prioritet.
-
-### Grupp A: Måste alltid synas
+### Group A: always visible
 
 - HP / shield
-- aktiva vapen
-- ammo / reload / resource
+- active weapons
+- ammo / reload / main resource
 - potion charges
-- viktigaste cooldowns
-- tydliga proc-counters för aktiva payoff-mekanik
+- key cooldowns
+- clear proc counters for payoffs that matter in real time
 
-### Grupp B: Bör vara lätt tillgängligt
+### Group B: easy to reach
 
-- buffs och debuffs på spelaren
+- buffs/debuffs on the player
 - boon summary
-- passive counters som bara ibland spelar roll
-- offhand state om det inte är centralt varje sekund
+- passive counters that only matter sometimes
+- offhand state if it is not central every second
 
-### Grupp C: Kan ligga i inspect / expand
+### Group C: inspect / expand
 
-- alla små modifiers
-- hela statuslistan
+- small modifiers
+- full status list
 - proc chance breakdown
-- exakt source mapping
+- exact source mapping
 
-### HUD ska främst svara på
-
-- är jag i fara
-- vad kan jag använda nu
-- när kommer min nästa payoff
-- vilket weapon eller state är aktivt
+HUD should mainly answer: am I in danger, what can I use now, when is my next payoff, which weapon or state is active.
 
 ## 4. Build clarity
 
-Spelet måste hjälpa spelaren att förstå varför en build är stark.
+The game should help the player see **why** a build is strong.
 
-### Bra build clarity
+Good clarity: several rewards tagged `Bleed`, a relic that crits bleeding targets, a perk that lets bleed crit, another effect that consumes bleed for burst — it reads as a direction.
 
-Spelaren ser:
+Poor clarity: only small percentage numbers, vague procs, effects that stack without a visible engine.
 
-- flera rewards med `Bleed`
-- en relic som ger crit mot bleeding targets
-- en perk som låter bleed critta
-- en annan effekt som konsumerar bleed för burst
-
-Då känns builden som en riktning.
-
-### Dålig build clarity
-
-Spelaren har bara:
-
-- små procentsiffror
-- otydliga procs
-- effekter som råkar stapla utan tydlig engine
-
-### Rekommendation
-
-UX bör hjälpa spelaren upptäcka:
+The UI should help surface:
 
 - core engine
 - enablers
 - payoff pieces
 - finishers
 
-Bra verktyg:
+Useful affordances:
 
-- highlightade keywords i rewards
-- synliga tags
-- "detta matchar din nuvarande build"-signaler
-- enkel buildsammanfattning
+- highlighted keywords in rewards
+- visible tags
+- build-matching reward hints
+- a simple build summary
 
 ## 5. Economy pressure
 
-Ekonomin ska skapa meningsfulla val, inte konstant frustration.
+Economy should create meaningful choices, not constant frustration. The player should often feel: almost able to afford, saving now enables something big later, reroll vs safe pick — not: never able to afford, always buying the same thing, everything feels like a tax.
 
-Spelaren ska ofta få känna:
+**Sink roles:**
 
-- jag har nästan råd
-- om jag sparar nu kan jag göra något starkt senare
-- ska jag rerolla eller ta säkra värdet
+- shop prices — baseline value and tempo
+- rerolls — flexibility vs cost
+- repairs / refills — defensive stability
+- potion refills — greed vs safety
+- cursed items — risk/reward
 
-Inte:
-
-- jag har aldrig råd
-- jag måste alltid köpa samma sak
-- allt känns som skatt i stället för val
-
-### Viktiga sinks med olika roller
-
-#### Shoppriser
-
-Baslinje för värde och tempo.
-
-#### Rerolls
-
-Flexibilitet mot kostnad.
-
-#### Repairs / refills
-
-Defensiv ekonomi och run-stabilitet.
-
-#### Potion refills
-
-Greed vs safety-val.
-
-#### Cursed items
-
-Risk / reward-ekonomi.
-
-### Designregel
-
-Varje shopbesök bör helst ge minst två rimliga beslut.
-
-Det får inte finnas ett enda självklart optimalt sätt att spendera.
+**Design rule:** each shop visit should offer at least two reasonable decisions. Avoid a single always-optimal spend.
 
 ## 6. Reward pools
 
-Reward-systemet ska använda smart weighting, inte helt ren RNG.
+Use smart weighting, not pure RNG. Everything can stay in the pool, but weight up what fits the current build and weight down dead choices.
 
-Det betyder:
+**Weighting inputs:** weapon family, damage tags, status themes, resource model, prior picks, current build engine, biome/event context.
 
-- alla rewards kan fortfarande finnas i poolen
-- men systemet kan vikta upp saker som passar nuvarande build
-- och vikta ner helt döda val
-
-### Saker som kan påverka weighting
-
-- weapon families
-- damage tags
-- status themes
-- resursmodell
-- tidigare picks
-- nuvarande build-engine
-- biome eller event context
-
-### Rekommenderad reward-sammansättning
-
-- `1` reward som stödjer nuvarande build
-- `1` reward som är neutral eller stabil
-- `1` reward som öppnar alternativ eller pivot
-
-Det ger:
-
-- progression
-- flexibilitet
-- kreativitet
-
-utan att ta bort överraskning helt.
+**Default draft shape:** one reward supports the current build, one is neutral/stable, one opens a pivot or alternative — progression, flexibility, and surprise without pure noise.
 
 ## 7. Meta unlock philosophy
 
-Meta unlocks ska främst bredda spelet, inte bara ge permanent mer power.
+Meta should **widen** the game more than it inflates raw power.
 
-### Bra meta unlocks
+Good unlocks: new weapon families, new events, new relics/perks, new merchants or room types, new risk/reward or curse loops.
 
-- nya vapenfamiljer
-- nya eventtyper
-- nya relics och perks
-- nya merchants eller room types
-- nya risk / reward-system
-- nya curse / reward loops
+Avoid as the default track: permanent `+10%` damage, flat max HP, always-better loot. Some raw power for onboarding is fine; it should not be the main spine.
 
-### Mindre bra som default
-
-- permanent `+10%` damage
-- permanent `+20` max HP
-- permanent bättre loot alltid
-
-Lite rå power kan finnas, men det bör inte vara huvudspåret.
-
-### Huvudfråga för varje unlock
-
-Ger detta fler intressanta beslut, eller bara större siffror?
+Ask per unlock: does this add interesting decisions, or only bigger numbers?
 
 ## 8. Run metadata
 
-Run metadata ska samlas från start.
+Collect metadata from the start — balance, QA/debug, UX, run identity.
 
-Det hjälper med:
+**Store at minimum:** run seed, biome/route, room history (or room types spawned), reward history, boss pool candidates, modifier flags, event pool weights, curse/blessing state, economy milestones.
 
-- balans
-- QA / debugging
-- UX
-- run-identitet
+**Player-facing use:** death recap, post-run summary, daily challenges, seed sharing, community comparison, understanding why a run felt different.
 
-### Det som minst bör lagras
-
-- run seed
-- biome / route
-- rumstyper som spawnat
-- reward history
-- boss pool candidates
-- modifier flags
-- event pool weights
-- curse / blessing states
-- economy state milestones
-
-### Varför det också är bra för spelaren
-
-Metadata kan användas till:
-
-- death recap
-- post-run summary
-- dagens challenge
-- seed sharing
-- community comparison
-- förstå varför en run kändes annorlunda
-
-### Designregel
-
-Metadata ska inte bara vara tekniskt internt.
-
-En del av det bör också exponeras snyggt till spelaren.
+Metadata should not be only internal; surface part of it cleanly to the player.
 
 ## 9. Performance budgets
 
-Du behöver hårda tak tidigt.
-
-Det bör finnas tydliga budgets för minst:
+Set hard caps early:
 
 - max projectiles
 - max chain hops
-- max aura-ticks per frame
-- max on-hit-evaluations per frame
+- max aura ticks per frame
+- max on-hit evaluations per frame
 
-### Designprincip
-
-När systemet når taket ska det degradera snyggt, inte krascha eller döda FPS helt.
-
-Bra exempel på graceful degradation:
-
-- färre visuella ticks
-- begränsad chain depth
-- batching av små DoTs
-- presentation skärs ned före gameplay, om det går
+When a budget is hit, degrade gracefully (fewer visual ticks, capped chain depth, batched small DoTs). Prefer cutting presentation before gameplay when possible.
 
 ## 10. Determinism
 
-Gameplay-RNG bör vara reproducerbar.
-
-Det betyder inte att all presentation måste vara perfekt deterministisk.
-
-Men gameplaydelen bör kunna spelas upp igen för:
-
-- debugging
-- balancing
-- reproduktion av konstiga runs
-- analys av OP-runs eller oneshots
-
-Om du inte kan reproducera en run kommer balansarbetet bli mycket långsammare.
+Gameplay RNG should be reproducible. Presentation need not be perfectly deterministic, but runs should be replayable or reproducible for debugging, balance, weird repros, and analysis of over-tuned builds.
 
 ## 11. Save / load
 
-Mitt i en run måste systemet spara allt som påverkar framtida combat, inte bara inventory.
-
-Det inkluderar minst:
+Mid-run save must persist everything that affects future combat, not just inventory:
 
 - buff timers
 - status stacks
-- weapon runtime state
+- weapon runtime state and counters
 - ammo / reload state
 - passive counters
-- delayed hits som väntar på trigger
+- delayed hits waiting on a trigger
 - room state
-- reward pools
+- reward pool state
 - RNG state
 
-Annars laddar spelaren tillbaka till "samma run" men med en annan verklighet.
+Otherwise the player reloads into a “same run” with a different reality.
 
 ## 12. Telemetry
 
-Logga sådant som förklarar power, inte bara totalskada.
-
-Viktiga exempel:
+Log what explains **power**, not only total damage:
 
 - damage per source
 - damage per tag
 - proc rate
 - overkill
-- uptime på viktiga buffs och debuffs
-- vilka rewards som faktiskt väljs
-- hur ofta reroll används
-- var runs dör
-- vilka perks som korrelerar med höga winrates
-- hur mycket av en builds styrka som kommer från direct hit kontra secondary effects
+- important buff/debuff uptime
+- which rewards are actually taken
+- how often reroll is used
+- where runs end (death points)
+- perks that correlate with strong outcomes (when sample size allows)
+- how much of a build’s strength comes from direct hit vs secondary effects
 
-Det här gör att du snabbt ser om något är:
-
-- OP
-- bait
-- feltolkat av spelare
+That makes it easier to spot what is overpowered, bait, or misunderstood.
 
 ## 13. Debug tools
 
-Debug tools är kärnsystem, inte luxury tools.
+Debug tools are core systems, not luxuries. You should be able to:
 
-Du bör kunna:
+- grant perks
+- apply statuses
+- spawn specific enemies
+- print damage packets step by step
+- inspect active modifiers
+- freeze timers
+- show RNG rolls
+- see which effect owns a proc
 
-- ge dig själv perk
-- applicera status
-- spawna specifika fiender
-- printa damage packet steg för steg
-- inspektera aktiva modifiers
-- frysa timers
-- visa RNG-rolls
-- se vilken effekt som äger en proc
+If you want absurd synergies, you need to dissect them quickly.
 
-Om du vill bygga absurda synergier måste du också kunna dissekera dem snabbt.
+## 14. Overall direction
 
-## Övergripande riktning
-
-Det här är den riktning som bäst passar ett spel med:
-
-- absurda builds
-- många systemlager
-- regelbrytande perks
-- stora payoff moments
-
-Spelet måste hjälpa spelaren att läsa:
-
-- vad som hände
-- varför det hände
-- hur de byggde fram det
-
-Den bästa typen av kaos är:
-
-kaos som spelaren efteråt kan förstå och vilja återskapa
+This direction fits a game with absurd builds, many layers, rule-breaking perks, and big payoff moments. The game should help the player read what happened, why it happened, and how they built toward it. The best chaos is chaos the player can understand afterward and want to recreate.

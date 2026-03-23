@@ -1,26 +1,14 @@
 # Six Chambers Content Authoring Spec
 
-Det här dokumentet beskriver den tekniska ryggraden för datadrivet content.
+This document describes the backbone for data-driven content: validation, tooltips, localization, presentation hooks, and how content stays explainable and maintainable. If combat is the heart, authoring is the skeleton.
 
-Om combat-systemet är hjärtat, så är content authoring skelettet som håller ihop det.
+## Load-time validation
 
-Det här dokumentet fokuserar på:
+### Design principle
 
-- data validation
-- tooltips
-- localization
-- asset hooks
-- den större helhetsfilosofin för hur content ska vara begripligt och underhållbart
+Content errors should surface at **load time**, not during gameplay. Fail loud, clear, and early.
 
-## 1. Data validation
-
-### Designprincip
-
-Content errors ska hittas vid load-time, inte under gameplay.
-
-Systemet ska faila högt, tydligt och tidigt.
-
-När content laddas bör systemet verifiera att följande faktiskt finns och är giltiga:
+When content loads, the system should verify that the following exist and are valid:
 
 - stat ids
 - effect ids
@@ -31,42 +19,48 @@ När content laddas bör systemet verifiera att följande faktiskt finns och är
 - localization keys
 - target filters
 - animation hooks
-- VFX / SFX referenser
+- VFX / SFX references
 - proc rules
+- presentation hook ids
 - condition operators
 
-### Exempel på fel som ska fångas direkt
+Failures should be:
 
-- felstavat stat-id
-- effect försöker använda okänd trigger
-- tooltip refererar till saknad variabel
-- status säger att den är cleansebar men saknar cleanse group
-- skill försöker ge buff till target type den inte stödjer
+- clear
+- early
+- path- and content-specific
 
-### Varför detta är viktigt
+### Errors to catch immediately
 
-Ju mer av spelet som blir datadrivet, desto mindre går det att lita på att fel "märks när man testar".
+- misspelled stat id
+- effect references an unknown trigger
+- tooltip references a missing variable
+- status claims it is cleanseable but has no cleanse group
+- skill tries to apply a buff to a target type it does not support
 
-Du vill veta direkt:
+### Why this matters
 
-- vad som är fel
-- var felet är
-- varför det hände
+The more the game is data-driven, the less you can rely on “we will notice in playtest.” You want to know immediately what is wrong, where it lives, and why. Otherwise bugs look like balance issues but are actually broken data.
 
-Annars får du buggar som ser ut som balansproblem men egentligen är trasig data.
+## Tooltips
 
-## 2. Tooltips
+### Strategy (hybrid)
 
-### Rekommendation
+- standardized info is generated from data
+- special text may be overridden manually when needed
+- `tooltip_key` is the default authoring path
+- `tooltip_override` is for rule-breaking or unusually complex copy
+- the V1 builder supports `perks`, `guns`, `gear`, `statuses`, **`attack_profile`** (Phase 11 enemy offense), and current shop/reward offers
 
-Kör hybrid.
+### V1 contract
 
-Det betyder:
+- `tooltip_key: string | nil`
+- `tooltip_tokens: table | nil`
+- `tooltip_override: string | nil`
+- the same contract applies to authored shop/reward offers
+- legacy `description` may remain for compatibility only; the canonical authoring path from Phase 7 onward is the tooltip model
 
-- standardiserad info genereras från data
-- specialtext kan override:as manuellt när det behövs
-
-### Det som bör genereras automatiskt
+### Generated automatically
 
 - damage
 - duration
@@ -76,81 +70,64 @@ Det betyder:
 - radius
 - scaling
 - target type
+- weapon identity / fire pattern
+- reload / ammo language
 
-Exempel:
+Example the system should be able to produce on its own:
 
 `Applies Burn for 12 damage over 4s.`
 
-Det här bör systemet kunna generera själv.
+### Manual override
 
-### Det som ofta behöver manuell override
+Use override for:
 
-- regelbrytande perks
-- komplex logik
+- rule-breaking perks
+- complex logic
 - flavor text
-- Arena-liknande "this effect changes the rules" mechanics
+- arena-style “this effect changes the rules” mechanics
 
-Exempel:
+Example that is usually too stiff if fully generated:
 
 `Every third shot ignites the target and refunds 1 ammo if the target is marked.`
 
-Det här blir ofta för stelt om det genereras helt automatiskt.
+### Why hybrid
 
-### Varför hybrid är bäst
+All manual: time-consuming, easy to forget to update, inconsistent quality. All generated: stiff language, hard-to-explain specials, robotic tooltips.
 
-Om allt skrivs manuellt blir det:
+## Localization
 
-- tidskrävande
-- lätt att missa uppdatera
-- inkonsekvent textkvalitet
+### Design principle
 
-Om allt genereras blir det:
+Dynamic **values** are good. Dynamic **grammar** should be minimized.
 
-- stelt språk
-- svårförklarade specialeffekter
-- tooltips som känns robotiska
+### Recommended approach
 
-## 3. Localization
+Use full sentences or clear full templates with tokens. Each locale should own its full sentence; the system only fills in values. Otherwise you build something that works for one language (often English) and becomes expensive when you add others.
 
-### Designprincip
+Avoid runtime-stitched grammar.
 
-Dynamiska värden är bra.
+### V1
 
-Dynamisk grammatik ska begränsas så mycket som möjligt.
+- local template registry in code
+- English templates first
+- key-based lookup, not free string concatenation
 
-### Rekommenderad lösning
-
-Använd hela meningar eller tydliga fulla textmallar med tokens.
-
-Exempel:
+Examples:
 
 - `Applies Burn for {damage} over {duration}s.`
 - `Critical hits against Bleeding enemies deal {bonus}% more damage.`
 
-Varje språk ska äga sin egen fulla mening.
+## Presentation hooks
 
-Systemet fyller bara i värden.
+Own presentation through **events**, not per-effect special cases in combat code.
 
-### Varför detta är bättre
+Gameplay emits events; presentation listens and reacts.
 
-Annars är det lätt att bygga något som bara fungerar bra på ett språk, ofta engelska.
-
-Det blir snabbt dyrt när du senare vill ha:
-
-- svenska
-- engelska
-- språk med annan grammatik
-
-## 4. Asset hooks: VFX, SFX, animation
-
-### Rekommendation
-
-Äg presentation via events, inte via specialkod per effect.
-
-Gameplay-systemet bör emit:a events som:
+Core events include:
 
 - `OnHit`
 - `OnCrit`
+- `OnDamageTaken`
 - `OnStatusApplied`
 - `OnStatusRefreshed`
 - `OnStatusExpired`
@@ -159,84 +136,55 @@ Gameplay-systemet bör emit:a events som:
 - `OnShieldBreak`
 - `OnKill`
 
-Sedan får presentation systems lyssna på dessa och trigga:
+Presentation may then drive VFX, SFX, camera shake, screen flash, hit pause, animation layers, and UI popups.
 
-- VFX
-- SFX
-- camera shake
-- screen flash
-- hit pause
-- animation layers
-- UI popups
+### Why event ownership matters
 
-### Varför detta är viktigt
+If presentation is wired as “only burn plays this sound on this class” or “only this crit runs this animation if the weapon is a bow,” the system becomes unmaintainable. Event-based ownership lets content reuse presentation, change polish without touching gameplay logic, and iterate balance and feel separately.
 
-Om presentation binds direkt i specialfall som:
+### Practical principle
 
-- just burn spelar detta ljud från denna klass
-- just detta crit-event kör denna animation om vapnet är bow
+Gameplay states **what** happened. Presentation decides **how** it looks and sounds.
 
-så blir systemet snabbt svårskött.
+### V1 contract
 
-Event-baserat ägande gör att:
+- content may specify `presentation_hooks`
+- hook ids are validated at load time
+- Phase 7 uses this for proc payoff feedback and status lifecycle feedback without new combat-local one-offs
 
-- content kan återanvändas
-- presentation kan ändras utan att gameplaylogik rörs
-- polish och balans kan itereras separat
+## Guiding philosophy
 
-### Praktisk designprincip
+- core rules stay explicit
+- data stays safe and validated
+- UI shows what matters first
+- builds can go absurd through luck and synergy
+- combinations should feel designed, not random
+- tooltips and content must stay maintainable
+- VFX, SFX, and animation can grow without exploding gameplay code
 
-Gameplay ska säga vad som hände.
+Supporting ideas:
 
-Presentation ska bestämma hur det ser ut och låter.
+1. **Categories** — e.g. `hard_cc`, `soft_cc`, `buff`, `debuff`, `dot`, `mark`, `proc`, `rule_breaking_perk`.
+2. **Interactions via tags and rules** — not hundreds of hard-coded special cases.
+3. **Defaults plus explicit breaks** — perks and relics state when they override the matrix.
+4. **Self-explanation** — tooltips, debug logs, clear status rules, validated data.
 
-## 5. Den större helhetsfilosofin
+### Recommended next implementation steps
 
-Om man kokar ner hela systemriktningen till några kärnidéer blir det:
+- load-time validation for content files
+- tooltip schema with generated fields and manual override
+- localization tokens and templates
+- presentation events gameplay is allowed to emit
 
-- grundreglerna ska vara tydliga
-- data ska vara säker och validerad
-- UI ska bara visa det viktigaste
-- builds ska kunna bli absurda genom tur och synergi
-- kombinationer ska kännas designade, inte slumpade
-- tooltips och content måste vara möjliga att underhålla
-- VFX, SFX och animation ska kunna växa utan att spränga gameplaykoden
+## Attack profiles (Phase 11)
 
-Det betyder att systemet bör byggas runt följande:
+- Canonical enemy offense: one row per attack in `src/data/attack_profiles.lua`.
+- Same tooltip contract as other content: `tooltip_key` or `tooltip_override` required; validated at load time.
+- See [actor_combat_contract.md](./actor_combat_contract.md) for fields and legacy mapping from `enemy.damage`.
 
-### 1. Allt viktigt ska ha tydliga kategorier
+## Related
 
-Exempel:
-
-- `hard_cc`
-- `soft_cc`
-- `buff`
-- `debuff`
-- `dot`
-- `mark`
-- `proc`
-- `rule_breaking_perk`
-
-### 2. Interaktioner ska helst ske via tags och regler
-
-Inte via hundratals hårdkodade specialfall.
-
-### 3. Standardregler ska finnas, men perks och relics får bryta dem uttryckligen
-
-Det är här de sjukaste Arena-liknande runs kommer leva.
-
-### 4. Systemet måste kunna förklara sig självt
-
-Både för spelaren och för dig som designer:
-
-- via tooltip
-- via debug log
-- via tydliga statusregler
-- via validerad data
-
-## Rekommenderade nästa implementationsteg
-
-- bygg load-time validation för contentfiler
-- definiera tooltip-schema med genererade fält och manuell override
-- definiera localization tokens och textmallar
-- definiera presentation events som gameplay får emit:a
+- [authoring_readiness_checklist.md](./authoring_readiness_checklist.md) — code gates before new content (sets, proc AoE, new families, boss parity).
+- [unified_actor_and_content_vision.md](./unified_actor_and_content_vision.md) — goals vs current: unified actor model, offense/defense/inventory.
+- [actor_combat_contract.md](./actor_combat_contract.md) — CombatActor, AttackProfile, equipment stub.
+- [phases/phase_11_actor_parity_baseline.md](./phases/phase_11_actor_parity_baseline.md) — acceptance and scope.

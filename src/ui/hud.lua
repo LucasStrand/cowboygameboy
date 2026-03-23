@@ -2,8 +2,14 @@ local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
 local GearIcons = require("src.ui.gear_icons")
 local GoldCoin = require("src.ui.gold_coin")
+local RewardRuntime = require("src.systems.reward_runtime")
+local Buffs = require("src.systems.buffs")
 
 local HUD = {}
+
+-- HUD readability tiers (Phase 9): group A = critical combat, B = status/build secondary, C = inspect-only elsewhere.
+local HUD_GROUP_A = "A: HP/XP, ammo, weapons, ult, gold, room"
+local HUD_GROUP_B = "B: status icons, build tags"
 
 -- ════════════════════════════════════════════════════════
 -- SPRITE SHEET
@@ -346,7 +352,13 @@ local function drawMagazineCounter(cx, cy, capacity, loadedCount, reloading)
 end
 
 local BASE_CYLINDER_SIZE = 6
-local function gunCapacity(gun, player)
+local function gunCapacity(gun, player, slotIndex)
+    if slotIndex and player.getResolvedWeaponStats then
+        local stats = player:getResolvedWeaponStats(slotIndex)
+        if stats and stats.cylinderSize then
+            return stats.cylinderSize
+        end
+    end
     local perkDelta = player.stats.cylinderSize - BASE_CYLINDER_SIZE
     return gun.baseStats.cylinderSize + perkDelta
 end
@@ -355,7 +367,7 @@ local function drawAmmoDisplay(cx, cy, player, effectiveStats)
     local gun = player:getActiveGun()
     if not gun then return 0 end
 
-    local cap = gunCapacity(gun, player)
+    local cap = gunCapacity(gun, player, player.activeWeaponSlot)
     local ammoType = gun.ammoType
     if ammoType == "cylinder" then
         drawRevolverCylinder(cx, cy, cap, player.ammo, player.reloading)
@@ -491,6 +503,30 @@ function HUD.draw(player)
             drawSprite("coin", gx, coinY, coinScale)
         end
         shadowPrint(goldText, gx + coinSz + 8, gy, 1, 0.92, 0.6, 1)
+
+        local profile = RewardRuntime.buildProfile(player, { source = "hud" })
+        local tags = profile and profile.dominant_tags or {}
+        if #tags > 0 then
+            love.graphics.setFont(HUD._fontHudSm)
+            local maxTags = 3
+            local shown = {}
+            for ti = 1, math.min(maxTags, #tags) do
+                shown[#shown + 1] = tags[ti]
+            end
+            local tagStr = "Build: " .. table.concat(shown, ", ")
+            if #tags > maxTags then
+                tagStr = tagStr .. ", …"
+            end
+            local tagLimit = math.max(120, screenW - gx - 24)
+            if HUD._fontHudSm:getWidth(tagStr) > tagLimit then
+                while #tagStr > 4 and HUD._fontHudSm:getWidth(tagStr .. "…") > tagLimit do
+                    tagStr = tagStr:sub(1, #tagStr - 1)
+                end
+                tagStr = tagStr .. "…"
+            end
+            local tagY = gy + goldLineH + 2
+            shadowPrintf(tagStr, gx, tagY, tagLimit, "left", 0.72, 0.78, 0.86, 0.9)
+        end
     end
 
     -- ── Ammo display (above weapon cluster) ──
@@ -518,7 +554,7 @@ function HUD.draw(player)
             local function ammoR(gun)
                 if not gun then return 20 end
                 if gun.ammoType == "cylinder" then
-                    return drumOuterRadius(gunCapacity(gun, player))
+                    return drumOuterRadius(gunCapacity(gun, player, gun == gun1 and 1 or 2))
                 elseif gun.ammoType == "double_barrel" then return 24
                 elseif gun.ammoType == "magazine" then return 30
                 end
@@ -534,20 +570,20 @@ function HUD.draw(player)
             if gun1 then
                 local ammo1 = player.activeWeaponSlot == 1 and player.ammo or slot1.ammo
                 local reloading1 = player.activeWeaponSlot == 1 and player.reloading or slot1.reloading
-                drawAmmoForGun(cx1, cy1, gun1, gunCapacity(gun1, player), ammo1, reloading1)
+                drawAmmoForGun(cx1, cy1, gun1, gunCapacity(gun1, player, 1), ammo1, reloading1)
             end
 
             local cx2 = cx1 + r1 + agap + r2
             if gun2 then
                 local ammo2 = player.activeWeaponSlot == 2 and player.ammo or slot2.ammo
                 local reloading2 = player.activeWeaponSlot == 2 and player.reloading or slot2.reloading
-                drawAmmoForGun(cx2, cy1, gun2, gunCapacity(gun2, player), ammo2, reloading2)
+                drawAmmoForGun(cx2, cy1, gun2, gunCapacity(gun2, player, 2), ammo2, reloading2)
             end
         else
             local displayR = 36
             local gun = player:getActiveGun()
             if gun and gun.ammoType == "cylinder" then
-                displayR = drumOuterRadius(gunCapacity(gun, player))
+                displayR = drumOuterRadius(gunCapacity(gun, player, player.activeWeaponSlot))
             elseif gun and gun.ammoType == "double_barrel" then
                 displayR = 24
             elseif gun and gun.ammoType == "magazine" then
@@ -745,8 +781,8 @@ function HUD.draw(player)
     end
 
     -- ── Active buff/debuff icons (just above HP label, aligned with bar column) ──
-    if player.buffs then
-        local Buffs = require("src.systems.buffs")
+    local statusTracker = player.statuses or player.buffs
+    if statusTracker then
         local lineH = HUD._lineH
         local rowGap = 4
         local bottomPad = 24
@@ -762,10 +798,27 @@ function HUD.draw(player)
         local buffRowH = 16 * buffScale + 3
         local buffY = hpTextY - 8 - buffRowH
         local buffX = math.max(6, iconX - 2)
-        Buffs.drawIcons(player.buffs, buffX, buffY, buffScale)
+        Buffs.drawIcons(statusTracker, buffX, buffY, buffScale, 0.88)
     end
 
     love.graphics.setFont(prevFont)
+    love.graphics.pop()
+    love.graphics.setColor(1, 1, 1)
+end
+
+--- DEBUG-only legend for HUD tier ownership (Phase 9 readability baseline).
+function HUD.drawReadabilityTierDebug(screenW, screenH)
+    ensureFonts()
+    love.graphics.push()
+    love.graphics.origin()
+    love.graphics.setFont(HUD._fontHudSm)
+    local x, y = 8, 96
+    love.graphics.setColor(0, 0, 0, 0.55)
+    love.graphics.rectangle("fill", x - 4, y - 4, 340, 44, 4, 4)
+    love.graphics.setColor(0.78, 0.74, 0.68, 0.95)
+    love.graphics.print(HUD_GROUP_A, x, y)
+    love.graphics.setColor(0.62, 0.7, 0.78, 0.92)
+    love.graphics.print(HUD_GROUP_B, x, y + HUD._lineHSm + 2)
     love.graphics.pop()
     love.graphics.setColor(1, 1, 1)
 end

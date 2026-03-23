@@ -1,55 +1,29 @@
 # Six Chambers Status System Spec
 
-Det här dokumentet låser grundreglerna för statusar och crowd control.
+This document locks baseline rules for statuses and crowd control. Statuses should be a real subsystem with clear rules for application, duration, stacks, UI, cleanse/purge/consume, CC, and interactions.
 
-Målet är att göra statusar till ett riktigt subsystem med tydlig logik för:
+## Philosophy
 
-- application
-- duration
-- stacks
-- UI
-- cleanse / purge / consume
-- crowd control
-- interactions
+Statuses and CC are not just “extra effects.” They are their own system with explicit rules for how they apply, how long they last, how they stack, how they are shown, how they are removed, and how they interact. If this is not locked early, it becomes unclear what counts as debuff, mark, CC, state, or proc-driven effect.
 
-## Grundfilosofi
+## Status object
 
-Statusar och crowd control är inte bara "extra effekter".
-
-De är ett eget system med tydliga regler för:
-
-- hur de appliceras
-- hur länge de varar
-- hur de staplas
-- hur de visas
-- hur de tas bort
-- hur de interagerar med andra system
-
-Om detta inte låses tidigt blir det snabbt oklart vad som är:
-
-- debuff
-- status
-- markering
-- CC
-- tillstånd
-- proc-effekt
-
-## Vad en status är
-
-En status bör vara ett objekt i systemet med minst:
+Each status instance should carry at least:
 
 - `id`
+- `category`
 - `duration`
 - `stacks`
 - `tags`
 - `source`
 - `target`
-- `category`
 - `cleanse_rules`
 - `visual_priority`
 - `cc_rules`
 
-Bra exempel på categories:
+## Categories
+
+**V1 categories:**
 
 - `buff`
 - `debuff`
@@ -57,105 +31,65 @@ Bra exempel på categories:
 - `hard_cc`
 - `soft_cc`
 - `utility`
-- `environmental`
 
-## Samma motor för buffs och debuffs
+**Extended / future:** `environmental` — use only when content needs a distinct bucket; align with data before relying on it in UI or rules.
 
-Samma grundmotor bör stödja:
+## Core rules
 
-- buffs på spelare
-- buffs på fiender
-- debuffs på spelare
-- debuffs på fiender
+- One engine should support buffs and debuffs on both player and enemies (prefer one motor over parallel silos).
+- Status metadata decides: buff vs debuff, valid targets, cleanse rules, UI visibility, priority, tags.
+- Interactions should be built on **tags and families**, not hard-coded name pairs.
+- `cleanse`, `purge`, `expire`, and `consume` are **different** operations.
+- Hard CC should use **diminishing returns (DR)** or immunity windows.
 
-Detta är bättre än att bygga tre separata system.
+## Hard CC and DR
 
-Status-metadata ska i stället avgöra:
+Hard CC must not chain forever. Otherwise builds stunlock bosses, encounters collapse, and other strategies stop mattering.
 
-- om effekten är buff eller debuff
-- vilka targets den får appliceras på
-- om den kan cleansas
-- om den syns i UI
-- vilken priority den har
-- vilka tags den bär
+Typical hard CC types: stun, freeze, silence, knockdown, and **root** if root is strong enough in this game to count as hard CC.
 
-## Standardregler för crowd control
+### Example DR curve (normal enemies)
 
-### Hard CC får inte chainas obegränsat
+- first stun in DR window: `100%` duration
+- second: `50%`
+- third: `25%`
+- fourth: short immunity
 
-Det gäller främst:
+CC stays impactful without infinite loops.
+
+### Boss model
+
+Bosses need not mirror trash rules exactly. Prefer: shorter hard CC duration, stagger meter instead of full stun, or temporary immunity to the same CC type after a hit.
+
+Immunity or DR should decay over time so the player can control the boss sometimes, not permanently, and fights keep rhythm — better than permanent blanket immunity.
+
+Exact numbers and defaults live in [runtime_rules_spec.md](./runtime_rules_spec.md).
+
+## CC rules (implementation)
+
+The status system should support:
+
+- DR families
+- immunity windows
+- boss override profiles
+- stagger hooks for future bosses
+
+## UI priority
+
+With many statuses on one target, UI must choose what to show clearly.
+
+### Tier 1 — critical
 
 - stun
 - freeze
 - silence
 - knockdown
-- root, om root är stark nog i spelet
-
-Varför:
-
-- annars kommer någon build stunlocka bossar
-- encounters trivialiseras
-- andra strategier blir irrelevanta
-
-Det är inte kul broken.
-
-Det är bara att combatsystemet slutar fungera.
-
-### Rekommenderad DR för vanliga fiender
-
-Exempel:
-
-- första stun inom DR-fönster: `100%` duration
-- andra stun: `50%`
-- tredje stun: `25%`
-- fjärde stun: immunity i några sekunder
-
-Det gör att CC fortfarande känns starkt, men inte kan loopas obegränsat.
-
-### Rekommenderad bossmodell
-
-Bossar bör inte använda exakt samma regler som vanliga fiender.
-
-Bättre lösningar:
-
-- reduced hard CC duration
-- stagger meter i stället för full stun
-- temporary immunity mot samma CC-typ efter träff
-
-### Boss immunity decay
-
-Immunity eller DR bör kunna återställas över tid.
-
-Det gör att:
-
-- spelaren kan kontrollera bossen ibland
-- men inte permanent
-- fighten får rytm
-
-Det är bättre än att bossen bara är permanent immun mot allt.
-
-## Status priority och UI
-
-När ett mål har många statusar samtidigt måste UI välja vad som faktiskt ska visas.
-
-Annars blir det:
-
-- visuellt stökigt
-- svårt att läsa
-- svårt att förstå vad som spelar roll just nu
-
-### Rekommenderade priority tiers
-
-#### Tier 1: Kritisk information
-
-- stun
-- freeze
-- silence
+- root (if treated as hard CC)
 - shield break vulnerability
 - death mark
 - execute state
 
-#### Tier 2: Viktiga combat states
+### Tier 2 — important combat states
 
 - expose
 - armor shred
@@ -163,7 +97,7 @@ Annars blir det:
 - heal block
 - unstoppable
 
-#### Tier 3: Vanliga DoTs och setup-statusar
+### Tier 3 — common DoTs and setup
 
 - burn
 - bleed
@@ -171,109 +105,83 @@ Annars blir det:
 - chill
 - shock
 
-#### Tier 4: Minor / utility
+### Tier 4 — minor / utility
 
-- små stackande debuffs
-- låga slow-effekter
-- mindre marks
-- sekundära states
+- small stacking debuffs
+- light slows
+- minor marks
+- secondary states
 
-### UI-regel
+### UI rule
 
-Visa bara de viktigaste `3-5` statusarna tydligt.
+Show the **3–5** most important statuses clearly. Hide the rest behind `+X`, target inspect, debug, or inspect views.
 
-Resten kan gömmas bakom:
+UI should answer: is the target controlled, vulnerable, dangerous, and is this the right moment for my payoff?
 
-- `+X`
-- expansion i target info
-- debugvy
-- inspectvy
+## Status families and tags
 
-UI ska främst svara på:
+Build interactions on tags and families, not pairwise effect names.
 
-- är målet kontrollerat
-- är målet sårbart
-- är målet farligt
-- är det rätt läge att använda min payoff
+Example tags: `fire`, `bleed`, `shock`, `wet`, `poison`, `armor_break`, `crit_setup`, `execute_setup`.
 
-## Status families och tags
+The system can then query: wet present, any fire effect, `3+` debuff stacks, `crit_setup` present — without special-casing every combination.
 
-Statusinteraktioner bör byggas på tags och families, inte på hårdkodade namnpar.
+### Combination examples
 
-Exempel på tags:
+- `wet + shock` — longer chain range or higher stun chance
+- `bleed + crit` — crit vs bleeding targets bonuses or bleed consume
+- `burn + execute` — burn detonates below a health threshold
+- armor set + status — gear bonuses when several debuff tags are present
+- `frost + impact` — chilled targets take bonus stagger damage
 
-- `fire`
-- `bleed`
-- `shock`
-- `wet`
-- `poison`
-- `armor_break`
-- `crit_setup`
-- `execute_setup`
+### Design rule
 
-Det gör att systemet kan fråga:
+Prefer interactions driven by tag, stack count, duration, source type, and target condition — not raw effect names alone.
 
-- har target `wet`
-- har target någon `fire`-effekt
-- har target `3+` debuff stacks
-- har target en `crit_setup` status
+## Initial families (V1 intent)
 
-utan att varje kombination måste specialfallas.
+### Burn
 
-### Exempel på bra kombinationslager
+- DoT
+- snapshot damage by default
+- refresh/extend duration identity
 
-- `wet + shock`
-  ökad chain range eller stun chance
-- `bleed + crit`
-  crit mot bleeding targets ger bonus eller konsumerar bleed
-- `burn + execute`
-  burn detonerar om target är under viss HP
-- `armor set + status`
-  gear bonus aktiveras om target har flera debuff-tags
-- `frost + impact`
-  chillade targets tar bonus stagger damage
+### Bleed
 
-### Viktig designregel
+- DoT
+- snapshot damage by default
+- strong payoff for crit/consume synergies
 
-Interaktioner bör byggas utifrån:
+### Shock
 
-- tag
-- stack count
-- duration
-- source type
-- target condition
+- buildup status
+- overload after enough relevant hits
+- payoff as stun or burst damage
 
-inte bara effect-namn.
+### Wet
 
-## Remove-typer
+- utility / setup
+- supports shock and chain synergy
 
-Systemet bör uttryckligen stödja olika sätt att ta bort eller använda statusar.
+## Remove operations
 
-### `cleanse`
+### Cleanse
 
-Tar bort negativa effekter från vänlig target.
+Removes negative effects from a friendly target.
 
-### `purge`
+### Purge
 
-Tar bort positiva effekter från fiende.
+Removes positive effects from an enemy.
 
-### `expire`
+### Expire
 
-Statusen går ut naturligt när duration når `0`.
+Natural end when duration reaches `0`.
 
-### `consume`
+### Consume
 
-Statusen tas bort för att användas som resource eller payoff.
+Removed to fuel a payoff or resource use (e.g. detonate burns, consume bleed stacks, remove mark for crit). Prefer explicit consume over a generic “remove status.”
 
-Exempel:
-
-- detonate burns
-- consume all bleed stacks
-- remove mark to gain crit
-
-Detta är bättre än ett generiskt "remove status".
-
-## Rekommenderad status-shape
+## Illustrative status shape
 
 ```lua
 return {
@@ -293,7 +201,7 @@ return {
 }
 ```
 
-Och för hard CC:
+Hard CC example:
 
 ```lua
 return {
@@ -315,10 +223,19 @@ return {
 }
 ```
 
-## Rekommenderade öppna beslut att låsa snart
+These are **illustrative**; field names must match the live definitions in `src/data/statuses.lua` and related loaders.
 
-- exakt DR-fönster för hard CC
-- om root ska räknas som hard CC eller stark soft CC
-- om bossar ska använda stagger meter, reduced duration eller båda
-- hur många statusikoner som ska visas i vanlig HUD
-- vilka tags som måste finnas i v1
+## Acceptance criteria
+
+- Statuses have clear **source ownership**.
+- CC rules are readable per status or per boss profile.
+- Tags support interactions without per-name-pair special cases.
+- UI can pick top statuses via `visual_priority`.
+
+## Open decisions to lock
+
+- exact DR window length for hard CC
+- whether root is hard CC vs strong soft CC
+- whether bosses use stagger meter, reduced duration, or both
+- how many status icons appear on the default HUD
+- which tags are mandatory in V1

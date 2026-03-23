@@ -10,6 +10,7 @@ local Shop = require("src.systems.shop")
 local PerkCard = require("src.ui.perk_card")
 local Cursor = require("src.ui.cursor")
 local Keybinds = require("src.systems.keybinds")
+local ContentTooltips = require("src.systems.content_tooltips")
 local NPC = require("src.entities.npc")
 local Pickup = require("src.entities.pickup")
 local Combat = require("src.systems.combat")
@@ -25,6 +26,7 @@ local Buffs = require("src.systems.buffs")
 local HUD = require("src.ui.hud")
 local MusicDirector = require("src.systems.music_director")
 local Perks = require("src.data.perks")
+local GameRng = require("src.systems.game_rng")
 
 local saloonRoom = require("src.data.saloon_room")
 
@@ -95,7 +97,12 @@ local devPanelOpen = false
 local devPanelScroll = 0
 local devPanelHover = nil
 local devPanelRows = nil
+local devPanelPauseGameplay = true
 local devShowHitboxes = true
+
+local function devToolsEnabled()
+    return DEBUG or DEV_TOOLS_ENABLED
+end
 
 ---------------------------------------------------------------------------
 -- Pause menu + dev (saloon context)
@@ -109,10 +116,14 @@ local function pauseMenuEntries()
     }
 end
 
-local function pauseMenuButtonLayout()
+local function pauseMenuButtonLayout(variant)
     local screenW, screenH = GAME_WIDTH, GAME_HEIGHT
     local bw, bh = 340, 48
     local gap = 10
+    if variant == "large" then
+        bw, bh = 420, 60
+        gap = 12
+    end
     local list = pauseMenuEntries()
     local totalH = #list * bh + (#list - 1) * gap
     local startY = screenH * 0.38 - totalH * 0.5
@@ -143,6 +154,7 @@ local function pauseRestartRun()
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
+    devPanelPauseGameplay = true
     devShowHitboxes = true
     characterSheetOpen = false
     local game = require("src.states.game")
@@ -157,6 +169,7 @@ local function pauseGoToMainMenu()
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
+    devPanelPauseGameplay = true
     characterSheetOpen = false
     local menu = require("src.states.menu")
     Gamestate.switch(menu)
@@ -176,24 +189,52 @@ local function devPlayerHasPerk(pid)
     return false
 end
 
+local function pointInRect(x, y, rx, ry, rw, rh)
+    return x >= rx and x <= rx + rw and y >= ry and y <= ry + rh
+end
+
+local function getDevPanelLayout()
+    return DevPanel.panelRect(GAME_WIDTH, GAME_HEIGHT)
+end
+
+local function getDebugConsoleLayout()
+    local panelX = GAME_WIDTH - 260
+    local consoleGap = 12
+    local consoleH = 240
+    local consoleW = math.min(720, math.max(420, panelX - 24))
+    local consoleX = math.max(12, panelX - consoleW - consoleGap)
+    return consoleX, 60, consoleW, consoleH
+end
+
 local function devClampScroll()
     if not devPanelRows then return end
     if not saloon.devPanelTitleFont then
         saloon.devPanelTitleFont = Font.new(16)
     end
-    local ph = math.min(560, GAME_HEIGHT - 56)
-    local maxS = DevPanel.maxScroll(devPanelRows, saloon.devPanelTitleFont, ph)
+    if not saloon.devPanelRowFont then
+        saloon.devPanelRowFont = Font.new(13)
+    end
+    local _, _, pw, ph = getDevPanelLayout()
+    local maxS = DevPanel.maxScroll(devPanelRows, saloon.devPanelTitleFont, saloon.devPanelRowFont, pw, ph)
     devPanelScroll = math.max(0, math.min(maxS, devPanelScroll))
 end
 
 local function openDevPanel()
-    if not DEBUG then return end
+    if not devToolsEnabled() then return end
     devPanelOpen = true
+    devPanelPauseGameplay = true
     characterSheetOpen = false
     devPanelScroll = 0
-    devPanelRows = DevPanel.buildRows({ showHitboxes = devShowHitboxes })
+    devPanelHover = nil
+    devPanelRows = DevPanel.buildRows({
+        gameplayPaused = devPanelPauseGameplay,
+        showHitboxes = devShowHitboxes,
+    })
     if not saloon.devPanelTitleFont then
         saloon.devPanelTitleFont = Font.new(16)
+    end
+    if not saloon.devPanelRowFont then
+        saloon.devPanelRowFont = Font.new(13)
     end
     devClampScroll()
 end
@@ -211,15 +252,15 @@ local function spawnSaloonGoldDrops(amount)
         local v = base + (i <= rem and 1 or 0)
         if v <= 0 then break end
         -- Ring around the player (not underfoot): ~56–112 px so you move to grab them
-        local ang = (i / n) * math.pi * 2 + (math.random() - 0.5) * 0.45
-        local dist = 56 + math.random() * 56
-        local px = cx - pw / 2 + math.cos(ang) * dist + (math.random() - 0.5) * 10
+        local ang = (i / n) * math.pi * 2 + (GameRng.randomFloat("saloon.payout.ang", 0, 1) - 0.5) * 0.45
+        local dist = 56 + GameRng.randomFloat("saloon.payout.dist", 0, 56)
+        local px = cx - pw / 2 + math.cos(ang) * dist + (GameRng.randomFloat("saloon.payout.px", 0, 1) - 0.5) * 10
         px = math.max(4, math.min(roomW - pw - 4, px))
-        local py = player.y - 5 - math.random() * 10
+        local py = player.y - 5 - GameRng.randomFloat("saloon.payout.py", 0, 10)
         local p = Pickup.new(px, py, "gold", v)
         p.casinoPayout = true
-        p.vy = -95 - math.random() * 85
-        p.vx = (math.random() - 0.5) * 115
+        p.vy = -95 - GameRng.randomFloat("saloon.payout.vy", 0, 85)
+        p.vx = (GameRng.randomFloat("saloon.payout.vx", 0, 1) - 0.5) * 115
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end
@@ -253,7 +294,7 @@ local function saloonSettingsDebugAction(action)
         spawnSaloonGoldDrops(10)
         DevLog.push("sys", "Debug: +10 gold (drops)")
     elseif action == "debug_sub_gold" then
-        player.gold = math.max(0, player.gold - 10)
+        player:spendGold(10, "dev_sub_gold")
         DevLog.push("sys", "Debug: -10 gold")
     elseif action == "fake_session" then
         DevLog.push("sys", "Fake session: use from main menu.")
@@ -261,7 +302,17 @@ local function saloonSettingsDebugAction(action)
 end
 
 local function saloonDevApplyAction(id)
-    if not DEBUG or not player or not id then return end
+    if not devToolsEnabled() or not player or not id then return end
+    if id == "toggle_dev_pause" then
+        devPanelPauseGameplay = not (devPanelPauseGameplay ~= false)
+        devPanelRows = DevPanel.buildRows({
+            gameplayPaused = devPanelPauseGameplay,
+            showHitboxes = devShowHitboxes,
+        })
+        devClampScroll()
+        DevLog.push("sys", "[dev] gameplay " .. ((devPanelPauseGameplay ~= false) and "paused" or "live"))
+        return
+    end
     if id == "kill_player" then
         devPanelOpen = false
         characterSheetOpen = false
@@ -276,7 +327,10 @@ local function saloonDevApplyAction(id)
         DevLog.push("sys", "[dev] hurt 1")
     elseif id == "toggle_hitboxes" then
         devShowHitboxes = not devShowHitboxes
-        devPanelRows = DevPanel.buildRows({ showHitboxes = devShowHitboxes })
+        devPanelRows = DevPanel.buildRows({
+            gameplayPaused = devPanelPauseGameplay,
+            showHitboxes = devShowHitboxes,
+        })
         devClampScroll()
         DevLog.push("sys", "[dev] hitboxes " .. (devShowHitboxes and "on" or "off"))
     elseif id == "toggle_god" then
@@ -339,7 +393,7 @@ end
 local function drawCharacterSheet()
     if not player then return end
     local pad = 14
-    local w, h = 300, 292
+    local w, h = 332, 452
     local x, y = 18, 56
     love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
     love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -366,33 +420,67 @@ local function drawCharacterSheet()
     py = py + 22
     love.graphics.print("Perks:", x + pad, py)
     py = py + 18
-    if #player.perks == 0 then
+    local perksList = player.perks or {}
+    if #perksList == 0 then
         love.graphics.setColor(0.55, 0.52, 0.48)
         love.graphics.print("(none yet)", x + pad, py)
         py = py + 20
     else
         love.graphics.setColor(0.78, 0.85, 0.72)
-        local ptext = table.concat(player.perks, ", ")
+        local ptext = table.concat(ContentTooltips.getPerkNames(player), ", ")
         local tw = w - 2 * pad
         local _, lines = saloon.charSheetBodyFont:getWrap(ptext, tw)
         love.graphics.printf(ptext, x + pad, py, tw, "left")
         py = py + #lines * saloon.charSheetBodyFont:getHeight() + 8
     end
-    love.graphics.setColor(0.88, 0.82, 0.72)
-    local function gearLine(slot, label)
-        local g = player.gear[slot]
-        local name = g and g.name or "—"
-        return string.format("%s: %s", label, name)
+    local tw = w - 2 * pad
+    local function drawWrappedBulletLines(lines, color)
+        love.graphics.setColor(color[1], color[2], color[3], color[4] or 1)
+        for _, line in ipairs(lines or {}) do
+            local text = "• " .. line
+            local _, wrapped = saloon.charSheetBodyFont:getWrap(text, tw)
+            love.graphics.printf(text, x + pad + 4, py, tw - 4, "left")
+            py = py + math.max(1, #wrapped) * saloon.charSheetBodyFont:getHeight() + 2
+        end
     end
-    love.graphics.print(gearLine("hat", "Hat"), x + pad, py)
+    local function drawWrappedSectionLines(lines, color)
+        drawWrappedBulletLines(lines, color)
+        py = py + 4
+    end
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    love.graphics.print("Weapons:", x + pad, py)
     py = py + 18
-    love.graphics.print(gearLine("vest", "Vest"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("boots", "Boots"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("melee", "Melee"), x + pad, py)
-    py = py + 18
-    love.graphics.print(gearLine("shield", "Shield"), x + pad, py)
+    for slotIndex = 1, 2 do
+        local slot = player.weapons and player.weapons[slotIndex] or nil
+        local gun = slot and slot.gun or nil
+        local slotLabel = string.format("Slot %d%s: %s",
+            slotIndex,
+            player.activeWeaponSlot == slotIndex and " [active]" or "",
+            gun and gun.name or "Empty"
+        )
+        love.graphics.setColor(0.88, 0.82, 0.72)
+        love.graphics.print(slotLabel, x + pad, py)
+        py = py + 18
+        if gun then
+            drawWrappedSectionLines(ContentTooltips.getLines("gun", gun), { 0.72, 0.8, 0.88, 1 })
+        else
+            py = py + 4
+        end
+    end
+    love.graphics.setColor(0.88, 0.82, 0.72)
+    local function drawGearBlock(slot, label)
+        local g = player.gear[slot]
+        love.graphics.print(string.format("%s: %s", label, g and g.name or "—"), x + pad, py)
+        py = py + 18
+        if g then
+            drawWrappedSectionLines(ContentTooltips.getLines("gear", g), { 0.75, 0.84, 0.74, 1 })
+        end
+    end
+    drawGearBlock("hat", "Hat")
+    drawGearBlock("vest", "Vest")
+    drawGearBlock("boots", "Boots")
+    drawGearBlock("melee", "Melee")
+    drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
     local ck = Keybinds.formatActionKey("character")
@@ -634,7 +722,11 @@ function saloon:enter(_, _player, _roomManager)
     blackjackGame = Blackjack.new()
     rouletteGame = Roulette.new()
     slotsGame = Slots.new()
-    shop = Shop.new(difficulty)
+    shop = Shop.new(difficulty, player, {
+        run_metadata = player and player.runMetadata or nil,
+        source = "saloon_shop",
+        room_manager = roomManager,
+    })
     pickups = {}
     DamageNumbers.clear()
 
@@ -668,8 +760,12 @@ function saloon:enter(_, _player, _roomManager)
     devPanelOpen = false
     devPanelScroll = 0
     devPanelHover = nil
+    devPanelPauseGameplay = true
     devShowHitboxes = true
-    devPanelRows = DevPanel.buildRows({ showHitboxes = devShowHitboxes })
+    devPanelRows = DevPanel.buildRows({
+        gameplayPaused = devPanelPauseGameplay,
+        showHitboxes = devShowHitboxes,
+    })
 end
 
 function saloon:leave()
@@ -684,14 +780,10 @@ end
 ---------------------------------------------------------------------------
 function saloon:update(dt)
     if paused then return end
-    if DEBUG and devPanelOpen then return end
+    if devToolsEnabled() and devPanelOpen and devPanelPauseGameplay ~= false then return end
 
     if messageTimer > 0 then
         messageTimer = messageTimer - dt
-    end
-
-    if player and player.buffs then
-        Buffs.update(player.buffs, dt, player)
     end
 
     if mode == "walking" then
@@ -787,17 +879,46 @@ end
 -- Input
 ---------------------------------------------------------------------------
 function saloon:keypressed(key)
-    if DEBUG and devPanelOpen then
-        if key == "escape" or key == "f2" then
+    local _, _, _, consoleH = getDebugConsoleLayout()
+    if devToolsEnabled() and devPanelOpen then
+        if key == "end" then
+            DevLog.followConsole()
+            return
+        elseif key == "pageup" then
+            DevLog.scrollConsole(10, consoleH)
+            return
+        elseif key == "pagedown" then
+            DevLog.scrollConsole(-10, consoleH)
+            return
+        elseif key == "home" then
+            DevLog.scrollConsole(9999, consoleH)
+            return
+        elseif key == "escape" or key == "f2" then
             devPanelOpen = false
             devPanelHover = nil
         end
         return
     end
 
-    if key == "f2" and DEBUG then
+    if key == "f2" and devToolsEnabled() then
         openDevPanel()
         return
+    end
+
+    if DEBUG and not devPanelOpen then
+        if key == "end" then
+            DevLog.followConsole()
+            return
+        elseif key == "pageup" then
+            DevLog.scrollConsole(10, consoleH)
+            return
+        elseif key == "pagedown" then
+            DevLog.scrollConsole(-10, consoleH)
+            return
+        elseif key == "home" then
+            DevLog.scrollConsole(9999, consoleH)
+            return
+        end
     end
 
     if paused and pauseMenuView == "settings" and pauseSettingsBindCapture then
@@ -906,6 +1027,14 @@ function saloon:keypressed(key)
                 if nearbyNPC.type == "dealer" then
                     mode = "casino_menu"
                 elseif nearbyNPC.type == "bartender" then
+                    if player and player.runMetadata then
+                        local RunMetadata = require("src.systems.run_metadata")
+                        RunMetadata.recordShopVisit(player.runMetadata, {
+                            source = "saloon_shop_enter",
+                            difficulty = difficulty,
+                            gold_before = player.gold,
+                        })
+                    end
                     mode = "shop"
                 end
                 return
@@ -968,14 +1097,30 @@ function saloon:keypressed(key)
             local success, msg = shop:buyItem(num, player)
             message = msg
             messageTimer = 2
+        elseif key == "r" then
+            local success, msg, cost = shop:reroll(player)
+            if success then
+                message = string.format("%s (-$%d)", msg or "Rerolled!", cost or 0)
+            else
+                message = msg or "Not enough gold"
+            end
+            messageTimer = 2
         elseif key == "escape" or key == "backspace" then
+            if player and player.runMetadata then
+                local RunMetadata = require("src.systems.run_metadata")
+                RunMetadata.recordShopVisit(player.runMetadata, {
+                    source = "saloon_shop_leave",
+                    difficulty = difficulty,
+                    gold_after = player.gold,
+                })
+            end
             mode = "walking"
         end
 
     elseif mode == "perk_selection" then
         local num = tonumber(key)
         if num and num >= 1 and num <= #perkOptions then
-            player:applyPerk(perkOptions[num])
+            Progression.applyPerk(player, perkOptions[num])
             local nextMode = blackjackGame:completePerkSelection()
             mode = (nextMode == "main") and "walking" or nextMode
             perkOptions = nil
@@ -985,14 +1130,19 @@ end
 
 function saloon:mousemoved(x, y, dx, dy)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelOpen and devPanelRows then
+    if devToolsEnabled() and devPanelOpen and devPanelRows then
         if not saloon.devPanelTitleFont then
             saloon.devPanelTitleFont = Font.new(16)
         end
-        local px, py = 12, 44
-        local pw = 308
-        local ph = math.min(560, GAME_HEIGHT - 56)
-        devPanelHover = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont)
+        if not saloon.devPanelRowFont then
+            saloon.devPanelRowFont = Font.new(13)
+        end
+        local px, py, pw, ph = getDevPanelLayout()
+        if pointInRect(gx, gy, px, py, pw, ph) then
+            devPanelHover = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont, saloon.devPanelRowFont)
+        else
+            devPanelHover = nil
+        end
         return
     end
     if paused then
@@ -1010,7 +1160,7 @@ function saloon:mousemoved(x, y, dx, dy)
         end
         pauseHoverIndex = nil
         if pauseMenuView == "main" then
-            for i, r in ipairs(pauseMenuButtonLayout()) do
+            for i, r in ipairs(pauseMenuButtonLayout("large")) do
                 if pauseHitRect(gx, gy, r) then
                     pauseHoverIndex = i
                     pauseSelectedIndex = i
@@ -1019,7 +1169,7 @@ function saloon:mousemoved(x, y, dx, dy)
             end
         else
             if not saloon.pauseMenuButtonFont then
-                saloon.pauseMenuButtonFont = Font.new(22)
+                saloon.pauseMenuButtonFont = Font.new(26)
             end
             local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, saloon.pauseMenuButtonFont)
             if h then
@@ -1041,23 +1191,35 @@ end
 
 function saloon:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
-    if DEBUG and devPanelOpen and devPanelRows and button == 1 then
+    if devToolsEnabled() and devPanelOpen and devPanelRows then
         if not saloon.devPanelTitleFont then
             saloon.devPanelTitleFont = Font.new(16)
         end
-        local px, py = 12, 44
-        local pw = 308
-        local ph = math.min(560, GAME_HEIGHT - 56)
-        local hit = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont)
-        if hit then
-            saloonDevApplyAction(hit)
+        if not saloon.devPanelRowFont then
+            saloon.devPanelRowFont = Font.new(13)
+        end
+        local px, py, pw, ph = getDevPanelLayout()
+        local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+        local insidePanel = pointInRect(gx, gy, px, py, pw, ph)
+        local insideConsole = pointInRect(gx, gy, consoleX - 4, consoleY - 4, consoleW + 8, consoleH)
+        if insidePanel then
+            if button == 1 then
+                local hit = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont, saloon.devPanelRowFont)
+                if hit then
+                    saloonDevApplyAction(hit)
+                end
+            end
+            return
+        end
+        if insideConsole then
+            return
         end
         return
     end
     if paused then
         if button ~= 1 then return end
         if pauseMenuView == "main" then
-            for _, r in ipairs(pauseMenuButtonLayout()) do
+            for _, r in ipairs(pauseMenuButtonLayout("large")) do
                 if pauseHitRect(gx, gy, r) then
                     if r.id == "resume" then
                         paused = false
@@ -1074,7 +1236,7 @@ function saloon:mousepressed(x, y, button)
             end
         else
             if not saloon.pauseMenuButtonFont then
-                saloon.pauseMenuButtonFont = Font.new(22)
+                saloon.pauseMenuButtonFont = Font.new(26)
             end
             local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, saloon.pauseMenuButtonFont)
             local r = SettingsPanel.applyHit(h, player)
@@ -1096,7 +1258,7 @@ function saloon:mousepressed(x, y, button)
     end
 
     if mode == "perk_selection" and button == 1 and hoveredPerk then
-        player:applyPerk(perkOptions[hoveredPerk])
+        Progression.applyPerk(player, perkOptions[hoveredPerk])
         local nextMode = blackjackGame:completePerkSelection()
         mode = (nextMode == "main") and "walking" or nextMode
         perkOptions = nil
@@ -1137,9 +1299,24 @@ function saloon:mousereleased(x, y, button)
 end
 
 function saloon:wheelmoved(x, y)
-    if not DEBUG or not devPanelOpen then return end
-    devPanelScroll = devPanelScroll - y * 36
-    devClampScroll()
+    if not devToolsEnabled() then return end
+    local mx, my = love.mouse.getPosition()
+    local gx, gy = windowToGame(mx, my)
+    local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+    local overConsole = pointInRect(gx, gy, consoleX - 4, consoleY - 4, consoleW + 8, consoleH)
+    if devPanelOpen then
+        local px, py, pw, ph = getDevPanelLayout()
+        if pointInRect(gx, gy, px, py, pw, ph) then
+            devPanelScroll = devPanelScroll - y * 36
+            devClampScroll()
+        elseif overConsole then
+            DevLog.scrollConsole(y * 3, consoleH)
+        end
+        return
+    end
+    if overConsole then
+        DevLog.scrollConsole(y * 3, consoleH)
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -1456,7 +1633,9 @@ function saloon:draw()
 
     -- HUD — same pipeline as game state (saloon is another map)
     HUD.draw(player)
-    DevLog.drawOverlay(screenW, screenH)
+    if not DEBUG then
+        DevLog.drawOverlay(screenW, screenH)
+    end
     if roomManager then
         HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
     end
@@ -1485,7 +1664,7 @@ function saloon:draw()
             saloon.pauseTitleFont = Font.new(32)
         end
         if not saloon.pauseMenuButtonFont then
-            saloon.pauseMenuButtonFont = Font.new(22)
+            saloon.pauseMenuButtonFont = Font.new(26)
         end
         if not saloon.pauseHintFont then
             saloon.pauseHintFont = Font.new(15)
@@ -1499,7 +1678,7 @@ function saloon:draw()
             love.graphics.setColor(1, 0.86, 0.28, 0.95)
             love.graphics.printf("PAUSED", 0, screenH * 0.16, screenW, "center")
 
-            local rects = pauseMenuButtonLayout()
+            local rects = pauseMenuButtonLayout("large")
             for i, r in ipairs(rects) do
                 local hover = (pauseHoverIndex == i) or (pauseHoverIndex == nil and pauseSelectedIndex == i)
                 if hover then
@@ -1538,6 +1717,18 @@ function saloon:draw()
 
     if DEBUG and player then
         local es = player:getEffectiveStats()
+        local bulletDamage = es.bulletDamage or 0
+        local damageMultiplier = es.damageMultiplier or 1
+        local moveSpeed = es.moveSpeed or 0
+        local bulletCount = es.bulletCount or 0
+        local spreadAngle = es.spreadAngle or 0
+        local ricochetCount = es.ricochetCount or 0
+        local ricochetLabel = es.explosiveRounds and "0 (LOCKED)" or tostring(ricochetCount)
+        local armor = es.armor or 0
+        local lifestealOnKill = es.lifestealOnKill or 0
+        local reloadSpeed = es.reloadSpeed or 0
+        local cylinderSize = es.cylinderSize or 0
+        local luck = es.luck or 0
         if not saloon.debugFont then
             saloon.debugFont = Font.new(11)
         end
@@ -1551,34 +1742,36 @@ function saloon:draw()
         love.graphics.print("-- EFFECTIVE STATS --", panelX, py)
         py = py + 16
         love.graphics.setColor(0.8, 1, 0.8)
-        love.graphics.print(string.format("DMG: %.0f x%.2f  SPD: %.0f", es.bulletDamage, es.damageMultiplier, es.moveSpeed), panelX, py)
+        love.graphics.print(string.format("DMG: %.0f x%.2f  SPD: %.0f", bulletDamage, damageMultiplier, moveSpeed), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Bullets: %d  Spread: %.2f", es.bulletCount, es.spreadAngle), panelX, py)
+        love.graphics.print(string.format("Bullets: %d  Spread: %.2f", bulletCount, spreadAngle), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Ricochet: %d  Explosive: %s", es.ricochetCount, tostring(es.explosiveRounds)), panelX, py)
+        love.graphics.print(string.format("Ricochet: %s  Explosive: %s", ricochetLabel, tostring(es.explosiveRounds)), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Armor: %d  Lifesteal: %d", es.armor, es.lifestealOnKill), panelX, py)
+        love.graphics.print(string.format("Armor: %d  Lifesteal: %d", armor, lifestealOnKill), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("Reload: %.2fs  Cylinder: %d", es.reloadSpeed, es.cylinderSize), panelX, py)
+        love.graphics.print(string.format("Reload: %.2fs  Cylinder: %d", reloadSpeed, cylinderSize), panelX, py)
         py = py + 14
-        love.graphics.print(string.format("DeadEye: %s  Luck: %.2f", tostring(es.deadEye), es.luck), panelX, py)
+        love.graphics.print(string.format("DeadEye: %s  Luck: %.2f", tostring(es.deadEye), luck), panelX, py)
         py = py + 20
 
+        local dbgPerks = player.perks or {}
         love.graphics.setColor(0, 1, 0)
-        love.graphics.print("-- PERKS (" .. #player.perks .. ") --", panelX, py)
+        love.graphics.print("-- PERKS (" .. #dbgPerks .. ") --", panelX, py)
         py = py + 16
         love.graphics.setColor(0.8, 1, 0.8)
-        if #player.perks == 0 then
+        if #dbgPerks == 0 then
             love.graphics.print("(none)", panelX, py)
         else
-            love.graphics.print(table.concat(player.perks, ", "), panelX, py)
+            love.graphics.print(table.concat(dbgPerks, ", "), panelX, py)
         end
         py = py + 20
 
-        DevLog.draw(panelX, py, 250)
+        local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
+        DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
     end
 
-    if DEBUG and devPanelOpen and devPanelRows and player then
+    if devToolsEnabled() and devPanelOpen and devPanelRows and player then
         love.graphics.setColor(0, 0, 0, 0.38)
         love.graphics.rectangle("fill", 0, 0, screenW, screenH)
         if not saloon.devPanelTitleFont then
@@ -1588,16 +1781,11 @@ function saloon:draw()
             saloon.devPanelRowFont = Font.new(13)
         end
         devClampScroll()
-        local px, py = 12, 44
-        local pw = 308
-        local ph = math.min(560, screenH - 56)
+        local px, py, pw, ph = getDevPanelLayout()
         DevPanel.draw(devPanelRows, devPanelScroll, px, py, pw, ph, devPanelHover, {
             title = saloon.devPanelTitleFont,
             row = saloon.devPanelRowFont,
         })
-        love.graphics.setFont(saloon.devPanelRowFont)
-        love.graphics.setColor(0.55, 0.55, 0.58)
-        love.graphics.printf("F2 / ESC close  ·  wheel scroll", px, math.min(py + ph + 6, screenH - 20), pw, "center")
     end
 
     love.graphics.setColor(1, 1, 1)
@@ -1783,7 +1971,12 @@ function handleBlackjackAction(action)
             blackjackGame:adjustWager(blackjackGame.betStep, player.gold)
         elseif action == "deal" then
             if blackjackGame.wager >= blackjackGame.minBet and player.gold >= blackjackGame.wager then
-                player.gold = player.gold - blackjackGame.wager
+                local ok = player:spendGold(blackjackGame.wager, "blackjack_wager")
+                if not ok then
+                    message = "Not enough gold to bet that much!"
+                    messageTimer = 2
+                    return
+                end
                 blackjackGame:deal(blackjackGame.wager)
             else
                 message = "Not enough gold to bet that much!"
@@ -1800,7 +1993,12 @@ function handleBlackjackAction(action)
         elseif action == "double" then
             local cost = blackjackGame:doubleDown(player.gold)
             if cost then
-                player.gold = player.gold - cost
+                local ok = player:spendGold(cost, "blackjack_double")
+                if not ok then
+                    message = "Cannot double."
+                    messageTimer = 1.2
+                    return
+                end
             else
                 message = "Cannot double."
                 messageTimer = 1.2
@@ -1808,7 +2006,12 @@ function handleBlackjackAction(action)
         elseif action == "split" then
             local cost = blackjackGame:split(player.gold)
             if cost then
-                player.gold = player.gold - cost
+                local ok = player:spendGold(cost, "blackjack_split")
+                if not ok then
+                    message = "Cannot split."
+                    messageTimer = 1.2
+                    return
+                end
             else
                 message = "Cannot split."
                 messageTimer = 1.2
@@ -1817,9 +2020,12 @@ function handleBlackjackAction(action)
     elseif blackjackGame.state == "result" then
         if action == "continue" then
             local reward = blackjackGame:getReward()
-            player.gold = player.gold + reward.gold
+            player:addGold(reward.gold, "blackjack_reward")
             if reward.perkRarity == "rare" or reward.anyWin then
-                perkOptions = Perks.rollPerks(3, player.stats.luck)
+                perkOptions = Progression.rollLevelUpPerks(player, {
+                    run_metadata = player and player.runMetadata or nil,
+                    source = "blackjack_reward",
+                })
                 mode = "perk_selection"
             else
                 mode = "main"
@@ -1851,14 +2057,28 @@ function drawShop(screenW, screenH)
             love.graphics.printf("[" .. i .. "] " .. item.name .. "  $" .. item.price, 0, y, screenW, "center")
             y = y + 22
             love.graphics.setColor(0.6, 0.6, 0.6)
-            love.graphics.printf("    " .. item.description, 0, y, screenW, "center")
+            local desc = item.description
+            if item.type == "gear" and item.gearData then
+                desc = ContentTooltips.getJoinedText("gear", item.gearData)
+            elseif item.tooltip_key or item.tooltip_override then
+                desc = ContentTooltips.getJoinedText("offer", item)
+            end
+            love.graphics.printf("    " .. tostring(desc or ""), 0, y, screenW, "center")
+            y = y + 20
+            if item.reward_reason and item.reward_reason ~= "" then
+                love.graphics.setFont(fonts.default)
+                love.graphics.setColor(0.65, 0.78, 0.72, 1)
+                love.graphics.printf(item.reward_reason, 56, y, screenW - 112, "center")
+                love.graphics.setFont(fonts.body)
+                y = y + 18
+            end
         end
         y = y + 35
     end
 
     y = y + 20
     love.graphics.setColor(0.7, 0.7, 0.7)
-    love.graphics.printf("[ESC] Back", 0, y, screenW, "center")
+    love.graphics.printf(string.format("[R] Reroll  $%d   |   [ESC] Back", shop:getRerollCost()), 0, y, screenW, "center")
 end
 
 return saloon

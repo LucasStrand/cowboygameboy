@@ -1,72 +1,73 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file gives current repository guidance for coding agents working in this project.
 
 ## Running the Game
 
-**Requirement:** LOVE2D 11.5 installed ([love2d.org](https://love2d.org/))
+Requirement: LOVE2D 11.5
 
-```bash
+```text
 love .
 ```
 
-On Windows you can also drag the project folder onto `love.exe`. No compilation step — it's pure Lua.
+Phase 10 regression (metadata/recap/persist/export seams): `love . --phase10-regression`
 
-**Debug mode:** Press `F1` during gameplay to toggle the debug overlay (effective stats, active perks, event log). Set `DEBUG = true` in `main.lua` for this and the **dev panel** (`F2` in the `game` state): kill/heal player, god mode, gold/XP, open door, clear enemies, spawn enemies, grant any perk — for testing scenarios.
+Phase 10 dev: metadata snapshot + stress sample workflow — [docs/phases/phase_10_hardening.md](docs/phases/phase_10_hardening.md).
 
-## Architecture
+Phase 11 regression (actor defense, attack profiles, enemy proc path): `love . --phase11-actor-regression`
 
-**Six Chambers** is a 2D cowboy roguelike platformer. The stack is LOVE2D + Lua with these third-party libs in `/lib/`:
-- **bump.lua** — AABB collision detection for all dynamic entities
-- **hump/gamestate.lua** — State machine managing all screen transitions
-- **hump/camera.lua**, **hump/vector.lua**, **hump/timer.lua** — Utilities
+On Windows you can also drag the repo folder onto `love.exe`.
 
-### State Machine Flow
+## Debug and Development Tools
 
+- `F1` toggles the gameplay debug overlay.
+- `F2` opens the in-run dev panel when debug tools are enabled.
+- The main menu exposes `World Editor` and `Dev arena`.
+
+## State Flow
+
+```text
+boot_intro -> menu -> game
+menu -> editor
+game -> levelup -> game
+game -> saloon -> game
+game -> gameover
 ```
-menu → game ──(every 5 rooms)──→ saloon → game
-              ↓ level up                   ↑
-           levelup ──────────────────────→
-              ↓ death
-           gameover
-```
 
-All states live in `src/states/`. The `game` state is the main loop — it owns the room, player, enemies, bullets, and pickups, and delegates to systems for processing.
+`src/states/game.lua` is still the main runtime owner for the active run and wires together combat, rewards, metadata, presentation, and dev tooling.
 
-### Settings & audio
-
-- **`settings.lua`** persists options to `settings.lua` in the save directory. **Master** volume is applied globally via `love.audio.setVolume`. **Music** and **SFX** sliders are stored as multipliers — when you add `Source` objects, set `source:setVolume(Settings.getMusicVolumeMul())` or `getSfxVolumeMul()` so they stack correctly with master.
-
-### Key Systems (`src/systems/`)
+## Key Runtime Owners
 
 | File | Responsibility |
 |---|---|
-| `combat.lua` | Bullet updates, collision, AOE explosions, loot drops, pickup collection |
-| `room_manager.lua` | Generates 5-room sequences, loads room layouts, scales difficulty, spawns enemies |
-| `progression.lua` | XP tracking, leveling, perk rolling and application |
-| `inventory.lua` | Gear equipping (hat/vest/boots slots), stat bonuses |
-| `blackjack.lua` | Full blackjack card game for saloon gambling |
-| `shop.lua` | Bartender shop (healing, gear, ammo) |
+| `src/systems/weapon_runtime.lua` | Authoritative weapon slot state, ammo, reload, cooldown, resolved weapon stats |
+| `src/systems/damage_resolver.lua` | Direct-hit resolution, crit/mitigation ordering, delayed secondary hits |
+| `src/systems/buffs.lua` | Shared status runtime for player and enemies |
+| `src/systems/proc_runtime.lua` | Canonical proc evaluation and delayed proc packets |
+| `src/systems/presentation_runtime.lua` | Event-driven payoff and status presentation hooks |
+| `src/systems/reward_runtime.lua` | Level-up rewards, shop offers, rerolls, build profiling |
+| `src/systems/run_metadata.lua` | Canonical run history |
+| `src/systems/meta_runtime.lua` | Read-only recap/debug summaries |
+| `src/systems/room_manager.lua` | World progression, room sequencing, checkpoint cadence |
 
-### Entities (`src/entities/`)
+## Current Data Shape
 
-- **player.lua** — AABB movement with gravity, coyote time, jump buffering, double jump, dash; revolver reload mechanic; perk stat application
-- **enemy.lua** — Three AI types: Bandit (melee), Gunslinger (ranged), Buzzard (flying); simple behavior trees
-- **bullet.lua** — Projectiles supporting ricochet and explosive rounds
-- **pickup.lua** — Loot drops (XP/gold/health) with gravity and bob animation
+- `src/data/guns.lua`: current gun definitions and attack-profile metadata
+- `src/data/perks.lua`: current perk pool, tags, tooltip metadata, proc rules
+- `src/data/gear.lua`: gear pool and tags
+- `src/data/statuses.lua`: canonical status definitions and lifecycle hook metadata
+- `src/data/presentation_hooks.lua`: payoff/status presentation hooks
+- `src/data/tooltip_templates.lua`: content tooltip text templates
+- `src/data/worlds.lua`: combat world ordering and world definitions
+- `src/data/chunks/`: chunk-authored room content by world
 
-### Data (`src/data/`)
+## Current High-Level Status
 
-All game content is defined as plain Lua tables — easy to tune without touching logic:
-- `perks.lua` — 12 perks
-- `enemies.lua` — 3 enemy type definitions with scaling formula
-- `gear.lua` — 9 gear items across 3 tiers
-- `rooms.lua` — 4 hand-crafted room layouts (platforms, spawn points, door positions)
+- Combat/build overhaul is implemented through Phase 8, with **Phase 9 slice 1** (readability) and **Phase 10 slice 1** (retention/hardening harness) landed in code.
+- Mid-run save/load of full run metadata remains a future hardening slice.
 
-### Difficulty Scaling
+## Rendering Notes
 
-`difficulty = 1 + (rooms_cleared × 0.3)` — multiplied into all enemy HP, damage, XP, and gold values.
-
-### Rendering
-
-`main.lua` renders to a canvas matching the **window size** (resizable); the camera sees **more world** when the window is larger. HUD stays fixed-size in canvas pixels. Linear filtering on the canvas and `src/ui/font.lua` for UI text. The parallax background scrolls at 30% camera speed. All graphics are procedural shapes (no sprite sheets); audio is placeholder.
+- The game renders to a canvas matching the window size.
+- Larger windows show more world.
+- The project now uses both authored sprite assets and procedural drawing.

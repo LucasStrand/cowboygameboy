@@ -13,11 +13,22 @@ function Bullet.new(data)
     self.h = data.h or 2
     self.angle = data.angle
     self.speed = data.speed or 500
-    self.damage = data.damage or 10
-    self.ricochet = data.ricochet or 0
+    self.packet = data.packet
+    self.source_actor = data.source_actor
+    self.damage = data.damage or (self.packet and self.packet.base_max) or 10
     self.explosive = data.explosive or false
+    self.ricochet = self.explosive and 0 or (data.ricochet or 0)
     self.fromEnemy = data.fromEnemy or false
     self.ultBullet = data.ultBullet or false
+    self.source_ref = data.source_ref or (self.packet and self.packet.source) or nil
+    self.packet_kind = data.packet_kind or (self.packet and self.packet.kind) or nil
+    self.damage_family = data.damage_family or (self.packet and self.packet.family) or nil
+    self.damage_tags = data.damage_tags or (self.packet and self.packet.tags) or nil
+    local metadata = self.packet and self.packet.metadata or {}
+    self.impact_fx_id = data.impact_fx_id or metadata.impact_fx_id
+    self.muzzle_fx_id = data.muzzle_fx_id or metadata.muzzle_fx_id
+    self.explosion_tier = data.explosion_tier or metadata.explosion_tier
+    self.explosion_sfx_id = data.explosion_sfx_id or metadata.explosion_sfx_id or "explosion"
     self.isBullet = true
     self.alive = true
     self.lifetime = 3
@@ -58,7 +69,19 @@ function Bullet:update(dt, world)
         end
 
         if not other.isEnemy and not other.isPickup and not other.isBullet and not other.isDoor and not other.isPlayer then
-            if self.ricochet > 0 then
+            if self.explosive then
+                if not self.fromEnemy then
+                    Sfx.play(self.explosion_sfx_id)
+                end
+                ImpactFX.spawn(
+                    self.x + self.w / 2,
+                    self.y + self.h / 2,
+                    self.impact_fx_id or "explosion_medium",
+                    { scale_mul = 0.78 }
+                )
+                self.alive = false
+                return
+            elseif self.ricochet > 0 then
                 self.ricochet = self.ricochet - 1
                 if col.normal.x ~= 0 then
                     self.angle = math.pi - self.angle
