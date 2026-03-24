@@ -49,6 +49,9 @@ return {
     -- Exit door on the right side
     exitDoor = { x = 450, y = 120, w = 24, h = 48 },
 
+    -- Back room door between dealer and bartender (dev testing room)
+    backRoomDoor = { x = 230, y = 120, w = 24, h = 48 },
+
     -- Slot machine (world prop + interact — center matches draw in saloon.lua ~scale 0.195)
     slotMachine = { cx = 18, cy = 146, r = 40 },
 }

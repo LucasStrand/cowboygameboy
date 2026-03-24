@@ -2,155 +2,137 @@
 --- Costs COST gold per play. Three reels spin and stop left-to-right.
 --- Results range from gold jackpots to taking a bullet.
 ---
+--- Visual: fullscreen overlay identical to the saloon Slots when active.
+--- Behavior: old wild-slot behavior (flat cost, gold/xp/health/damage/weapon rewards,
+---           auto-dismisses after RESULT_TIME — no betting UI).
+---
 --- Callbacks (set by game.lua wireRoomEntities):
 ---   onResult(rtype, value)
 ---     rtype: "gold" | "xp" | "health" | "damage" | "weapon"
----     value: number (gold/xp/hp/damage amount) or gun table (weapon)
+---     value: number or gun table
 
 local Guns = require("src.data.guns")
+local Font = require("src.ui.font")
 
 local SlotMachine = {}
 SlotMachine.__index = SlotMachine
 
-local COST      = 15
-local W, H      = 48, 72
-
--- Reel window geometry
-local REEL_W    = 12
-local REEL_H    = 20
-local REEL_GAP  = 2
-local REEL_Y    = 14   -- from machine top
-
--- How fast symbols cycle during spin (indices per second)
-local SPIN_SPEED = 16
-
--- When each reel stops (seconds after spin start)
-local STOP_T = { 0.80, 1.25, 1.70 }
-
--- How long to display the result before returning to idle
-local RESULT_TIME = 2.0
+local COST        = 15
+-- Sprite drawn at the same scale the saloon uses (0.195 on an 86×229 source quad)
+local DRAW_SCALE  = 0.195
+local W           = math.floor(86  * DRAW_SCALE + 0.5)   -- ~17
+local H           = math.floor(229 * DRAW_SCALE + 0.5)   -- ~45
+local SPIN_SPEED  = 14          -- symbol indices / second
+local STOP_T      = { 0.80, 1.25, 1.70 }
+local RESULT_TIME = 2.5
 
 ---------------------------------------------------------------------------
--- Symbols
+-- Symbols — 7 entries matching slot.png (same as saloon Slots)
 ---------------------------------------------------------------------------
-local SYM = { COIN=1, STAR=2, GEM=3, BEER=4, SKULL=5, BAR=6 }
-local SYM_COUNT = 6
+local NUM_SYM = 7
+local SYM = { SEVEN=1, BAR=2, BELL=3, CHERRY=4, GRAPE=5, LEMON=6, MELON=7 }
 
---- Draw a single symbol centered at (cx, cy), fitting in a ~sz×sz box.
-local function drawSym(sym, cx, cy, sz)
-    sz = sz or 8
-    if sym == SYM.COIN then
-        love.graphics.setColor(0.95, 0.80, 0.18)
-        love.graphics.circle("fill", cx, cy, sz * 0.52)
-        love.graphics.setColor(0.70, 0.55, 0.08)
-        love.graphics.circle("line", cx, cy, sz * 0.52)
-        love.graphics.setColor(0.78, 0.62, 0.10)
-        love.graphics.circle("line", cx, cy, sz * 0.28)
+local TEX_W, TEX_H = 256, 256
+local SYMBOL_QUADS_DEF = {
+    { x = 3,  y = 3,   w = 26, h = 26 }, -- 1: 7
+    { x = 2,  y = 41,  w = 28, h = 14 }, -- 2: BAR
+    { x = 2,  y = 66,  w = 28, h = 28 }, -- 3: BELL
+    { x = 3,  y = 99,  w = 23, h = 27 }, -- 4: CHERRY
+    { x = 3,  y = 131, w = 26, h = 27 }, -- 5: GRAPE
+    { x = 2,  y = 164, w = 28, h = 25 }, -- 6: LEMON
+    { x = 3,  y = 195, w = 26, h = 27 }, -- 7: MELON
+}
+local SYMBOL_NAMES = { "7", "BAR", "BELL", "CHERRY", "GRAPE", "LEMON", "MELON" }
 
-    elseif sym == SYM.STAR then
-        love.graphics.setColor(0.98, 0.85, 0.10)
-        local verts = {}
-        local ro, ri = sz * 0.56, sz * 0.22
-        for i = 0, 9 do
-            local a = i * math.pi / 5 - math.pi / 2
-            local r = (i % 2 == 0) and ro or ri
-            verts[#verts+1] = cx + math.cos(a) * r
-            verts[#verts+1] = cy + math.sin(a) * r
+-- Machine body in slot.png — same quad the saloon uses (saloon.lua line ~539)
+local MACH_SX, MACH_SY = 86, 27
+local MACH_SW, MACH_SH = 86, 229
+
+---------------------------------------------------------------------------
+-- Assets
+---------------------------------------------------------------------------
+local _sheet    = nil
+local _symQuads = {}
+local _machQuad = nil
+local _fonts    = nil
+
+local function ensureAssets()
+    if _sheet then return end
+    local ok, img = pcall(love.graphics.newImage, "assets/slot.png")
+    if ok then
+        img:setFilter("nearest", "nearest")
+        _sheet = img
+        for i, def in ipairs(SYMBOL_QUADS_DEF) do
+            _symQuads[i] = love.graphics.newQuad(def.x, def.y, def.w, def.h, TEX_W, TEX_H)
         end
-        love.graphics.polygon("fill", verts)
-
-    elseif sym == SYM.GEM then
-        love.graphics.setColor(0.20, 0.82, 0.95)
-        local s = sz * 0.52
-        love.graphics.polygon("fill", cx, cy-s, cx+s, cy, cx, cy+s, cx-s, cy)
-        -- Highlight facet
-        love.graphics.setColor(0.65, 0.97, 1.0, 0.75)
-        love.graphics.polygon("fill", cx, cy-s, cx+s, cy, cx, cy-s*0.15)
-
-    elseif sym == SYM.BEER then
-        -- Mug body
-        love.graphics.setColor(0.88, 0.56, 0.08)
-        love.graphics.rectangle("fill", cx - sz*0.38, cy - sz*0.44, sz*0.76, sz*1.0, 1)
-        -- Foam head
-        love.graphics.setColor(0.96, 0.94, 0.88)
-        love.graphics.rectangle("fill", cx - sz*0.40, cy - sz*0.60, sz*0.80, sz*0.26, 2)
-
-    elseif sym == SYM.SKULL then
-        -- Cranium
-        love.graphics.setColor(0.92, 0.90, 0.84)
-        love.graphics.circle("fill", cx, cy - sz*0.08, sz*0.46)
-        -- Jaw
-        love.graphics.rectangle("fill", cx - sz*0.30, cy + sz*0.22, sz*0.60, sz*0.34, 1)
-        -- Eye sockets
-        love.graphics.setColor(0.10, 0.08, 0.06)
-        love.graphics.circle("fill", cx - sz*0.16, cy - sz*0.08, sz*0.13)
-        love.graphics.circle("fill", cx + sz*0.16, cy - sz*0.08, sz*0.13)
-
-    elseif sym == SYM.BAR then
-        -- Three horizontal bars (classic slot "BAR" symbol)
-        love.graphics.setColor(0.92, 0.18, 0.12)
-        love.graphics.rectangle("fill", cx - sz*0.52, cy - sz*0.50, sz*1.04, sz*0.24, 1)
-        love.graphics.setColor(0.95, 0.22, 0.14)
-        love.graphics.rectangle("fill", cx - sz*0.52, cy - sz*0.12, sz*1.04, sz*0.24, 1)
-        love.graphics.setColor(0.90, 0.16, 0.10)
-        love.graphics.rectangle("fill", cx - sz*0.52, cy + sz*0.26,  sz*1.04, sz*0.24, 1)
+        _machQuad = love.graphics.newQuad(MACH_SX, MACH_SY, MACH_SW, MACH_SH, TEX_W, TEX_H)
     end
+    _fonts = {
+        title = Font.new(24),
+        body  = Font.new(14),
+        small = Font.new(12),
+    }
+end
+
+local function wrapSym(i)
+    i = math.floor(i)
+    while i < 1 do i = i + NUM_SYM end
+    while i > NUM_SYM do i = i - NUM_SYM end
+    return i
 end
 
 ---------------------------------------------------------------------------
 -- Constructor
 ---------------------------------------------------------------------------
-
 function SlotMachine.new(x, y)
-    local self     = setmetatable({}, SlotMachine)
-    self.x         = x
-    self.y         = y
-    self.w         = W
-    self.h         = H
-    self.state     = "idle"    -- idle | spinning | result
-    self.timer     = 0
-    -- Each reel: pos (displayed symbol 1-6), target (what it lands on), offset (scroll progress)
+    local self         = setmetatable({}, SlotMachine)
+    self.x             = x
+    self.y             = y
+    self.w             = W
+    self.h             = H
+    self.state         = "idle"
+    self.timer         = 0
     self.reels = {
-        { pos = math.random(SYM_COUNT), target = 1, offset = 0, stopped = true },
-        { pos = math.random(SYM_COUNT), target = 1, offset = 0, stopped = true },
-        { pos = math.random(SYM_COUNT), target = 1, offset = 0, stopped = true },
+        { pos = math.random(NUM_SYM), target = 1, offset = 0, stopped = true },
+        { pos = math.random(NUM_SYM), target = 1, offset = 0, stopped = true },
+        { pos = math.random(NUM_SYM), target = 1, offset = 0, stopped = true },
     }
-    self.resultMsg   = nil
-    self.resultGood  = true
-    self.flashTimer  = 0
-    self.leverAngle  = 0    -- 0=up, 1=fully pulled down
-    self.onResult    = nil  -- fn(rtype, value) — set by wireRoomEntities
+    self.reelStopFlash = { 0, 0, 0 }
+    self.resultMsg     = nil
+    self.resultIsWin   = false
+    self.winGlow       = 0
+    self.flashTimer    = 0
+    self.onResult      = nil
     return self
 end
 
 ---------------------------------------------------------------------------
 -- Interaction
 ---------------------------------------------------------------------------
-
 function SlotMachine:isNearPlayer(px, py)
     local cx = self.x + W * 0.5
     local cy = self.y + H * 0.5
     return (px - cx)^2 + (py - cy)^2 < 62 * 62
 end
 
---- Called when player presses E nearby. Returns true if input consumed.
 function SlotMachine:tryPlay(player)
     if self.state ~= "idle" then return false end
     if player.gold < COST then
-        self.resultMsg  = "Need " .. COST .. "g!"
-        self.resultGood = false
-        self.state      = "result"
-        self.timer      = 0
+        self.resultMsg   = "Need " .. COST .. "g!"
+        self.resultIsWin = false
+        self.state       = "result"
+        self.timer       = 0
         return true
     end
-    player.gold   = player.gold - COST
-    self.state    = "spinning"
-    self.timer    = 0
-    self.leverAngle = 1.0   -- pull down
+    player.gold        = player.gold - COST
+    self.state         = "spinning"
+    self.timer         = 0
+    self.reelStopFlash = { 0, 0, 0 }
+    self.winGlow       = 0
     for _, r in ipairs(self.reels) do
-        r.target  = math.random(SYM_COUNT)
+        r.target  = math.random(NUM_SYM)
         r.stopped = false
-        r.offset  = 0
+        r.offset  = r.pos - 1
     end
     return true
 end
@@ -158,28 +140,30 @@ end
 ---------------------------------------------------------------------------
 -- Update
 ---------------------------------------------------------------------------
-
 function SlotMachine:update(dt)
     self.flashTimer = math.max(0, self.flashTimer - dt)
+    for i = 1, 3 do
+        if self.reelStopFlash[i] > 0 then
+            self.reelStopFlash[i] = math.max(0, self.reelStopFlash[i] - dt * 3)
+        end
+    end
 
     if self.state == "idle" then
         return
 
     elseif self.state == "spinning" then
         self.timer = self.timer + dt
-        self.leverAngle = math.max(0, self.leverAngle - dt * 2.5)
-
         for i, r in ipairs(self.reels) do
             if not r.stopped then
                 r.offset = r.offset + SPIN_SPEED * dt
                 if self.timer >= STOP_T[i] then
-                    r.stopped = true
-                    r.pos     = r.target
-                    r.offset  = 0
+                    r.stopped           = true
+                    r.pos               = r.target
+                    r.offset            = r.target - 1
+                    self.reelStopFlash[i] = 1.0
                 end
             end
         end
-
         if self.reels[3].stopped then
             self.state = "result"
             self.timer = 0
@@ -188,195 +172,276 @@ function SlotMachine:update(dt)
 
     elseif self.state == "result" then
         self.timer = self.timer + dt
+        if self.resultIsWin then
+            self.winGlow = self.winGlow + dt * 5
+        end
         if self.timer >= RESULT_TIME then
-            self.state     = "idle"
-            self.resultMsg = nil
-            self.timer     = 0
+            self.state       = "idle"
+            self.resultMsg   = nil
+            self.resultIsWin = false
+            self.winGlow     = 0
+            self.timer       = 0
         end
     end
 end
 
 ---------------------------------------------------------------------------
--- Result logic
+-- Result logic (original wild-slot behavior)
 ---------------------------------------------------------------------------
-
 function SlotMachine:_computeResult()
     local s1, s2, s3 = self.reels[1].target, self.reels[2].target, self.reels[3].target
-    local skulls = (s1==SYM.SKULL and 1 or 0)
-                 + (s2==SYM.SKULL and 1 or 0)
-                 + (s3==SYM.SKULL and 1 or 0)
+    local melons = ((s1==SYM.MELON) and 1 or 0)
+                 + ((s2==SYM.MELON) and 1 or 0)
+                 + ((s3==SYM.MELON) and 1 or 0)
 
-    -- Triple match
     if s1 == s2 and s2 == s3 then
-        local sym = s1
-        if sym == SYM.BAR then
+        self.resultIsWin = (s1 ~= SYM.MELON)
+        if s1 == SYM.SEVEN then
             self.resultMsg  = "JACKPOT!  +80g"
-            self.resultGood = true
             self.flashTimer = RESULT_TIME
             if self.onResult then self.onResult("gold", 80) end
-        elseif sym == SYM.COIN then
-            self.resultMsg  = "Triple coin!  +45g"
-            self.resultGood = true
+        elseif s1 == SYM.BAR then
+            self.resultMsg = "Triple BAR!  +45g"
             if self.onResult then self.onResult("gold", 45) end
-        elseif sym == SYM.STAR then
-            self.resultMsg  = "Lucky star!  Weapon!"
-            self.resultGood = true
+        elseif s1 == SYM.BELL then
+            self.resultMsg = "Lucky Bells!  Weapon!"
             self.flashTimer = RESULT_TIME * 0.6
-            local gun = Guns.rollDrop(1)  -- at least uncommon rarity
+            local gun = Guns.rollDrop(1)
             if gun and self.onResult then self.onResult("weapon", gun) end
-        elseif sym == SYM.GEM then
-            self.resultMsg  = "Shiny!  +40 XP"
-            self.resultGood = true
+        elseif s1 == SYM.CHERRY then
+            self.resultMsg = "Cherries!  +40 XP"
             if self.onResult then self.onResult("xp", 40) end
-        elseif sym == SYM.BEER then
-            self.resultMsg  = "Cheers!  +30 HP"
-            self.resultGood = true
+        elseif s1 == SYM.GRAPE then
+            self.resultMsg = "Grapes!  +30 HP"
             if self.onResult then self.onResult("health", 30) end
-        elseif sym == SYM.SKULL then
-            self.resultMsg  = "Dead man's hand..."
-            self.resultGood = false
+        elseif s1 == SYM.LEMON then
+            self.resultMsg   = "Lemons...  +5g"
+            self.resultIsWin = false
+            if self.onResult then self.onResult("gold", 5) end
+        elseif s1 == SYM.MELON then
+            self.resultMsg = "Dead man's hand..."
             if self.onResult then self.onResult("damage", 28) end
         end
         return
     end
 
-    -- Any skulls (but not triple skull, handled above)
-    if skulls > 0 then
-        local dmg = skulls == 2 and 18 or 8
-        self.resultMsg  = skulls == 2 and "Two skulls! -"..dmg.."hp" or "Skull! -"..dmg.."hp"
-        self.resultGood = false
+    if melons > 0 then
+        local dmg = melons == 2 and 18 or 8
+        self.resultMsg   = melons == 2 and "Two melons!  -"..dmg.."hp" or "Melon!  -"..dmg.."hp"
+        self.resultIsWin = false
         if self.onResult then self.onResult("damage", dmg) end
         return
     end
 
-    -- Two matching (no skulls)
     local match = nil
     if s1 == s2 then match = s1
     elseif s1 == s3 then match = s1
     elseif s2 == s3 then match = s2
     end
     if match then
-        if match == SYM.BAR then
-            self.resultMsg  = "Pair bars!  +25g"
-            self.resultGood = true
+        self.resultIsWin = true
+        if match == SYM.SEVEN then
+            self.resultMsg = "Pair 7s!  +30g"
+            if self.onResult then self.onResult("gold", 30) end
+        elseif match == SYM.BAR then
+            self.resultMsg = "Pair BARs!  +25g"
             if self.onResult then self.onResult("gold", 25) end
-        elseif match == SYM.COIN then
-            self.resultMsg  = "Pair coins!  +20g"
-            self.resultGood = true
+        elseif match == SYM.BELL then
+            self.resultMsg = "Pair bells!  +20g"
             if self.onResult then self.onResult("gold", 20) end
-        elseif match == SYM.STAR then
-            self.resultMsg  = "Pair stars!  +15g"
-            self.resultGood = true
-            if self.onResult then self.onResult("gold", 15) end
-        elseif match == SYM.GEM then
-            self.resultMsg  = "Pair gems!  +15 XP"
-            self.resultGood = true
+        elseif match == SYM.CHERRY then
+            self.resultMsg = "Pair cherries!  +15 XP"
             if self.onResult then self.onResult("xp", 15) end
-        elseif match == SYM.BEER then
-            self.resultMsg  = "Pair beers!  +10 HP"
-            self.resultGood = true
+        elseif match == SYM.GRAPE then
+            self.resultMsg = "Pair grapes!  +10 HP"
             if self.onResult then self.onResult("health", 10) end
+        elseif match == SYM.LEMON then
+            self.resultMsg = "Pair lemons!  +8g"
+            if self.onResult then self.onResult("gold", 8) end
         end
         return
     end
 
-    -- No match, no skulls: consolation prize
-    self.resultMsg  = "No luck...  +5g"
-    self.resultGood = false
+    self.resultMsg   = "No luck...  +5g"
+    self.resultIsWin = false
     if self.onResult then self.onResult("gold", 5) end
+end
+
+---------------------------------------------------------------------------
+-- Compact reel panel — saloon visual style, positioned above the machine
+---------------------------------------------------------------------------
+-- 3 reels × 3 symbols each, same dark-wood frame + gold trim as saloon
+local CELL_H    = 22
+local REEL_W    = 32
+local REEL_H    = CELL_H * 3
+local REEL_GAP  = math.floor(REEL_W * 0.03 + 2)   -- same proportion as saloon
+local FRAME_PAD = 14
+
+local PANEL_REEL_AREA_W = 3 * REEL_W + 2 * REEL_GAP
+local PANEL_W = PANEL_REEL_AREA_W + FRAME_PAD * 2
+local PANEL_H = REEL_H + FRAME_PAD * 2
+
+-- screenCX, screenCY: the machine center in screen/canvas coordinates
+local function drawReelPanel(sm, screenCX, screenCY)
+    if not _sheet then return end
+
+    local px = screenCX - PANEL_W * 0.5
+    local py = screenCY - PANEL_H - 10
+
+    local reelX = px + FRAME_PAD
+    local reelY = py + FRAME_PAD
+
+    -- === FRAME (identical style to saloon) ===
+    love.graphics.setColor(0, 0, 0, 0.5)
+    love.graphics.rectangle("fill", px + 4, py + 4, PANEL_W, PANEL_H, 10, 10)
+    love.graphics.setColor(0.18, 0.12, 0.07)
+    love.graphics.rectangle("fill", px, py, PANEL_W, PANEL_H, 8, 8)
+    love.graphics.setColor(0.28, 0.18, 0.1)
+    love.graphics.rectangle("fill", px + 4, py + 4, PANEL_W - 8, PANEL_H - 8, 6, 6)
+    love.graphics.setColor(0.75, 0.58, 0.18, 0.8)
+    love.graphics.setLineWidth(3)
+    love.graphics.rectangle("line", px, py, PANEL_W, PANEL_H, 8, 8)
+    love.graphics.setColor(0.55, 0.42, 0.14, 0.5)
+    love.graphics.setLineWidth(1)
+    love.graphics.rectangle("line", px + 6, py + 6, PANEL_W - 12, PANEL_H - 12, 4, 4)
+
+    -- === REELS (identical logic to saloon) ===
+    for col = 0, 2 do
+        local rx   = reelX + col * (REEL_W + REEL_GAP)
+        local ry   = reelY
+        local reel = sm.reels[col + 1]
+
+        local scroll
+        if reel.stopped then
+            scroll = reel.pos - 1
+        else
+            scroll = reel.offset % NUM_SYM
+        end
+
+        love.graphics.setColor(0.08, 0.06, 0.04)
+        love.graphics.rectangle("fill", rx, ry, REEL_W, REEL_H, 4, 4)
+        love.graphics.setColor(0.12, 0.1, 0.08)
+        love.graphics.rectangle("fill", rx + 2, ry + 2, REEL_W - 4, REEL_H - 4, 3, 3)
+
+        love.graphics.setScissor(rx, ry, REEL_W, REEL_H)
+
+        local frac      = scroll % 1
+        local i0        = math.floor(scroll) % NUM_SYM
+        local symPadX   = REEL_W * 0.08
+        local symPadY   = CELL_H * 0.08
+        local symAreaW  = REEL_W - symPadX * 2
+        local symAreaH  = CELL_H - symPadY * 2
+
+        for k = -1, 2 do
+            local sym = wrapSym(i0 + k + 1)
+            local def = SYMBOL_QUADS_DEF[sym]
+            local symScale = math.min(symAreaW / def.w, symAreaH / def.h)
+            local dw = def.w * symScale
+            local dh = def.h * symScale
+            local dx = rx + (REEL_W - dw) * 0.5
+            local dy = ry + (k - frac) * CELL_H + (CELL_H - dh) * 0.5 + CELL_H
+
+            if k == 0 then
+                love.graphics.setColor(1, 1, 1)
+            else
+                love.graphics.setColor(0.5, 0.5, 0.5, 0.6)
+            end
+            love.graphics.draw(_sheet, _symQuads[sym], dx, dy, 0, symScale, symScale)
+        end
+
+        love.graphics.setScissor()
+
+        -- Stop flash
+        if sm.reelStopFlash[col + 1] > 0 then
+            love.graphics.setColor(1, 1, 1, sm.reelStopFlash[col + 1] * 0.25)
+            love.graphics.rectangle("fill", rx, ry, REEL_W, REEL_H, 4, 4)
+        end
+
+        -- Reel border
+        love.graphics.setColor(0.5, 0.38, 0.15, 0.7)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", rx, ry, REEL_W, REEL_H, 4, 4)
+        love.graphics.setLineWidth(1)
+
+        -- Win glow
+        if sm.resultIsWin and sm.state == "result" then
+            local glow = 0.1 + 0.08 * math.sin(sm.winGlow)
+            love.graphics.setColor(1, 0.85, 0.2, glow)
+            love.graphics.rectangle("fill", rx, ry, REEL_W, REEL_H, 4, 4)
+        end
+    end
+
+    -- === PAYLINE (identical to saloon) ===
+    local paylineY     = reelY + REEL_H * 0.5
+    local paylineLeft  = reelX - 8
+    local paylineRight = reelX + PANEL_REEL_AREA_W + 8
+    local t = love.timer.getTime()
+    local paylineAlpha = 0.4
+    if sm.state == "spinning" then
+        paylineAlpha = 0.2 + 0.15 * math.sin(t * 8)
+    elseif sm.resultIsWin and sm.state == "result" then
+        paylineAlpha = 0.5 + 0.3 * math.sin(sm.winGlow)
+    end
+    love.graphics.setColor(1, 0.85, 0.2, paylineAlpha * 0.5)
+    love.graphics.rectangle("fill", paylineLeft, paylineY - 3, paylineRight - paylineLeft, 6)
+    love.graphics.setColor(1, 0.85, 0.2, paylineAlpha)
+    love.graphics.setLineWidth(2)
+    love.graphics.line(paylineLeft, paylineY, paylineRight, paylineY)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(1, 0.85, 0.2, paylineAlpha + 0.2)
+    love.graphics.polygon("fill", paylineLeft,  paylineY, paylineLeft+8,  paylineY-5, paylineLeft+8,  paylineY+5)
+    love.graphics.polygon("fill", paylineRight, paylineY, paylineRight-8, paylineY-5, paylineRight-8, paylineY+5)
+
+    -- === RESULT / SPINNING MESSAGE above panel ===
+    local msgY = py - 18
+    if sm.state == "result" and sm.resultMsg then
+        if sm.resultIsWin then
+            local pulse = 0.8 + 0.2 * math.sin(t * 4)
+            love.graphics.setColor(0.2 * pulse, 1 * pulse, 0.2 * pulse)
+        else
+            love.graphics.setColor(1, 0.92, 0.35)
+        end
+        love.graphics.printf(sm.resultMsg, px - 20, msgY, PANEL_W + 40, "center")
+    elseif sm.state == "spinning" then
+        love.graphics.setColor(1, 0.9, 0.4, 0.7)
+        love.graphics.printf("SPINNING...", px, msgY, PANEL_W, "center")
+    end
 end
 
 ---------------------------------------------------------------------------
 -- Draw
 ---------------------------------------------------------------------------
-
 function SlotMachine:draw(showHint)
+    ensureAssets()
     local x, y = self.x, self.y
-    local t     = love.timer.getTime()
 
-    -- Jackpot flash overlay
-    local flash = self.flashTimer > 0 and (math.sin(t * 20) * 0.5 + 0.5) or 0
-
-    -- Cabinet body
-    love.graphics.setColor(0.50, 0.18, 0.15)
-    love.graphics.rectangle("fill", x, y + 6, W, H - 6, 3)
-    -- Recessed panel
-    love.graphics.setColor(0.34, 0.12, 0.10)
-    love.graphics.rectangle("fill", x + 5, y + 18, W - 10, H - 30, 2)
-
-    -- Chrome top header
-    love.graphics.setColor(0.68, 0.63, 0.48)
-    love.graphics.rectangle("fill", x + 2, y, W - 4, 12, 2)
-    -- Header text
-    love.graphics.setColor(0.18, 0.10, 0.08)
-    love.graphics.printf("SLOTS", x, y + 1, W, "center")
-    -- Jackpot header glow
-    if flash > 0 then
-        love.graphics.setColor(0.98, 0.82, 0.12, flash * 0.75)
-        love.graphics.rectangle("fill", x + 2, y, W - 4, 12, 2)
+    -- World-space: machine body sprite
+    if _sheet and _machQuad then
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.draw(_sheet, _machQuad, x, y, 0, DRAW_SCALE, DRAW_SCALE)
+    else
+        love.graphics.setColor(0.40, 0.15, 0.10)
+        love.graphics.rectangle("fill", x, y, W, H, 3)
+        love.graphics.setColor(0.60, 0.45, 0.20)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", x, y, W, H, 3)
+        love.graphics.setLineWidth(1)
     end
 
-    -- Coin slot
-    love.graphics.setColor(0.22, 0.16, 0.12)
-    love.graphics.rectangle("fill", x + W/2 - 5, y + 11, 10, 3, 1)
-
-    -- Reel windows
-    local reelStartX = x + math.floor((W - (3*REEL_W + 2*REEL_GAP)) / 2)
-    local reelY      = y + REEL_Y
-    for i, r in ipairs(self.reels) do
-        local rx = reelStartX + (i-1) * (REEL_W + REEL_GAP)
-        -- Window background
-        love.graphics.setColor(0.08, 0.06, 0.04)
-        love.graphics.rectangle("fill", rx, reelY, REEL_W, REEL_H, 1)
-        -- Symbol
-        local sym
-        if r.stopped then
-            sym = r.pos
-        else
-            sym = math.floor(r.offset) % SYM_COUNT + 1
-        end
-        local cx = rx + REEL_W * 0.5
-        local cy = reelY + REEL_H * 0.5
-        drawSym(sym, cx, cy, 6)
-        -- Blur during spin
-        if not r.stopped then
-            love.graphics.setColor(0.06, 0.04, 0.03, 0.5)
-            love.graphics.rectangle("fill", rx, reelY, REEL_W, REEL_H, 1)
-        end
-        -- Window chrome frame
-        love.graphics.setColor(0.55, 0.50, 0.36)
-        love.graphics.rectangle("line", rx, reelY, REEL_W, REEL_H, 1)
-    end
-
-    -- Lever (right side)
-    local leverBaseX = x + W - 4
-    local leverBaseY = y + 26
-    local leverTipY  = leverBaseY - 16 + math.floor(self.leverAngle * 16)
-    love.graphics.setColor(0.62, 0.57, 0.42)
-    love.graphics.setLineWidth(3)
-    love.graphics.line(leverBaseX, leverBaseY, leverBaseX, leverTipY)
-    love.graphics.setLineWidth(1)
-    -- Lever knob (ball)
-    love.graphics.setColor(0.80, 0.18, 0.12)
-    love.graphics.circle("fill", leverBaseX, leverTipY, 4)
-    love.graphics.setColor(1.0, 0.40, 0.35)
-    love.graphics.circle("fill", leverBaseX - 1, leverTipY - 1, 2)
-
-    -- Bottom feet/base
-    love.graphics.setColor(0.30, 0.10, 0.08)
-    love.graphics.rectangle("fill", x + 4, y + H - 6, W - 8, 6, 1)
-
-    -- Result message (floats above machine)
-    if self.resultMsg then
-        local c = self.resultGood and {1.0, 0.88, 0.20, 0.95} or {1.0, 0.28, 0.18, 0.95}
-        love.graphics.setColor(c[1], c[2], c[3], c[4])
-        love.graphics.printf(self.resultMsg, x - 24, y - 20, W + 48, "center")
-    end
-
-    -- Interaction hint
+    -- World-space hint when idle
     if showHint and self.state == "idle" then
         love.graphics.setColor(1, 0.92, 0.30, 0.9)
         love.graphics.printf("[E] Play  " .. COST .. "g", x - 18, y - 16, W + 36, "center")
+    end
+
+    -- Reel panel: transform machine position to screen coords, then draw
+    -- in screen space so setScissor and all sizing works correctly
+    if self.state == "spinning" or self.state == "result" then
+        local screenCX, screenCY = love.graphics.transformPoint(self.x + W * 0.5, self.y)
+        love.graphics.push()
+        love.graphics.origin()
+        drawReelPanel(self, screenCX, screenCY)
+        love.graphics.pop()
     end
 end
 

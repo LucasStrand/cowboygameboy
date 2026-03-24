@@ -120,7 +120,8 @@
       "Bash(lua -e \"loadfile\\(''src/states/editor.lua''\\)\")",
       "Bash(echo \"EXIT:$?\")",
       "Bash(find /c/Users/lucas/Documents/GitHub/cowboygameboy -name *test* -o -name *spec*)",
-      "Bash(find /c/Users/lucas/Documents/GitHub/cowboygameboy -maxdepth 2 -name README* -o -name readme*)"
+      "Bash(find /c/Users/lucas/Documents/GitHub/cowboygameboy -maxdepth 2 -name README* -o -name readme*)",
+      "Bash(claude mcp:*)"
     ]
   }
 }

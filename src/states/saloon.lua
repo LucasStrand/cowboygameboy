@@ -52,6 +52,7 @@ local npcs = {}
 local platforms = {}
 local walls = {}
 local exitDoor = nil
+local backRoomDoor = nil
 local difficulty = 1
 
 local mode = "walking"  -- walking | blackjack | roulette | slots | casino_menu | shop | perk_selection
@@ -656,6 +657,11 @@ function saloon:enter(_, _player, _roomManager)
     exitDoor = { x = d.x, y = d.y, w = d.w, h = d.h, isDoor = true }
     world:add(exitDoor, exitDoor.x, exitDoor.y, exitDoor.w, exitDoor.h)
 
+    -- Add back room door
+    local brd = saloonRoom.backRoomDoor
+    backRoomDoor = { x = brd.x, y = brd.y, w = brd.w, h = brd.h, isDoor = true }
+    world:add(backRoomDoor, backRoomDoor.x, backRoomDoor.y, backRoomDoor.w, backRoomDoor.h)
+
     -- Spawn NPCs — NO collision bodies, player walks freely in front of them
     npcs = {}
     for _, npcDef in ipairs(saloonRoom.npcs) do
@@ -1048,6 +1054,14 @@ function saloon:keypressed(key)
             local dy = pcy - dcy
             if dx * dx + dy * dy < 50 * 50 then
                 continueGame()
+                return
+            end
+            -- Back room door
+            local bx = backRoomDoor.x + backRoomDoor.w / 2
+            local by = backRoomDoor.y + backRoomDoor.h / 2
+            if (pcx-bx)^2 + (pcy-by)^2 < 50 * 50 then
+                local saloonBackroom = require("src.states.saloon_backroom")
+                Gamestate.switch(saloonBackroom, player, roomManager)
                 return
             end
         end
@@ -1543,6 +1557,35 @@ function saloon:draw()
                 love.graphics.print(label, math.floor(dcx - tw / 2) + 1, math.floor(exitDoor.y - 14) + 1)
                 love.graphics.setColor(1, 0.9, 0.5)
                 love.graphics.print(label, math.floor(dcx - tw / 2), math.floor(exitDoor.y - 14))
+            end
+        end
+    end
+
+    -- === Back room door ===
+    if backRoomDoor then
+        if doorSheet and #doorQuads > 0 then
+            love.graphics.setColor(1, 1, 1)
+            local scale = backRoomDoor.h / DOOR_FRAME_SIZE
+            local drawX = backRoomDoor.x + backRoomDoor.w / 2 - (DOOR_FRAME_SIZE * scale) / 2
+            local drawY = backRoomDoor.y + backRoomDoor.h - DOOR_FRAME_SIZE * scale
+            love.graphics.draw(doorSheet, doorQuads[8], drawX, drawY, 0, scale, scale)
+        else
+            love.graphics.setColor(0.4, 0.25, 0.1)
+            love.graphics.rectangle("fill", backRoomDoor.x, backRoomDoor.y, backRoomDoor.w, backRoomDoor.h)
+        end
+        if mode == "walking" and player then
+            local pcx = player.x + player.w / 2
+            local pcy = player.y + player.h / 2
+            local bx  = backRoomDoor.x + backRoomDoor.w / 2
+            local by  = backRoomDoor.y + backRoomDoor.h / 2
+            if (pcx-bx)^2 + (pcy-by)^2 < 50 * 50 then
+                love.graphics.setFont(fonts.default)
+                local label = "[E] Back Room"
+                local tw = fonts.default:getWidth(label)
+                love.graphics.setColor(0, 0, 0, 0.7)
+                love.graphics.print(label, math.floor(bx - tw/2)+1, math.floor(backRoomDoor.y - 14)+1)
+                love.graphics.setColor(1, 0.9, 0.5)
+                love.graphics.print(label, math.floor(bx - tw/2), math.floor(backRoomDoor.y - 14))
             end
         end
     end
