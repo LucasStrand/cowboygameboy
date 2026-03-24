@@ -2,7 +2,30 @@ local PlatformCollision = require("src.systems.platform_collision")
 local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
 local GoldCoin = require("src.ui.gold_coin")
+local WorldInteractLabelBatch = require("src.ui.world_interact_label_batch")
 local Vision = require("src.data.vision")
+
+-- Must match Combat.lua PICKUP_COLLECT_RADIUS (used for label priority only; no combat require here).
+local WEAPON_INTERACT_RADIUS = 26
+
+local function isClosestGroundedWeaponForPickup(pickups, player, self)
+    if not pickups or not player then return false end
+    local bestI, bestD = nil, math.huge
+    local px = player.x + player.w / 2
+    local py = player.y + player.h / 2
+    for i, p in ipairs(pickups) do
+        if p.pickupType == "weapon" and p.gunDef and p.alive and p.grounded then
+            local dx = (p.x + p.w / 2) - px
+            local dy = (p.y + p.h / 2) - py
+            local dist = math.sqrt(dx * dx + dy * dy)
+            if dist < WEAPON_INTERACT_RADIUS and dist < bestD then
+                bestD = dist
+                bestI = i
+            end
+        end
+    end
+    return bestI ~= nil and pickups[bestI] == self
+end
 
 local Pickup = {}
 Pickup.__index = Pickup
@@ -179,7 +202,7 @@ function Pickup:update(dt, world, playerX, playerY)
     end
 end
 
-function Pickup:draw(player, camera, shakeX, shakeY, room)
+function Pickup:draw(player, camera, shakeX, shakeY, room, allPickups)
     if player and camera then
         local cx = self.x + self.w * 0.5
         local cy = self.y + self.h * 0.5
@@ -291,32 +314,44 @@ function Pickup:draw(player, camera, shakeX, shakeY, room)
         love.graphics.setColor(rc[1], rc[2], rc[3], 0.35 * pulse * airMul)
         love.graphics.circle("line", cx, cy, 16)
 
+        local scale = 0.55
+        local spriteHalfH = 8
         -- Draw actual weapon sprite if available
         local sprite = Guns.getSprite(self.gunDef)
         if sprite then
             local sw, sh = sprite:getDimensions()
-            local scale = 0.55
+            spriteHalfH = sh * scale * 0.5
             love.graphics.setColor(1, 1, 1, airMul)
             love.graphics.draw(sprite, cx, cy, 0, scale, scale, sw / 2, sh / 2)
         else
             -- Fallback: colored rectangle
             love.graphics.setColor(rc[1], rc[2], rc[3], 0.9 * airMul)
             love.graphics.rectangle("fill", self.x + 1, self.y + 3 + dy, self.w - 2, self.h - 6)
+            spriteHalfH = 5
         end
 
-        -- Floating name label
+        -- Name pill above the sprite (batched so piles of guns don't stack unreadable labels).
         if not Pickup._weaponFont then
             Pickup._weaponFont = Font.new(8)
         end
-        local prevFont = love.graphics.getFont()
-        love.graphics.setFont(Pickup._weaponFont)
-        local label = self.gunDef.name
-        local tw = Pickup._weaponFont:getWidth(label)
-        love.graphics.setColor(0, 0, 0, 0.7 * airMul)
-        love.graphics.print(label, cx - tw / 2 + 1, self.y - 12 + dy + 1)
-        love.graphics.setColor(rc[1], rc[2], rc[3], airMul)
-        love.graphics.print(label, cx - tw / 2, self.y - 12 + dy)
-        love.graphics.setFont(prevFont)
+        local weaponTopY = cy - spriteHalfH
+        local priority = 1000
+        if player then
+            local px = player.x + player.w / 2
+            local py = player.y + player.h / 2
+            local d2 = (cx - px) * (cx - px) + (cy - py) * (cy - py)
+            priority = math.floor(200000 / (d2 + 120))
+            if self.grounded and allPickups and isClosestGroundedWeaponForPickup(allPickups, player, self) then
+                priority = priority + 800000
+            end
+        end
+        WorldInteractLabelBatch.queue(cx, weaponTopY, self.gunDef.name, {
+            font = Pickup._weaponFont,
+            fg = { rc[1], rc[2], rc[3] },
+            gap = 6,
+            alpha = airMul,
+            priority = priority,
+        })
     end
 
     -- Flash when about to expire

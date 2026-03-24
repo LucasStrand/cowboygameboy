@@ -2,6 +2,7 @@
 --- Player picks one with E, the others disappear.
 
 local Guns = require("src.data.guns")
+local WorldInteractLabel = require("src.ui.world_interact_label")
 
 local WeaponAltar = {}
 WeaponAltar.__index = WeaponAltar
@@ -11,6 +12,9 @@ local PEDESTAL_H = 20
 local PEDESTAL_GAP = 16
 local INTERACT_RADIUS = 60
 local TOTAL_W = PEDESTAL_W * 3 + PEDESTAL_GAP * 2
+
+-- World Y for "Choose a weapon" anchor: must sit clearly above "[E] Take" (anchored at weaponTopY).
+local CHOOSE_HEADER_ANCHOR_Y = -44
 
 local RARITY_COLORS = {
     common   = {0.85, 0.85, 0.85},
@@ -153,38 +157,48 @@ function WeaponAltar:draw(showHint)
         -- Weapon sprite floating above pedestal
         local weaponY = self.y + self.h - PEDESTAL_H - 18 + math.sin(self.glowTimer * 2 + i) * 3
         local sprite = Guns.getSprite(gun)
+        local scale = 0.6
+        local spriteHalfH = 10
         if sprite then
             local sw, sh = sprite:getDimensions()
-            local scale = 0.6
+            spriteHalfH = sh * scale * 0.5
             love.graphics.setColor(1, 1, 1)
             love.graphics.draw(sprite, pcx, weaponY, 0, scale, scale, sw / 2, sh / 2)
         else
             -- Fallback colored block
             love.graphics.setColor(rc[1], rc[2], rc[3], 0.9)
             love.graphics.rectangle("fill", pcx - 8, weaponY - 4, 16, 8, 2)
+            spriteHalfH = 6
         end
 
         -- Rarity glow under weapon
         love.graphics.setColor(rc[1], rc[2], rc[3], 0.18 * pulse)
         love.graphics.circle("fill", pcx, weaponY, 12)
 
-        -- Weapon name
-        love.graphics.setColor(rc[1], rc[2], rc[3], 0.9)
-        love.graphics.printf(gun.name, pLeft - 8, self.y + self.h + 2, PEDESTAL_W + 16, "center")
+        local weaponTopY = weaponY - spriteHalfH
+        local nameAlpha = (self.state == "chosen" and i ~= self.chosenIndex) and (1 - self.vanishTimer / 0.5) or 1
 
-        -- Interaction hint on selected
+        -- Interaction hint above the weapon (no per-gun name labels — guns are readable from sprites)
         if selected and showHint then
-            love.graphics.setColor(1, 0.92, 0.3, 0.9)
-            love.graphics.printf("[E] Take", pcx - 28, weaponY - 22, 56, "center")
+            WorldInteractLabel.drawAboveAnchor(pcx, weaponTopY, "[E] Take", {
+                bobAmp = 1,
+                bobTime = love.timer.getTime(),
+                alpha = nameAlpha,
+            })
         end
 
         ::continue::
     end
 
-    -- "Choose one" label when active
+    -- Draw last so the header stays on top of pedestals, glows, and [E] prompts.
     if self.state == "choosing" and showHint then
-        love.graphics.setColor(0.9, 0.85, 0.6, 0.7)
-        love.graphics.printf("Choose a weapon", self.x, self.y - 28, self.w, "center")
+        local headerAnchorY = self.y + CHOOSE_HEADER_ANCHOR_Y
+        WorldInteractLabel.drawAboveAnchor(self.x + self.w * 0.5, headerAnchorY, "Choose a weapon", {
+            gap = 8,
+            bobAmp = 0.6,
+            bobTime = love.timer.getTime(),
+            fg = { 0.95, 0.88, 0.65 },
+        })
     end
 
     love.graphics.setColor(1, 1, 1)

@@ -2,6 +2,7 @@
 --- Not a bump physics body — drawn as a prop, interacted with via proximity check.
 
 local LootTable = require("src.data.loot_table")
+local WorldInteractLabel = require("src.ui.world_interact_label")
 
 local Chest = {}
 Chest.__index = Chest
@@ -87,10 +88,12 @@ local function drawBonePile(px, py, scale, alpha)
     end
 end
 
---- Draw a glowing "!" prompt above (cx, cy) when the chest is nearby and unopened.
-local function drawInteractHint(cx, cy)
-    love.graphics.setColor(1, 0.92, 0.3, 0.9)
-    love.graphics.printf("[E] Open", cx - 32, cy - 28, 64, "center")
+--- Prompt above the chest sprite (cy = top of chest draw rect).
+local function drawInteractHint(cx, chestTopY)
+    WorldInteractLabel.drawAboveAnchor(cx, chestTopY, "[E] Open", {
+        bobAmp = 1,
+        bobTime = love.timer.getTime(),
+    })
 end
 
 --- Snap chest top Y so the 32px-tall hitbox bottom sits on the platform surface under its center.
@@ -312,8 +315,11 @@ function Chest:draw(player, showHint)
     -- "Defeat them!" hint while ambush is active
     if showHint and self.state == "ambushing" then
         local cx = self.x + self.w / 2
-        love.graphics.setColor(1, 0.35, 0.2, 0.9)
-        love.graphics.printf("Defeat them!", cx - 36, self.y + CHEST_DRAW_OFFSET - 28, 72, "center")
+        WorldInteractLabel.drawAboveAnchor(cx, self.y + CHEST_DRAW_OFFSET, "Defeat them!", {
+            bobAmp = 0.8,
+            bobTime = love.timer.getTime(),
+            fg = { 1, 0.42, 0.32 },
+        })
     end
 
     -- Cursed warning glow

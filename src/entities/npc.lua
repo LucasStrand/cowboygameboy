@@ -1,4 +1,5 @@
 local Font = require("src.ui.font")
+local WorldInteractLabel = require("src.ui.world_interact_label")
 
 local NPC = {}
 NPC.__index = NPC
@@ -277,6 +278,26 @@ function NPC:update(dt)
     end
 end
 
+--- World Y of the top edge of the current sprite frame (for prompts above the head).
+function NPC:getSpriteTopY()
+    local anim = self:getAnim()
+    if not anim or #anim.frames == 0 then
+        return self.y
+    end
+    local frame = anim.frames[self.frameIndex]
+    local fw, fh = frame:getDimensions()
+    local normScale = 1
+    if self.refFrameH and self.refFrameH > 0 then
+        normScale = self.refFrameH / fh
+    end
+    local animMul = anim.drawScale or 1
+    local sy = math.abs(self.scale * normScale * animMul)
+    local pads = anim.bottomPads
+    local bottomPad = (pads and pads[self.frameIndex]) or 0
+    local drawY = self.y + self.h + bottomPad * sy
+    return drawY - fh * sy
+end
+
 function NPC:canInteract(px, py, pw, ph)
     local cx = self.x + self.w / 2
     local cy = self.y + self.h / 2
@@ -332,22 +353,12 @@ end
 function NPC:drawPrompt()
     if not self.promptVisible then return end
 
-    local bob = math.sin(self.promptTimer * PROMPT_BOB_SPEED) * PROMPT_BOB_AMP
     local cx = self.x + self.w / 2
-    local py = self.y - 12 + bob
-
-    love.graphics.setFont(self.promptFont)
-
-    -- Shadow
-    love.graphics.setColor(0, 0, 0, 0.8)
-    local tw = self.promptFont:getWidth(self.promptLabel)
-    love.graphics.print(self.promptLabel, math.floor(cx - tw / 2) + 1, math.floor(py) + 1)
-
-    -- Text
-    love.graphics.setColor(1, 0.9, 0.5)
-    love.graphics.print(self.promptLabel, math.floor(cx - tw / 2), math.floor(py))
-
-    love.graphics.setColor(1, 1, 1)
+    WorldInteractLabel.drawAboveAnchor(cx, self:getSpriteTopY(), self.promptLabel, {
+        font = self.promptFont,
+        bobAmp = PROMPT_BOB_AMP,
+        bobTime = self.promptTimer,
+    })
 end
 
 function NPC:drawSpeech()
@@ -361,7 +372,8 @@ function NPC:drawSpeech()
         alpha = (self.speechDuration - self.speechLife) / 0.8
     end
 
-    local py = self.y - 38 - self.speechLife * 2
+    local top = self:getSpriteTopY()
+    local py = top - 26 - self.speechLife * 2
 
     local font = self.promptFont
     love.graphics.setFont(font)

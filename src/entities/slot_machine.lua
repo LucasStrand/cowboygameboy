@@ -13,6 +13,7 @@
 
 local Guns = require("src.data.guns")
 local Font = require("src.ui.font")
+local WorldInteractLabel = require("src.ui.world_interact_label")
 
 local SlotMachine = {}
 SlotMachine.__index = SlotMachine
@@ -432,8 +433,10 @@ function SlotMachine:draw(showHint)
 
     -- World-space hint when idle
     if showHint and self.state == "idle" then
-        love.graphics.setColor(1, 0.92, 0.30, 0.9)
-        love.graphics.printf("[E] Play  " .. COST .. "g", x - 18, y - 16, W + 36, "center")
+        WorldInteractLabel.drawAboveAnchor(x + W * 0.5, y, "[E] Play  " .. COST .. "g", {
+            bobAmp = 0.8,
+            bobTime = love.timer.getTime(),
+        })
     end
 
     -- Reel panel: transform machine position to screen coords, then draw

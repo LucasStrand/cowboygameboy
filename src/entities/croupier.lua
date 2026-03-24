@@ -9,6 +9,7 @@ local TrailCoinFlip = require("src.systems.trail_coin_flip")
 local CroupierSprites = require("src.entities.croupier_sprite_data")
 local GoldCoinData = require("src.data.gold_coin")
 local Pickup = require("src.entities.pickup")
+local WorldInteractLabel = require("src.ui.world_interact_label")
 
 local Croupier = {}
 Croupier.__index = Croupier
@@ -395,6 +396,8 @@ function Croupier:draw(showHint, playerGold)
     local footY = self.y + self.h
     local feetY = footY - FEET_ON_SURFACE_PX
 
+    local spriteTopY = self.y + 8
+
     -- Shadow
     love.graphics.setColor(0, 0, 0, 0.2)
     love.graphics.ellipse("fill", cx, feetY, 14, 4)
@@ -419,6 +422,7 @@ function Croupier:draw(showHint, playerGold)
             local drawH = ih * scale
             local drawX = cx - drawW * 0.5
             local drawY = feetY - drawH + SPRITE_FOOT_PAD_PX * scale
+            spriteTopY = drawY
             love.graphics.setColor(1, 1, 1, 1)
             love.graphics.draw(img, drawX, drawY, 0, scale, scale)
         end
@@ -431,14 +435,19 @@ function Croupier:draw(showHint, playerGold)
     love.graphics.printf("♠", self.x, self.y + 22, self.w, "center")
 
     if showHint and self.state == "idle" then
-        love.graphics.setColor(1, 0.92, 0.3, 0.9)
-        love.graphics.printf("[E] Coin flip", cx - 52, self.y - 18, 104, "center")
+        WorldInteractLabel.drawAboveAnchor(cx, spriteTopY, "[E] Coin flip", {
+            bobAmp = 1.2,
+            bobTime = love.timer.getTime(),
+        })
     end
 
     if self.message and self.messageTimer > 0 then
         local alpha = math.min(1, self.messageTimer)
+        -- Sit above the [E] pill (hint is drawn first; message stays higher on screen)
+        love.graphics.setColor(0, 0, 0, 0.55 * alpha)
+        love.graphics.printf(self.message, cx - 60 + 1, spriteTopY - 38 + 1, 120, "center")
         love.graphics.setColor(1, 1, 1, alpha)
-        love.graphics.printf(self.message, cx - 50, self.y - 30, 100, "center")
+        love.graphics.printf(self.message, cx - 60, spriteTopY - 38, 120, "center")
     end
 
     -- Draw the physical flip coin in the world

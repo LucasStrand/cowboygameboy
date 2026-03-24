@@ -15,6 +15,8 @@ local Mods = {
     DevPanel = require("src.ui.dev_panel"),
     DamageNumbers = require("src.ui.damage_numbers"),
     Font = require("src.ui.font"),
+    WorldInteractLabel = require("src.ui.world_interact_label"),
+    WorldInteractLabelBatch = require("src.ui.world_interact_label_batch"),
     Cursor = require("src.ui.cursor"),
     TextLayout = require("src.ui.text_layout"),
     ContentTooltips = require("src.systems.content_tooltips"),
@@ -2908,6 +2910,7 @@ function game:draw()
 
     camera:attach(0, 0, GAME_WIDTH, GAME_HEIGHT)
     love.graphics.translate(sx, sy)
+    Mods.WorldInteractLabelBatch.clear()
 
     -- Room background
     if currentRoom then
@@ -3074,18 +3077,32 @@ function game:draw()
                 love.graphics.draw(doorSheet, quad, drawX, drawY, 0, scale, scale)
             end
 
+            local doorTopY = door.y + door.h - DOOR_FRAME_SIZE
+            local doorCx = door.x + door.w * 0.5
+
             if not doorOpen and roomHasLivingThreat() then
-                love.graphics.setColor(1, 0.85, 0.35, 0.75)
-                love.graphics.printf("Locked", door.x - 16, door.y - 18, door.w + 32, "center")
+                Mods.WorldInteractLabel.drawAboveAnchor(doorCx, doorTopY, "Locked", {
+                    bobAmp = 0.6,
+                    bobTime = love.timer.getTime(),
+                    fg = { 1, 0.82, 0.38 },
+                    alpha = 0.9,
+                })
             end
 
             if doorOpen then
-                love.graphics.setColor(1, 1, 1, 0.85)
                 if player and isPlayerNearDoor() then
                     local ik = Mods.Keybinds.formatActionKey("interact")
-                    love.graphics.printf(string.format("[%s] Exit", ik), door.x - 24, door.y - 20, door.w + 48, "center")
+                    Mods.WorldInteractLabel.drawAboveAnchor(doorCx, doorTopY, string.format("[%s] Exit", ik), {
+                        bobAmp = 0.8,
+                        bobTime = love.timer.getTime(),
+                        alpha = 0.95,
+                    })
                 else
-                    love.graphics.printf("Exit", door.x - 10, door.y - 18, door.w + 20, "center")
+                    Mods.WorldInteractLabel.drawAboveAnchor(doorCx, doorTopY, "Exit", {
+                        bobAmp = 0.6,
+                        bobTime = love.timer.getTime(),
+                        alpha = 0.88,
+                    })
                 end
             end
         end
@@ -3102,8 +3119,9 @@ function game:draw()
 
     -- Pickups
     for _, p in ipairs(pickups) do
-        p:draw(player, camera, sx, sy, currentRoom)
+        p:draw(player, camera, sx, sy, currentRoom, pickups)
     end
+    Mods.WorldInteractLabelBatch.flush()
 
     -- Enemies
     for _, e in ipairs(enemies) do

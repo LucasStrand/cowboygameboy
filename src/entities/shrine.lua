@@ -2,6 +2,7 @@
 --- One-use per shrine. Shows buff icon above the shrine after activation.
 
 local Buffs = require("src.systems.buffs")
+local WorldInteractLabel = require("src.ui.world_interact_label")
 
 local Shrine = {}
 Shrine.__index = Shrine
@@ -140,8 +141,10 @@ function Shrine:draw(showHint)
 
         -- Interaction hint
         if showHint then
-            love.graphics.setColor(1, 0.92, 0.3, 0.9)
-            love.graphics.printf("[E] Pray", cx - 32, self.y - 16, 64, "center")
+            WorldInteractLabel.drawAboveAnchor(cx, self.y + 4, "[E] Pray", {
+                bobAmp = 1,
+                bobTime = love.timer.getTime(),
+            })
         end
     else
         -- Activated: show blessing name briefly, then buff icon

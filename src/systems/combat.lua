@@ -46,7 +46,8 @@ local WEAPON_TAP_MAX = 0.32
 Combat.WEAPON_SELL_HOLD = WEAPON_SELL_HOLD
 Combat.WEAPON_TAP_MAX = WEAPON_TAP_MAX
 
-local function findClosestGroundedWeaponIndex(pickups, player)
+--- Exposed for UI (weapon pickup label priority).
+function Combat.findClosestGroundedWeaponIndex(pickups, player)
     local bestI, bestD = nil, math.huge
     local px = player.x + player.w / 2
     local py = player.y + player.h / 2
@@ -67,7 +68,7 @@ end
 --- Equip the nearest grounded weapon pickup in range (call from interact tap).
 --- @return boolean true if a weapon was picked up
 function Combat.tryEquipWeaponPickup(pickups, player, world)
-    local i = findClosestGroundedWeaponIndex(pickups, player)
+    local i = Combat.findClosestGroundedWeaponIndex(pickups, player)
     if not i then return false end
     local p = pickups[i]
     player:equipWeapon(p.gunDef, player.activeWeaponSlot)
@@ -86,7 +87,7 @@ end
 --- Sell the nearest grounded weapon pickup for scrap gold (call when hold threshold reached).
 --- @return boolean true if a weapon was sold
 function Combat.trySellWeaponPickup(pickups, player, world)
-    local i = findClosestGroundedWeaponIndex(pickups, player)
+    local i = Combat.findClosestGroundedWeaponIndex(pickups, player)
     if not i then return false end
     local p = pickups[i]
     local amount = Guns.getSellValue(p.gunDef)

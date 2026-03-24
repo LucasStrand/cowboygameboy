@@ -31,6 +31,7 @@ local Mods = {
     GoldCoin = require("src.data.gold_coin"),
     ImpactFX = require("src.systems.impact_fx"),
     saloonRoom = require("src.data.saloon_room"),
+    WorldInteractLabelBatch = require("src.ui.world_interact_label_batch"),
 }
 
 local saloon = {}
@@ -1476,6 +1477,7 @@ function saloon:draw()
     love.graphics.rectangle("fill", 0, 0, screenW, screenH)
 
     camera:attach(0, 0, screenW, screenH)
+    Mods.WorldInteractLabelBatch.clear()
 
     -- === LAYER 1: Background image (saloon interior walls) ===
     if bgImage then
@@ -1709,8 +1711,9 @@ function saloon:draw()
 
     -- === LAYER 8: Pickups (gold on the floor) ===
     for _, p in ipairs(pickups) do
-        p:draw()
+        p:draw(player, camera, 0, 0, nil, pickups)
     end
+    Mods.WorldInteractLabelBatch.flush()
 
     -- === LAYER 9: Player (in front of everything) ===
     if player then
