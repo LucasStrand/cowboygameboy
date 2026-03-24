@@ -118,7 +118,9 @@
       "Bash(lua -c src/systems/room_manager.lua)",
       "Bash(luac -p src/data/worlds.lua src/data/rooms.lua src/systems/room_manager.lua src/states/editor.lua)",
       "Bash(lua -e \"loadfile\\(''src/states/editor.lua''\\)\")",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(find /c/Users/lucas/Documents/GitHub/cowboygameboy -name *test* -o -name *spec*)",
+      "Bash(find /c/Users/lucas/Documents/GitHub/cowboygameboy -maxdepth 2 -name README* -o -name readme*)"
     ]
   }
 }
