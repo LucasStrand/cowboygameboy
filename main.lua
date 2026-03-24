@@ -1,5 +1,7 @@
 local Gamestate = require("lib.hump.gamestate")
 local Settings = require("src.systems.settings")
+local ContentValidator = require("src.systems.content_validator")
+local Worlds = require("src.data.worlds")
 
 local boot_intro = require("src.states.boot_intro")
 local game = require("src.states.game")
@@ -12,7 +14,22 @@ local saloon = require("src.states.saloon")
 GAME_WIDTH = 1280
 GAME_HEIGHT = 720
 DEBUG = false
-DEV_TOOLS_ENABLED = DEBUG
+DEV_TOOLS_ENABLED = true
+
+local function hasCliFlag(...)
+    local wanted = {}
+    for i = 1, select("#", ...) do
+        wanted[select(i, ...)] = true
+    end
+    for _, value in ipairs(arg or {}) do
+        if wanted[value] then
+            return true
+        end
+    end
+    return false
+end
+
+local CLI_DEV_BOOT = hasCliFlag("dev", "--dev", "--debug", "--dev-arena")
 
 local gameCanvas
 local canvasScale = 1
@@ -56,9 +73,39 @@ function love.load()
     love.graphics.setDefaultFilter("linear", "linear")
     math.randomseed(os.time())
 
-    local Settings = require("src.systems.settings")
     Settings.load()
     Settings.apply()
+    ContentValidator.validate_all()
+
+    if hasCliFlag("--phase10-regression") then
+        local Phase10Reg = require("src.systems.phase10_regression")
+        local ok, err = Phase10Reg.run()
+        if ok then
+            print("[phase10-regression] OK")
+        else
+            print("[phase10-regression] FAIL: " .. tostring(err))
+            if os and os.exit then
+                os.exit(1)
+            end
+        end
+        love.event.quit()
+        return
+    end
+
+    if hasCliFlag("--phase11-actor-regression") then
+        local Phase11Reg = require("src.systems.phase11_actor_regression")
+        local ok, err = Phase11Reg.run()
+        if ok then
+            print("[phase11-actor-regression] OK")
+        else
+            print("[phase11-actor-regression] FAIL: " .. tostring(err))
+            if os and os.exit then
+                os.exit(1)
+            end
+        end
+        love.event.quit()
+        return
+    end
 
     syncGameDimensions()
     updateCanvasScale()
@@ -69,7 +116,17 @@ function love.load()
         callbacks[#callbacks+1] = k
     end
     Gamestate.registerEvents(callbacks)
-    Gamestate.switch(boot_intro)
+    if CLI_DEV_BOOT then
+        Gamestate.switch(game, {
+            devArena = true,
+            introCountdown = false,
+            openDevPanel = true,
+            devBoot = true,
+            worldId = Worlds.order[1],
+        })
+    else
+        Gamestate.switch(boot_intro)
+    end
 end
 
 function love.resize(w, h)
@@ -78,6 +135,9 @@ function love.resize(w, h)
 end
 
 function love.draw()
+    if not gameCanvas then
+        return
+    end
     -- Render to a canvas matching the window; larger window ⇒ larger canvas ⇒ more world (see camera view).
     -- Table form: temporary stencil buffer for love.graphics.stencil (roulette wheel clip); LOVE 11+.
     love.graphics.setCanvas({ gameCanvas, stencil = true })

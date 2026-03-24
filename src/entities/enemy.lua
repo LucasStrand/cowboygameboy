@@ -1,10 +1,18 @@
 local EnemyData = require("src.data.enemies")
+local AttackProfiles = require("src.data.attack_profiles")
+local AttackPacketBuilder = require("src.systems.attack_packet_builder")
 local Vision = require("src.data.vision")
+local DamagePacket = require("src.systems.damage_packet")
+local DamageResolver = require("src.systems.damage_resolver")
 local EnemyAI = require("src.systems.enemy_ai")
+local Buffs = require("src.systems.buffs")
 local PlatformCollision = require("src.systems.platform_collision")
+local GameRng = require("src.systems.game_rng")
+local SourceRef = require("src.systems.source_ref")
 
 local Enemy = {}
 Enemy.__index = Enemy
+local NEXT_ENEMY_ID = 1
 
 -- Bandit sprite constants
 local BANDIT_FRAME_H = 48
@@ -255,6 +263,8 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     if not data then return nil end
 
     local self = setmetatable({}, Enemy)
+    self.actorId = "enemy_" .. NEXT_ENEMY_ID
+    NEXT_ENEMY_ID = NEXT_ENEMY_ID + 1
     self.typeId = typeId
     self.x = x
     self.y = y
@@ -263,7 +273,18 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     self.hp = data.hp
     self.maxHP = data.hp
     self.damage = data.damage
+    local defense = data.defense or {}
+    self.armor = defense.armor or 0
+    self.magic_resist = defense.magic_resist or 0
+    self.armor_shred = defense.armor_shred or 0
+    self.magic_shred = defense.magic_shred or 0
+    self.incoming_damage_mul = defense.incoming_damage_mul or 1
+    self.incoming_physical_mul = defense.incoming_physical_mul or 1
+    self.incoming_magical_mul = defense.incoming_magical_mul or 1
+    self.contact_attack_id = data.contact_attack_id
+    self.ranged_attack_id = data.ranged_attack_id
     self.speed = data.speed
+    self.baseSpeed = data.speed
     self.xpValue = data.xpValue
     self.goldValue = data.goldValue
     self.color = data.color
@@ -305,6 +326,15 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     self.vy = 0
     self.grounded = false
     self.hurtTimer = 0
+    self.cc_profile = (typeId == "ogreboss" or typeId == "blackkid") and "boss" or "normal"
+    self.statuses = Buffs.newTracker({
+        owner_actor_id = self.actorId,
+    }, {
+        owner_actor = self,
+        owner_actor_id = self.actorId,
+        owner_kind = "enemy",
+        cc_profile = self.cc_profile,
+    })
 
     -- Flying enemies hover
     self.flying = (data.behavior == "flying")
@@ -360,11 +390,56 @@ function Enemy.new(typeId, x, y, difficulty, opts)
     return self
 end
 
+function Enemy:get_defense_state(packet)
+    local _ = packet
+    local mods = Buffs.getStatMods(self.statuses)
+    local armor = (self.armor or 0) + (tonumber(mods.armor) or 0)
+    local mr = (self.magic_resist or 0)
+        + (tonumber(mods.magic_resist) or 0)
+        + (tonumber(mods.magicResist) or 0)
+    return {
+        armor = armor,
+        magic_resist = mr,
+        armor_shred = self.armor_shred or 0,
+        magic_shred = self.magic_shred or 0,
+        incoming_damage_mul = self.incoming_damage_mul or 1,
+        incoming_physical_mul = self.incoming_physical_mul or 1,
+        incoming_magical_mul = self.incoming_magical_mul or 1,
+        block_damage_mul = 1,
+    }
+end
+
+function Enemy:getEquipmentState()
+    return nil
+end
+
+function Enemy:getProcRules()
+    return {}
+end
+
+function Enemy:getAttackProfile(id)
+    return AttackProfiles.get(id)
+end
+
 function Enemy:update(dt, world, context)
     self.attackTimer = self.attackTimer - dt
     if self.hurtTimer > 0 then
         self.hurtTimer = self.hurtTimer - dt
     end
+
+    Buffs.update(self.statuses, dt, {
+        owner_actor = self,
+        target_kind = "enemy",
+        world = world,
+    })
+    if not self.alive then
+        return nil
+    end
+
+    local statusMods = Buffs.getStatMods(self.statuses)
+    local moveSpeedDelta = statusMods.moveSpeed or statusMods.move_speed or 0
+    self.speed = math.max(12, (self.baseSpeed or self.speed) + moveSpeedDelta)
+    local control = Buffs.getControlState(self.statuses)
 
     local dx = 0
     local player = context and context.player
@@ -480,6 +555,12 @@ function Enemy:update(dt, world, context)
                 self.spriteFrame = math.min(anim.frames, self.spriteFrame + 1)
             end
         end
+    end
+
+    if control.stunned then
+        self.vx = 0
+        self.vy = 0
+        return nil
     end
 
     return EnemyAI.update(self, dt, world, context or {})
@@ -655,14 +736,20 @@ function Enemy:updateRanged(dt, world, dx, dy, dist, playerX, playerY)
         end
         local angle = math.atan2(dy, dx)
         -- Slight inaccuracy
-        angle = angle + (math.random() - 0.5) * 0.15
+            angle = angle + (GameRng.randomFloat("enemy.projectile_inaccuracy", 0, 1) - 0.5) * 0.15
+        local packet = AttackPacketBuilder.build_enemy_hit(self, "projectile")
         return {
             x = self.x + self.w / 2,
             y = self.y + self.h / 2,
             angle = angle,
             speed = self.bulletSpeed or 380,
+            packet = packet,
+            source_actor = self,
             damage = self.damage,
             fromEnemy = true,
+            damage_family = packet.family,
+            packet_kind = "direct_hit",
+            damage_tags = packet.tags,
         }
     end
 
@@ -711,9 +798,35 @@ function Enemy:updateFlying(dt, world, dx, dy, dist, playerX, playerY)
     return nil
 end
 
-function Enemy:takeDamage(amount, world)
-    self.hp = self.hp - amount
+function Enemy:takeDamage(amount, world, packet)
+    packet = packet or DamagePacket.new({
+        kind = "direct_hit",
+        family = "physical",
+        amount = amount,
+        source = SourceRef.new({ owner_actor_id = "unknown_actor", owner_source_type = "unknown_source", owner_source_id = "unknown_source" }),
+        target_id = self.actorId,
+        metadata = {
+            source_context_kind = "snapshot_only",
+        },
+    })
+    local result = DamageResolver.resolve_direct_hit({
+        packet = packet,
+        source_actor = nil,
+        target_actor = self,
+        target_kind = "enemy",
+        world = world,
+    })
+    return result.target_killed
+end
+
+function Enemy:applyResolvedDamage(result, world, packet)
+    if not self.alive then
+        return false, 0, false
+    end
+
+    self.hp = self.hp - (result.final_damage or 0)
     self.hurtTimer = 0.18
+    self.lastDamagePacket = packet
     if self.hp <= 0 then
         self.alive = false
         self.state = "dead"
@@ -721,9 +834,11 @@ function Enemy:takeDamage(amount, world)
         if world and world:hasItem(self) then
             world:remove(self)
         end
-    else
-        EnemyAI.onDamaged(self)
+        return true, result.final_damage or 0, true
     end
+
+    EnemyAI.onDamaged(self)
+    return true, result.final_damage or 0, false
 end
 
 function Enemy:canDamagePlayer(playerX, playerY, playerW, playerH)
@@ -1151,6 +1266,25 @@ function Enemy:draw(player, camera, shakeX, shakeY, room)
         love.graphics.rectangle("fill", barX, barY, barW, barH)
         love.graphics.setColor(0.8, 0.1, 0.1)
         love.graphics.rectangle("fill", barX, barY, barW * (self.hp / self.maxHP), barH)
+    end
+
+    local topStatuses = Buffs.getTopStatuses(self.statuses, 2)
+    if #topStatuses > 0 then
+        local totalW = #topStatuses * 12 - 2
+        local startX = self.x + self.w * 0.5 - totalW * 0.5
+        local startY = self.y - 22
+        for i, entry in ipairs(topStatuses) do
+            local color = entry.fallback_color or (entry.isBuff and { 0.3, 0.72, 0.35 } or { 0.84, 0.24, 0.24 })
+            if entry.category == "hard_cc" then
+                color = { 1.0, 0.95, 0.55 }
+            end
+            local bx = startX + (i - 1) * 12
+            love.graphics.setColor(0.08, 0.08, 0.1, 0.92)
+            love.graphics.rectangle("fill", bx, startY, 10, 10, 2, 2)
+            love.graphics.setColor(color[1], color[2], color[3], 1)
+            love.graphics.rectangle("fill", bx + 1, startY + 1, 8, 8, 2, 2)
+        end
+        love.graphics.setColor(1, 1, 1)
     end
 
     if DEBUG and self.debugAI then

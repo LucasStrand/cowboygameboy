@@ -2,6 +2,7 @@ local Timer = require("lib.hump.timer")
 local Sfx = require("src.systems.sfx")
 local CasinoFx = require("src.ui.casino_fx")
 local TextLayout = require("src.ui.text_layout")
+local GameRng = require("src.systems.game_rng")
 
 local Roulette = {}
 Roulette.__index = Roulette
@@ -791,7 +792,10 @@ function Roulette:startSpin(player)
         return self:buildResult(nil, "Not enough gold to wager", 2)
     end
 
-    player.gold = player.gold - total
+    local ok = player:spendGold(total, "roulette_wager")
+    if not ok then
+        return self:buildResult(nil, "Not enough gold to wager", 2)
+    end
     self.reserved = total
     self.chipsAtSpin = copyBetMap(self.chips)
     self.lastRepeatSnapshot = copyBetMap(self.chips)
@@ -801,7 +805,7 @@ function Roulette:startSpin(player)
     self.winningBets = {}
     self.hoverBet = nil
 
-    local selected = math.random(0, 36)
+    local selected = GameRng.random("roulette.result_number", 0, 36)
     self.resultNumber = selected
 
     local segIdx = self.numToSegIdx[selected] or 1

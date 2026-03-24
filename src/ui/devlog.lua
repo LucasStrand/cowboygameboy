@@ -7,7 +7,7 @@ local Font = require("src.ui.font")
 
 local DevLog = {}
 
-local MAX_ENTRIES = 40
+local MAX_ENTRIES = 800
 
 -- Category display config
 local CAT = {
@@ -18,10 +18,62 @@ local CAT = {
 
 local entries = {}   -- { t, cat, msg }
 local sessionStart = 0
+local consoleState = {
+    follow = true,
+    topIndex = 1,
+}
+
+local function consoleVisibleLines(h)
+    local lineH = 13
+    local headerH = 18
+    local innerH = math.max(lineH, h - headerH - 8)
+    return math.max(1, math.floor(innerH / lineH))
+end
+
+local function clampConsoleState(visibleLines)
+    local total = #entries
+    if total <= 0 then
+        consoleState.follow = true
+        consoleState.topIndex = 1
+        return
+    end
+
+    local maxTop = math.max(1, total - visibleLines + 1)
+    if consoleState.follow then
+        consoleState.topIndex = maxTop
+    else
+        consoleState.topIndex = math.max(1, math.min(maxTop, consoleState.topIndex))
+        if consoleState.topIndex >= maxTop then
+            consoleState.topIndex = maxTop
+            consoleState.follow = true
+        end
+    end
+end
+
+local function fitSingleLine(font, text, maxWidth)
+    text = tostring(text or "")
+    if font:getWidth(text) <= maxWidth then
+        return text
+    end
+
+    local suffix = "..."
+    local suffixW = font:getWidth(suffix)
+    local out = {}
+    for i = 1, #text do
+        local nextPart = table.concat(out) .. text:sub(i, i)
+        if font:getWidth(nextPart) + suffixW > maxWidth then
+            break
+        end
+        out[#out + 1] = text:sub(i, i)
+    end
+    return table.concat(out) .. suffix
+end
 
 function DevLog.init()
     entries = {}
     sessionStart = love.timer.getTime()
+    consoleState.follow = true
+    consoleState.topIndex = 1
 end
 
 function DevLog.push(category, msg)
@@ -29,6 +81,9 @@ function DevLog.push(category, msg)
     table.insert(entries, { t = t, cat = category or "sys", msg = tostring(msg) })
     if #entries > MAX_ENTRIES then
         table.remove(entries, 1)
+        if not consoleState.follow then
+            consoleState.topIndex = math.max(1, consoleState.topIndex - 1)
+        end
     end
 end
 
@@ -71,6 +126,87 @@ function DevLog.draw(x, y, w)
     end
 
     return y
+end
+
+function DevLog.drawConsole(x, y, w, h)
+    if #entries == 0 then
+        return y
+    end
+
+    local lineH = 13
+    local headerH = 18
+    local visibleLines = consoleVisibleLines(h)
+    clampConsoleState(visibleLines)
+    local start = consoleState.topIndex
+    local stop = math.min(#entries, start + visibleLines - 1)
+    local count = math.max(0, stop - start + 1)
+
+    love.graphics.setColor(0, 0, 0, 0.76)
+    love.graphics.rectangle("fill", x - 4, y - 4, w + 8, h)
+
+    love.graphics.setColor(0.7, 0.7, 0.7)
+    local modeLabel = consoleState.follow and "LIVE" or "SCROLLED"
+    love.graphics.print(string.format("-- DEV LOG  (%d/%d)  [%s] --", count, #entries, modeLabel), x, y)
+    y = y + headerH
+
+    local timeW = 48
+    local tagW = 32
+    local msgX = x + timeW + tagW + 10
+    local msgW = math.max(32, w - (msgX - x) - 2)
+    local font = love.graphics.getFont()
+
+    for i = start, stop do
+        local e = entries[i]
+        local cfg = CAT[e.cat] or CAT.sys
+        local age = stop - i
+        local alpha = math.max(0.4, 1 - age * 0.08)
+
+        love.graphics.setColor(0.55, 0.55, 0.6, alpha * 0.85)
+        love.graphics.print(string.format("[%4.1f]", e.t), x, y)
+
+        love.graphics.setColor(cfg.r, cfg.g, cfg.b, alpha)
+        love.graphics.print(cfg.tag, x + timeW, y)
+
+        love.graphics.setColor(0.92, 0.92, 0.92, alpha)
+        love.graphics.print(fitSingleLine(font, e.msg, msgW), msgX, y)
+
+        y = y + lineH
+    end
+
+    if #entries > visibleLines then
+        local trackX = x + w - 4
+        local trackY = y - count * lineH
+        local trackH = visibleLines * lineH
+        local thumbH = math.max(12, trackH * (visibleLines / #entries))
+        local maxTop = math.max(1, #entries - visibleLines + 1)
+        local progress = maxTop > 1 and ((start - 1) / (maxTop - 1)) or 0
+        local thumbY = trackY + (trackH - thumbH) * progress
+
+        love.graphics.setColor(0.2, 0.2, 0.24, 0.8)
+        love.graphics.rectangle("fill", trackX, trackY, 3, trackH)
+        love.graphics.setColor(0.7, 0.7, 0.75, 0.9)
+        love.graphics.rectangle("fill", trackX, thumbY, 3, thumbH)
+    end
+
+    return y
+end
+
+function DevLog.scrollConsole(lines, h)
+    if #entries == 0 then
+        return
+    end
+
+    local visibleLines = consoleVisibleLines(h)
+    clampConsoleState(visibleLines)
+    local maxTop = math.max(1, #entries - visibleLines + 1)
+    local currentTop = consoleState.topIndex
+    local nextTop = math.max(1, math.min(maxTop, currentTop - lines))
+    consoleState.topIndex = nextTop
+    consoleState.follow = nextTop >= maxTop
+end
+
+function DevLog.followConsole()
+    consoleState.follow = true
 end
 
 -- Always-visible overlay: last N entries, anchored to bottom-right of the screen.

@@ -8,6 +8,7 @@ local RoomProps = require("src.systems.room_props")
 local Enemy = require("src.entities.enemy")
 local Chest = require("src.entities.chest")
 local bump = require("lib.bump")
+local GameRng = require("src.systems.game_rng")
 
 local RoomManager = {}
 RoomManager.__index = RoomManager
@@ -24,7 +25,7 @@ function RoomManager.new(worldId)
     self.nightVisualsOverride = nil
     --- When true, `generateSequence` uses only `RoomData.devArena` (sandbox).
     self.devArenaMode = false
-    self.worldId = worldId or "forest"
+    self.worldId = worldId or Worlds.default or "forest"
     self.worldDef = Worlds.get(self.worldId)
     return self
 end
@@ -73,7 +74,7 @@ function RoomManager:generateSequence()
             if #pool == 0 then
                 pool = RoomData.pool or {}
             end
-            local room = pool[math.random(#pool)]
+            local room = pool[GameRng.random("room_manager.room_pick", #pool)]
             table.insert(self.roomSequence, room)
         end
     end
@@ -372,6 +373,8 @@ function RoomManager:loadRoom(room, world, player, opts)
         door = door,
         width = room.width,
         height = room.height,
+        --- Copy for respawn after pit / out-of-bounds (game state).
+        playerSpawn = room.playerSpawn and { x = room.playerSpawn.x, y = room.playerSpawn.y } or nil,
         --- Room `boss = true` in room data forces boss BGM; can also toggle at runtime for boss fights.
         bossFight = room.boss or false,
         nightMode = nightMode,

@@ -1,138 +1,60 @@
-# Six Chambers — game context for prompts
+# Six Chambers - Prompt Context
 
-Use this file when writing prompts for AI or collaborators. It summarizes **identity**, **vibe**, **what is implemented**, **content inventory**, and **conventions** so new work stays consistent with the project.
+Use this file when writing prompts or briefing collaborators. It reflects the current codebase, not the original prototype scope.
 
----
+## Identity
 
-## One-line identity
+Six Chambers is a 2D cowboy roguelike platformer built with LOVE2D 11.5 and Lua. The current game mixes platform combat, weapon/runtime-heavy build systems, casino and shop checkpoints, and run recap metadata.
 
-**Six Chambers** (*A Cowboy Roguelike*) is a **2D cowboy roguelike platformer** built with **LOVE2D 11.5** and **Lua**: revolver combat, procedural-ish room runs, XP/perks/gold/gear, and a **saloon checkpoint** with blackjack and a bartender shop. Death resets the run from the beginning.
+## Current Project Status
 
----
+- Combat/build overhaul Phases 2-8 are in code.
+- Phase 8 is closed in code and documentation, including the live recap/export closeout.
+- Phase 9 readability work is not started in code yet.
 
-## Vibe and creative direction
+## Core Run Structure
 
-- **Setting**: Western frontier — saloon, gold, whiskey, bandoliers, sheriff hats, dusty danger.
-- **Gameplay feel**: Arcade **platform combat** with **mouse-aimed shooting** (left click fires toward the cursor in world space), **six-round cylinder**, **reload** (keyboard `R` or right mouse). **Screen shake** on shots; camera **2× zoom** following the player across wide arenas.
-- **Meta layer**: Roguelike **run persistence within a life** — XP, level-ups, perk drafts, gold, shop purchases, blackjack wagers; **permadeath** ends the run.
-- **Visual / audio direction** (current build):
-  - **Nearest-neighbor** filtering (`main.lua`) — pixel-crisp scaling.
-  - **Menu**: Dark brown void, **gold title**, warm horizontal accent lines, flickering “Press ENTER” ([`src/states/menu.lua`](src/states/menu.lua)).
-  - **Run**: Parallax **forest** background (`assets/backgrounds/forest.png`) ([`src/states/game.lua`](src/states/game.lua)).
-  - **Saloon**: Dark wood tones, bar counter strip, same gold accent palette ([`src/states/saloon.lua`](src/states/saloon.lua)).
-  - Assets folder may use **placeholder** art (see README); assume **1280×720** logical resolution unless designing for a different base.
+- Main menu supports normal play, a world editor, and a dev arena.
+- Combat progression currently moves through `desert -> train -> forest`.
+- Each combat world uses chunk-authored room content and a 5-room checkpoint cadence.
+- After each 5-room segment, the run enters the saloon for shop and casino flows.
+- Death routes into a metadata-driven recap/game-over screen.
 
-**Copy drift to know about**: the main menu hint says *“Auto-Aim & Fire”* but combat is **aim-with-mouse, click to fire** (documented in [`README.md`](README.md)). Prefer README + this file for controls when prompting features.
+## Runtime Ownership
 
----
+- `weapon_runtime.lua`: authoritative weapon slots, ammo, cooldowns, reloads, resolved weapon stats.
+- `damage_resolver.lua`: authoritative direct-hit resolution and delayed secondary hits.
+- `buffs.lua`: shared player/enemy status runtime.
+- `proc_runtime.lua`: perk-driven proc evaluation and delayed proc packets.
+- `presentation_runtime.lua`: event-owned payoff and status presentation hooks.
+- `reward_runtime.lua`: level-up rewards, shop generation, rerolls, build profiling.
+- `run_metadata.lua`: canonical run history.
+- `meta_runtime.lua`: read-only summary and recap projection.
 
-## Run loop (authoritative)
+## Current Content Snapshot
 
-```mermaid
-flowchart LR
-  roomsLoop[FiveRooms]
-  saloon[SaloonCheckpoint]
-  roomsLoop --> saloon
-  saloon --> roomsLoop
-```
+- Guns: revolver, blunderbuss, AK-47.
+- Perks: 13 current perks, including explosive rounds, ricochet, akimbo, and `phantom_third`.
+- Gear: hat, vest, boots.
+- Statuses: v1 combat statuses plus migrated boon/debuff compatibility paths.
+- Enemies: standard combat enemies plus boss definitions.
+- Worlds: desert, train, forest, plus saloon support data.
 
-Difficulty rises as rooms are cleared (`RoomManager`), not only at the saloon.
+## Player-Facing Systems In Code
 
-1. **Five rooms** per checkpoint (`ROOMS_PER_CHECKPOINT` in [`src/data/rooms.lua`](src/data/rooms.lua)).
-2. Each checkpoint builds a **sequence of 5 rooms** by **random choice with replacement** from a pool of **four** hand-authored layouts ([`src/systems/room_manager.lua`](src/systems/room_manager.lua)): `canyon_run`, `cliffside`, `underground`, `mesa_heights`.
-3. In a room: **defeat all enemies** → exit **door unlocks** → player reaches door → **next room**. Falling past a **kill plane** (large vertical bounds) ends the run.
-4. After the fifth room, the game **pushes** the **Saloon** state ([`src/states/saloon.lua`](src/states/saloon.lua)):
-   - **[1] Blackjack**: requires **≥ 10 gold**; wager is **`min(player gold, 20)`** deducted at start. Hit/stand; on result, gold and sometimes a **perk draft** (see saloon + blackjack logic).
-   - **[2] Bartender (shop)**: healing, random **gear** roll, **cylinder +2** upgrade — prices scale with difficulty ([`src/systems/shop.lua`](src/systems/shop.lua)).
-   - **[3] / Enter**: **continue** — new 5-room sequence, **`roomManager:startNewCycle()`**, then back to gameplay.
-5. **Difficulty**: `RoomManager.difficulty` increases with **`totalRoomsCleared`** (`1 + totalRoomsCleared * 0.3` in [`src/systems/room_manager.lua`](src/systems/room_manager.lua)), affecting enemy scaling and shop generation.
-6. **Level-up**: Gaining a level opens the **level-up** state — pick **1 of 3** perks ([`src/states/levelup.lua`](src/states/levelup.lua), [`src/systems/progression.lua`](src/systems/progression.lua)).
-7. **Death**: Run ends; player restarts from **room 1** of a fresh run (see [`README.md`](README.md) / game over flow).
+- Mouse-aimed shooting, reload, melee, dash, double jump, shielding/blocking, Dead Man's Hand ultimate.
+- Resolver-owned direct-hit damage families and proc-safe delayed hits.
+- Shared status system for player and enemies with cleanse/purge/consume behavior.
+- Tooltip/template pipeline for perks, guns, gear, statuses, and shop offers.
+- Build-aware rewards, rerolls, economy tracking, and run recap summaries.
+- A two-step death flow with cinematic end screen plus dedicated recap/export screen.
+- Dev tooling for reward/meta/status verification plus a dedicated dev arena.
 
----
+## Prompting Guidance
 
-## Implemented systems (checklist)
-
-| Area | Notes |
-|------|--------|
-| **Player** | Movement, gravity, coyote time, jump buffer; stats, gear, perks, XP/gold; shooting/reload/Dead Eye timer ([`src/entities/player.lua`](src/entities/player.lua)) |
-| **Combat / world** | `bump` collision, bullets, enemy AI driven by [`src/data/enemies.lua`](src/data/enemies.lua) ([`src/systems/combat.lua`](src/systems/combat.lua)) |
-| **Rooms** | Lua-defined platforms/spawns/exit; walls and door; no Tiled map in the run loop |
-| **Progression** | XP curve, level-up perk rolls, perk application |
-| **Economy** | Gold drops, shop, blackjack |
-| **Gear** | Three slots: hat, vest, boots ([`src/data/gear.lua`](src/data/gear.lua), [`src/systems/inventory.lua`](src/systems/inventory.lua)) |
-| **UI** | HUD (HP, ammo cylinder, XP, gold), perk cards ([`src/ui/hud.lua`](src/ui/hud.lua), [`src/ui/perk_card.lua`](src/ui/perk_card.lua)) |
-| **Debug** | **F1** toggles global `DEBUG`; game state can append **`DEBUG_LOG`** lines ([`src/states/game.lua`](src/states/game.lua)) |
-| **Rendering** | **Canvas = drawable window size** (min 640×360); **camera shows more world** on larger windows (`view = canvas / CAM_ZOOM`). HUD uses **fixed pixel** layout (not scaled up with resolution). Linear canvas filter; UI fonts via [`src/ui/font.lua`](src/ui/font.lua). `windowToGame` for mouse ([`main.lua`](main.lua)) |
-
----
-
-## Content inventory (avoid duplicate names / concepts)
-
-### Enemies (`src/data/enemies.lua`)
-
-| ID | Role | Notes |
-|----|------|--------|
-| `bandit` | Melee | Rust-colored rect; chases |
-| `gunslinger` | Ranged | Purple-ish; shoots |
-| `buzzard` | Flying | Brown; swoop-style threat |
-
-Stats scale with **difficulty** in code.
-
-### Perks — display names (`src/data/perks.lua`)
-
-Twelve perks total, **weighted** draft with **luck** biasing uncommon/rare.
-
-**Common**
-
-- Steady Hand — +15% damage  
-- Quick Draw Boots — +12% move speed  
-- Tough Hide — +20% max HP  
-- Iron Gut — +1 armor  
-
-**Uncommon**
-
-- Sleight of Hand — 30% faster reload  
-- Extended Cylinder — +1 round in cylinder  
-- Blood Thirst — heal 5 HP on kill  
-- Lucky Charm — +15% luck  
-
-**Rare**
-
-- Scattershot — 3 bullets in a spread  
-- Explosive Rounds — bullets explode (AOE)  
-- Ricochet — bullets bounce once off walls  
-- Dead Eye — slow-mo after reload  
-
-### Gear — slots and items (`src/data/gear.lua`)
-
-- **Slots**: hat, vest, boots (three tiers each).  
-- **Hats**: Cowboy Hat, Ten Gallon Hat, Sheriff's Hat  
-- **Vests**: Leather Vest, Reinforced Vest, Bandolier  
-- **Boots**: Riding Boots, Spurred Boots, Snakeskin Boots  
-
-Shop offers **one random gear** per visit (tier capped by difficulty), plus **Whiskey (Heal 50%)** and **Extended Cylinder (+2)**.
-
----
-
-## Stack and repo layout
-
-- **Engine**: LOVE2D **11.5** ([`conf.lua`](conf.lua): identity `sixchambers`, window title *Six Chambers*).
-- **Libs**: **bump** (collision), **hump** (gamestate, camera, timers, vectors), **STI** and **anim8** included — README notes STI/anim8 as **available**; **rooms are not loaded from Tiled at runtime** (hand-authored Lua).
-- **Structure**: See **Project Structure** in [`README.md`](README.md) — `src/states/`, `src/entities/`, `src/systems/`, `src/data/`, `src/ui/`, `assets/`.
-
----
-
-## Prompting guidelines (for AI / design briefs)
-
-1. **Preserve architecture**: New gameplay data usually belongs in **`src/data/*.lua`**; systems in **`src/systems/`**; screens in **`src/states/`**. Use **hump.gamestate** patterns already in the repo.
-2. **Naming**: Keep **Western / saloon** tone consistent with existing perks and gear (concrete cowboy words, not generic fantasy).
-3. **Art / UI**: Assume **pixel scale**, **1280×720** logical frame, **nearest** filter unless changing `main.lua`.
-4. **Do not assume**: Tiled maps in the main loop, auto-aim (use **mouse aim**), or more than **four** room layouts unless you add them to [`src/data/rooms.lua`](src/data/rooms.lua).
-5. **Balance hooks**: Difficulty uses **`RoomManager.difficulty`** and **`totalRoomsCleared`**; enemies use [`EnemyData.getScaled`](src/data/enemies.lua); shop uses difficulty for prices and max gear tier.
-
----
-
-## Related docs
-
-- Player-facing overview and controls: [`README.md`](README.md)
+1. Treat the roadmap docs as canonical for phase status:
+   [docs/combat_build_overhaul_roadmap.md](/C:/Users/9914k/Dev/Cowboygamejam/cowboygameboy/docs/combat_build_overhaul_roadmap.md)
+2. Put gameplay data in `src/data/` unless a runtime owner clearly belongs in `src/systems/`.
+3. Keep new combat logic aligned with the existing runtime ownership instead of adding ad hoc logic back into `player.lua` or `combat.lua`.
+4. Preserve the western tone: grounded cowboy language, saloon/casino flavor, frontier violence.
+5. Do not describe Phase 9 readability work as implemented unless the code actually lands the planned recap/HUD readability slice beyond the current recap/export baseline.

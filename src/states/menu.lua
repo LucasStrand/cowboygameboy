@@ -11,7 +11,6 @@ local TextLayout = require("src.ui.text_layout")
 local Settings = require("src.systems.settings")
 local Keybinds = require("src.systems.keybinds")
 local SettingsPanel = require("src.ui.settings_panel")
-local Settings = require("src.systems.settings")
 local BootIntroData = require("src.data.boot_intro")
 local MenuBgm = require("src.systems.menu_bgm")
 
@@ -63,9 +62,7 @@ local function menuButtons()
         { id = "start", label = "Start game" },
         { id = "editor", label = "World Editor" },
     }
-    if DEV_TOOLS_ENABLED or DEBUG then
-        list[#list + 1] = { id = "dev_arena", label = "Dev arena" }
-    end
+    list[#list + 1] = { id = "dev_arena", label = "Dev arena" }
     list[#list + 1] = { id = "settings", label = "Settings" }
     list[#list + 1] = { id = "quit", label = "Quit" }
     return list

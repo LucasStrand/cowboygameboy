@@ -6,11 +6,134 @@ local DamageNumbers = require("src.ui.damage_numbers")
 local ImpactFX = require("src.systems.impact_fx")
 local RoomProps = require("src.systems.room_props")
 local Sfx = require("src.systems.sfx")
+local DamagePacket = require("src.systems.damage_packet")
+local DamageResolver = require("src.systems.damage_resolver")
+local Buffs = require("src.systems.buffs")
+local GameRng = require("src.systems.game_rng")
+local SourceRef = require("src.systems.source_ref")
+local AttackPacketBuilder = require("src.systems.attack_packet_builder")
 
 local Combat = {}
 
+local explosiveShakeHook = nil
+
+--- Optional callback(duration, intensity) from gameplay (e.g. game.lua camera shake) for player explosive hits.
+function Combat.setExplosiveShakeHook(cb)
+    explosiveShakeHook = cb
+end
+
+local function tryExplosiveShake(effect_id)
+    if not explosiveShakeHook then
+        return
+    end
+    local def = ImpactFX.getDefinition(effect_id)
+    local sh = def and def.recommended_shake
+    local dur = sh and tonumber(sh.duration) or nil
+    local intens = sh and tonumber(sh.intensity) or nil
+    if dur and dur > 0 and intens and intens > 0 then
+        explosiveShakeHook(dur, intens)
+    end
+end
+
 -- Must be this close to the player (after attraction) to collect
 local PICKUP_COLLECT_RADIUS = 26
+
+local function statusApplyChannel(packet, result, status_id)
+    return table.concat({
+        "combat.status_apply",
+        tostring(status_id),
+        tostring(packet.kind or "direct_hit"),
+        tostring(packet.source and packet.source.owner_source_id or "unknown"),
+        tostring(result and result.target_id or "unknown"),
+    }, ".")
+end
+
+local function applyStatusApplications(packet, result, source_actor, target_actor, target_kind, world)
+    if not packet or not result or not result.applied or not target_actor or not target_actor.statuses then
+        return
+    end
+
+    for _, app in ipairs(packet.status_applications or {}) do
+        local chance = app.chance or 1
+        if chance >= 1 or GameRng.randomChance(statusApplyChannel(packet, result, app.id), chance) then
+            local snapshot_data = nil
+            if app.id == "bleed" then
+                local tick_damage = math.max(1, math.floor((result.pre_defense_damage or result.final_damage or 0) * (app.bleed_scalar or 0.18)))
+                snapshot_data = {
+                    tick_damage = tick_damage,
+                    tick_damage_per_stack = true,
+                    family = "physical",
+                    source_context = {
+                        damage = 1,
+                        physical_damage = 0,
+                        magical_damage = 0,
+                        true_damage = 0,
+                        crit_chance = 0,
+                        crit_damage = 1.5,
+                        armor_pen = 0,
+                        magic_pen = 0,
+                    },
+                }
+            elseif app.id == "burn" then
+                local source_level = source_actor and source_actor.level or 1
+                local base_damage = app.base_damage or 2
+                local level_scale = app.level_scale or 0
+                local tick_damage = math.max(1, math.floor(base_damage * (1 + level_scale * source_level)))
+                snapshot_data = {
+                    tick_damage = tick_damage,
+                    tick_damage_per_stack = true,
+                    family = "magical",
+                    source_context = {
+                        damage = 1,
+                        physical_damage = 0,
+                        magical_damage = 0,
+                        true_damage = 0,
+                        crit_chance = 0,
+                        crit_damage = 1.5,
+                        armor_pen = 0,
+                        magic_pen = 0,
+                    },
+                }
+            elseif app.id == "shock" then
+                snapshot_data = {
+                    overload_damage = math.max(1, math.floor((result.pre_defense_damage or result.final_damage or 0) * (app.overload_damage_scale or 0.75))),
+                    overload_stun_duration = app.overload_stun_duration or 0.6,
+                    source_context = {
+                        damage = 1,
+                        physical_damage = 0,
+                        magical_damage = 0,
+                        true_damage = 0,
+                        crit_chance = 0,
+                        crit_damage = 1.5,
+                        armor_pen = 0,
+                        magic_pen = 0,
+                    },
+                }
+            end
+
+            Buffs.applyStatus(target_actor.statuses, {
+                id = app.id,
+                stacks = app.stacks or 1,
+                duration = app.duration,
+                source = packet.source,
+                source_actor = source_actor,
+                target_actor = target_actor,
+                family = app.family,
+                snapshot_data = snapshot_data,
+                runtime_ctx = {
+                    owner_actor = target_actor,
+                    target_kind = target_kind,
+                    world = world,
+                },
+                metadata = {
+                    from_packet_kind = packet.kind,
+                    from_family = packet.family,
+                    source_tag = app.source_tag,
+                },
+            })
+        end
+    end
+end
 
 local function pickupAttractRadius(player)
     local s = player:getEffectiveStats()
@@ -33,48 +156,68 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
         if b.hitEnemy then
             local hitX = b.x + b.w / 2
             local hitY = b.y + b.h / 2
-            b.hitEnemy:takeDamage(b.damage, world)
-            DamageNumbers.spawn(hitX, hitY, b.damage, "out")
-            -- Ult bullets get a massive explosion effect
-            local fxScale = b.ultBullet and 2.0 or nil
-            ImpactFX.spawn(hitX, hitY, "hit_enemy", fxScale)
-            if b.ultBullet then
-                ImpactFX.spawn(hitX, hitY - 8, "melee", fxScale)
-            end
-            if not b.fromEnemy then
-                Sfx.play("hit_enemy")
-            end
-
-            -- Explosive rounds: AOE damage to nearby enemies
-            if b.explosive and not b.fromEnemy then
-                Sfx.play("explosion")
-                local explosionRadius = 60
-                local aoeDamage = math.floor(b.damage * 0.5)
-                local bx = b.x + b.w / 2
-                local by = b.y + b.h / 2
-                local aoeHits = 0
-                for _, e in ipairs(enemies) do
-                    if e.alive and e ~= b.hitEnemy then
-                        local ex = e.x + e.w / 2
-                        local ey = e.y + e.h / 2
-                        local dist = math.sqrt((ex - bx)^2 + (ey - by)^2)
-                        if dist <= explosionRadius then
-                            e:takeDamage(aoeDamage, world)
-                            DamageNumbers.spawn(ex, ey - 4, aoeDamage, "out")
-                            aoeHits = aoeHits + 1
-                        end
+            local packet = b.packet or DamagePacket.new({
+                kind = b.packet_kind or "direct_hit",
+                family = b.damage_family or "physical",
+                amount = b.damage,
+                source = b.source_ref,
+                tags = b.damage_tags,
+                target_id = b.hitEnemy.actorId or b.hitEnemy.typeId or b.hitEnemy.name,
+            })
+            local result = DamageResolver.resolve_direct_hit({
+                packet = packet,
+                source_actor = b.source_actor,
+                target_actor = b.hitEnemy,
+                target_kind = "enemy",
+                world = world,
+            })
+            if result.applied then
+                applyStatusApplications(packet, result, b.source_actor, b.hitEnemy, "enemy", world)
+                DamageNumbers.spawn(hitX, hitY, result.final_damage, "out")
+                local fxScale = b.ultBullet and 2.0 or nil
+                local metadata = packet.metadata or {}
+                local explosiveHit = b.explosive or metadata.explosion_radius ~= nil
+                if explosiveHit then
+                    local fxId = b.impact_fx_id or metadata.impact_fx_id or "explosion_medium"
+                    ImpactFX.spawn(hitX, hitY, fxId)
+                    if not b.fromEnemy then
+                        tryExplosiveShake(fxId)
                     end
+                else
+                    ImpactFX.spawn(hitX, hitY, "hit_enemy", { scale_mul = fxScale })
                 end
-                if debugLog and aoeHits > 0 then
-                    debugLog("Explosion hit " .. aoeHits .. " nearby")
+                if b.ultBullet then
+                    ImpactFX.spawn(hitX, hitY - 8, "melee", { scale_mul = fxScale })
+                end
+                if not b.fromEnemy then
+                    Sfx.play(explosiveHit and (b.explosion_sfx_id or metadata.explosion_sfx_id or "explosion") or "hit_enemy")
                 end
             end
         end
 
         if b.hitPlayer then
-            local ok, dmg = player:takeDamage(b.damage)
-            if ok then
-                DamageNumbers.spawn(b.x + b.w / 2, b.y + b.h / 2, dmg, "in")
+            local packet = b.packet or DamagePacket.new({
+                kind = b.packet_kind or "direct_hit",
+                family = b.damage_family or "physical",
+                amount = b.damage,
+                source = b.source_ref or SourceRef.new({
+                    owner_actor_id = "enemy",
+                    owner_source_type = "projectile",
+                    owner_source_id = "enemy_projectile",
+                }),
+                tags = b.damage_tags or { "projectile", "enemy" },
+                target_id = player.actorId or "player",
+            })
+            local result = DamageResolver.resolve_direct_hit({
+                packet = packet,
+                source_actor = b.source_actor,
+                target_actor = player,
+                target_kind = "player",
+                world = world,
+            })
+            if result.applied then
+                applyStatusApplications(packet, result, b.source_actor, player, "player", world)
+                DamageNumbers.spawn(b.x + b.w / 2, b.y + b.h / 2, result.final_damage, "in")
                 ImpactFX.spawn(b.x + b.w / 2, b.y + b.h / 2, "hit_enemy")
             end
         end
@@ -87,6 +230,16 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
         else
             i = i + 1
         end
+    end
+
+    local secondary_results = DamageResolver.processSecondaryJobs({
+        dt = dt,
+        world = world,
+        enemies = enemies,
+        player = player,
+    })
+    for _, entry in ipairs(secondary_results) do
+        DamageNumbers.spawn(entry.x, entry.y - 4, entry.result.final_damage, "out")
     end
 
     return #allDrops > 0 and allDrops or nil
@@ -114,7 +267,7 @@ function Combat.onEnemyKilled(enemy, player)
         value = enemy.xpValue,
     })
 
-    if enemy.goldValue > 0 and math.random() < 0.7 then
+    if enemy.goldValue > 0 and GameRng.randomChance("combat.enemy_drop.gold", 0.7) then
         table.insert(drops, {
             x = baseX + 12,
             y = baseY,
@@ -123,7 +276,7 @@ function Combat.onEnemyKilled(enemy, player)
         })
     end
 
-    if math.random() < 0.1 then
+    if GameRng.randomChance("combat.enemy_drop.health", 0.1) then
         table.insert(drops, {
             x = baseX - 12,
             y = baseY,
@@ -135,7 +288,7 @@ function Combat.onEnemyKilled(enemy, player)
     -- Weapon drop (rare)
     local luck = player:getEffectiveStats().luck or 0
     local weaponDropChance = 0.04 + luck * 0.02
-    if math.random() < weaponDropChance then
+    if GameRng.randomChance("combat.enemy_drop.weapon", weaponDropChance) then
         local gunDef = Guns.rollDrop(luck)
         if gunDef then
             table.insert(drops, {
@@ -153,11 +306,19 @@ end
 function Combat.checkMeleeEnemies(enemies, player)
     for _, enemy in ipairs(enemies) do
         if enemy.alive and enemy:canDamagePlayer(player.x, player.y, player.w, player.h) then
-            local ok, dmg = player:takeDamage(enemy.damage)
-            if ok then
+            local packet = AttackPacketBuilder.build_enemy_hit(enemy, "contact")
+            packet.target_id = player.actorId or "player"
+            local result = DamageResolver.resolve_direct_hit({
+                packet = packet,
+                source_actor = enemy,
+                target_actor = player,
+                target_kind = "player",
+            })
+            if result.applied then
+                applyStatusApplications(packet, result, enemy, player, "player", nil)
                 local mx = (enemy.x + enemy.w * 0.5 + player.x + player.w * 0.5) * 0.5
                 local my = (enemy.y + enemy.h * 0.5 + player.y + player.h * 0.5) * 0.5
-                DamageNumbers.spawn(mx, my, dmg, "in")
+                DamageNumbers.spawn(mx, my, result.final_damage, "in")
                 enemy:onContactDamage()
             end
         end
@@ -175,11 +336,19 @@ function Combat.checkContactDamage(enemies, player)
                 local dist = math.sqrt((ex - px)^2 + (ey - py)^2)
                 local hitR = enemy.contactRange or enemy.attackRange
                 if dist <= hitR then
-                    local ok, dmg = player:takeDamage(enemy.damage)
-                    if ok then
+                    local packet = AttackPacketBuilder.build_enemy_hit(enemy, "contact")
+                    packet.target_id = player.actorId or "player"
+                    local result = DamageResolver.resolve_direct_hit({
+                        packet = packet,
+                        source_actor = enemy,
+                        target_actor = player,
+                        target_kind = "player",
+                    })
+                    if result.applied then
+                        applyStatusApplications(packet, result, enemy, player, "player", nil)
                         local mx = (ex + px) * 0.5
                         local my = (ey + py) * 0.5
-                        DamageNumbers.spawn(mx, my, dmg, "in")
+                        DamageNumbers.spawn(mx, my, result.final_damage, "in")
                         enemy:onContactDamage()
                     else
                         -- Player has iframes but enemy is in range; don't waste the cooldown
@@ -274,7 +443,7 @@ function Combat.checkPlayerMelee(player, enemies)
     if player.meleeSwingTimer <= 0 then return end
 
     local s   = player:getEffectiveStats()
-    local dmg = math.floor(s.meleeDamage * s.damageMultiplier)
+    local base_dmg = math.floor(s.meleeDamage)
     local hx, hy, hw, hh = player:getMeleeHitbox()
 
     for _, e in ipairs(enemies) do
@@ -282,18 +451,55 @@ function Combat.checkPlayerMelee(player, enemies)
             -- AABB overlap
             if hx < e.x + e.w and hx + hw > e.x and
                hy < e.y + e.h and hy + hh > e.y then
-                e:takeDamage(dmg, nil)
-                DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, dmg, "out")
-                ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee", nil, player.meleeAimAngle)
-                Sfx.play("melee_hit")
-                player.meleeHitEnemies[e] = true
-                player.meleeHitFlashTimer = 0.2
-                -- Knockback along melee aim (same axis as the swing / shot)
-                local a = player.meleeAimAngle
-                e.vx = (e.vx or 0) + math.cos(a) * s.meleeKnockback
-                e.vy = (e.vy or 0) + math.sin(a) * s.meleeKnockback
-                if debugLog then
-                    debugLog("Melee hit " .. (e.name or "enemy") .. " for " .. dmg)
+                local packet = DamagePacket.new({
+                    kind = "direct_hit",
+                    family = "physical",
+                    base_min = base_dmg,
+                    base_max = base_dmg,
+                    source = SourceRef.new({
+                        owner_actor_id = player.actorId or "player",
+                        owner_source_type = "melee",
+                        owner_source_id = "melee_swing",
+                    }),
+                    tags = { "melee" },
+                    target_id = e.actorId or e.typeId or e.name,
+                    snapshot_data = {
+                        source_context = {
+                            base_min = base_dmg,
+                            base_max = base_dmg,
+                            damage = s.damageMultiplier or 1,
+                            physical_damage = 0,
+                            magical_damage = 0,
+                            true_damage = 0,
+                            crit_chance = s.critChance or 0,
+                            crit_damage = s.critDamage or 1.5,
+                            armor_pen = s.armorPen or 0,
+                            magic_pen = s.magicPen or 0,
+                        },
+                    },
+                    metadata = {
+                        source_context_kind = "player_melee",
+                    },
+                })
+                local result = DamageResolver.resolve_direct_hit({
+                    packet = packet,
+                    source_actor = player,
+                    target_actor = e,
+                    target_kind = "enemy",
+                })
+                if result.applied then
+                    applyStatusApplications(packet, result, player, e, "enemy", nil)
+                    DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, result.final_damage, "out")
+                    ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee", nil, player.meleeAimAngle)
+                    Sfx.play("melee_hit")
+                    player.meleeHitEnemies[e] = true
+                    player.meleeHitFlashTimer = 0.2
+                    local a = player.meleeAimAngle
+                    e.vx = (e.vx or 0) + math.cos(a) * s.meleeKnockback
+                    e.vy = (e.vy or 0) + math.sin(a) * s.meleeKnockback
+                    if debugLog then
+                        debugLog("Melee hit " .. (e.name or "enemy") .. " for " .. tostring(result.final_damage))
+                    end
                 end
             end
         end
@@ -363,7 +569,7 @@ function Combat.checkPickups(pickups, player, world)
                 DamageNumbers.spawnPickup(cx, cy, p.value, "xp")
                 Sfx.play("pickup_xp")
             elseif p.pickupType == "gold" then
-                player:addGold(p.value)
+                player:addGold(p.value, p.casinoPayout and "casino_payout_pickup" or "combat_gold_pickup")
                 DamageNumbers.spawnPickup(cx, cy, p.value, "gold")
                 Sfx.play("pickup_gold")
             elseif p.pickupType == "health" then

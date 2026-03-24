@@ -1,0 +1,48 @@
+== scenario: player projectile -> enemy ==
+[event] OnDamageTaken kind=direct_hit target=enemy_projectile_target final=8
+[event] OnHit kind=direct_hit target=enemy_projectile_target final=8
+[debug] [damage_resolver] kind=direct_hit family=physical source=weapon_slot/revolver target=enemy_projectile_target rolled=10 crit=false defense=15 final=8
+[damage_numbers] dir=out value=8
+[impact_fx] hit_enemy
+[sfx] hit_enemy
+[assert] PASS player projectile routed through resolver
+[assert] PASS player projectile used resolver output
+== scenario: enemy projectile -> player ==
+[event] OnDamageTaken kind=direct_hit target=player final=9
+[event] OnHit kind=direct_hit target=player final=9
+[debug] [damage_resolver] kind=direct_hit family=physical source=enemy_attack/gunslinger target=player rolled=12 crit=false defense=25 final=9
+[damage_numbers] dir=in value=9
+[impact_fx] hit_enemy
+[assert] PASS enemy projectile routed through resolver
+[assert] PASS enemy projectile respected player defense in resolver
+== scenario: player melee -> enemy ==
+[event] OnDamageTaken kind=direct_hit target=enemy_melee_target final=15
+[event] OnHit kind=direct_hit target=enemy_melee_target final=15
+[debug] [damage_resolver] kind=direct_hit family=physical source=melee/melee_swing target=enemy_melee_target rolled=20 crit=false defense=30 final=15
+[damage_numbers] dir=out value=15
+[impact_fx] melee
+[sfx] melee_hit
+[debug] Melee hit enemy_melee_target for 15
+[assert] PASS player melee routed through resolver
+[assert] PASS player melee damage uses resolver final_damage
+== scenario: enemy contact -> player ==
+[event] OnDamageTaken kind=direct_hit target=player final=13
+[event] OnHit kind=direct_hit target=player final=13
+[debug] [damage_resolver] kind=direct_hit family=physical source=enemy_contact/bandit_contact target=player rolled=20 crit=false defense=50 final=13
+[damage_numbers] dir=in value=13
+[assert] PASS enemy contact routed through resolver
+[assert] PASS enemy contact damage uses resolver defense output
+== scenario: explosive splash secondary job ==
+[event] OnDamageTaken kind=direct_hit target=explosion_primary final=10
+[event] OnHit kind=direct_hit target=explosion_primary final=10
+[debug] [damage_resolver] kind=direct_hit family=physical source=ultimate/dead_mans_hand target=explosion_primary rolled=10 crit=false defense=0 final=10
+[damage_numbers] dir=out value=10
+[impact_fx] explosion_medium
+[impact_fx] melee
+[sfx] explosion
+[event] OnDamageTaken kind=delayed_secondary_hit target=explosion_secondary final=5
+[debug] [damage_resolver] kind=delayed_secondary_hit family=physical source=ultimate/dead_mans_hand target=explosion_secondary rolled=5 crit=false defense=0 final=5
+[damage_numbers] dir=out value=5
+[assert] PASS explosive splash created delayed secondary packet
+[assert] PASS explosive splash applied delayed secondary damage
+SUMMARY: PASS

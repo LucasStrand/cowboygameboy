@@ -1,0 +1,40 @@
+[assert] PASS levelup reroll succeeded
+[assert] PASS shop generated offers
+[assert] PASS shop buy succeeded
+[assert] PASS shop reroll succeeded
+[assert] PASS normal enemy kill does not increment boss count
+[assert] PASS boss kill increments boss count once
+[assert] PASS summary gold earned matches canonical economy
+[assert] PASS summary gold spent matches canonical economy
+[assert] PASS summary rerolls match canonical economy counts
+[assert] PASS summary perks picked matches reward history
+[assert] PASS summary checkpoints match milestone history
+[assert] PASS summary bosses match actual boss kill history
+[assert] PASS summary is deterministic for same metadata snapshot
+[assert] PASS debug dump includes boss count
+[assert] PASS recap lines include checkpoint count
+[assert] PASS recap lines include boss kill count
+[assert] PASS recap lines include recent picks
+[assert] PASS recent shop purchase is present in summary
+[assert] PASS opening recap does not mutate gold totals
+[assert] PASS opening recap does not mutate reroll totals
+summary outcome=death
+summary rooms=5
+summary checkpoints=1
+summary bosses=1
+summary perks=2
+summary gold_earned=90
+summary gold_spent=108
+summary rerolls=2
+summary dominant_tags=
+[debug_line] [meta] rooms=5 checkpoints=1 bosses=1 perks=2 rerolls=2
+[debug_line] [meta] gold earned=$90 spent=$108 choices=2 purchases=1
+[debug_line] [meta] route=Desert Frontier seed=80808 outcome=death
+[debug_line] [meta] recent picks: Steady Hand, Extended Cylinder
+[debug_line] [meta] recent buys: Whiskey - Heal 50%
+[recap_line] Route: Desert Frontier  |  Seed: 80808  |  Outcome: death
+[recap_line] Economy: +$90  |  -$108  |  Rerolls 2
+[recap_line] Milestones: Checkpoints 1  |  Bosses 1  |  Picks 2
+[recap_line] Recent picks: Steady Hand, Extended Cylinder
+[recap_line] Recent buys: Whiskey - Heal 50%
+SUMMARY: PASS
