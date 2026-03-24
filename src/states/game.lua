@@ -1,43 +1,41 @@
-local Gamestate = require("lib.hump.gamestate")
-local Camera = require("lib.hump.camera")
-local bump = require("lib.bump")
-
-local Player = require("src.entities.player")
-local Enemy  = require("src.entities.enemy")
-local Pickup = require("src.entities.pickup")
-local EnemyData = require("src.data.enemies")
-
-local Combat = require("src.systems.combat")
-local Progression = require("src.systems.progression")
-local RoomManager = require("src.systems.room_manager")
-local HUD    = require("src.ui.hud")
-local DevLog = require("src.ui.devlog")
-local DevPanel = require("src.ui.dev_panel")
-local DamageNumbers = require("src.ui.damage_numbers")
-local Font = require("src.ui.font")
-local Cursor = require("src.ui.cursor")
-local TextLayout = require("src.ui.text_layout")
-local ContentTooltips = require("src.systems.content_tooltips")
-local RewardRuntime = require("src.systems.reward_runtime")
-local RunMetadata = require("src.systems.run_metadata")
-local MetaRuntime = require("src.systems.meta_runtime")
-local Settings = require("src.systems.settings")
-local Keybinds = require("src.systems.keybinds")
-local SettingsPanel = require("src.ui.settings_panel")
-local Shop = require("src.systems.shop")
-local TileRenderer = require("src.systems.tile_renderer")
-local RoomProps = require("src.systems.room_props")
-local Wind = require("src.systems.wind")
-local TrainRenderer = require("src.systems.train_renderer")
-local Worlds = require("src.data.worlds")
-local ImpactFX = require("src.systems.impact_fx")
-local Sfx = require("src.systems.sfx")
-local MusicDirector = require("src.systems.music_director")
-local WorldLighting = require("src.systems.world_lighting")
-local Vision = require("src.data.vision")
-local GameDevApply = require("src.states.game_dev_apply")
--- Packed into one table: LuaJIT 60-upvalue closure limit (game:update).
-local combatStack = {
+-- Single `Mods` table for all requires: LuaJIT 60-upvalue closure limit (game:update).
+local Mods = {
+    Gamestate = require("lib.hump.gamestate"),
+    Camera = require("lib.hump.camera"),
+    bump = require("lib.bump"),
+    Player = require("src.entities.player"),
+    Enemy = require("src.entities.enemy"),
+    Pickup = require("src.entities.pickup"),
+    EnemyData = require("src.data.enemies"),
+    Combat = require("src.systems.combat"),
+    Progression = require("src.systems.progression"),
+    RoomManager = require("src.systems.room_manager"),
+    HUD = require("src.ui.hud"),
+    DevLog = require("src.ui.devlog"),
+    DevPanel = require("src.ui.dev_panel"),
+    DamageNumbers = require("src.ui.damage_numbers"),
+    Font = require("src.ui.font"),
+    Cursor = require("src.ui.cursor"),
+    TextLayout = require("src.ui.text_layout"),
+    ContentTooltips = require("src.systems.content_tooltips"),
+    RewardRuntime = require("src.systems.reward_runtime"),
+    RunMetadata = require("src.systems.run_metadata"),
+    MetaRuntime = require("src.systems.meta_runtime"),
+    Settings = require("src.systems.settings"),
+    Keybinds = require("src.systems.keybinds"),
+    SettingsPanel = require("src.ui.settings_panel"),
+    Shop = require("src.systems.shop"),
+    TileRenderer = require("src.systems.tile_renderer"),
+    RoomProps = require("src.systems.room_props"),
+    Wind = require("src.systems.wind"),
+    TrainRenderer = require("src.systems.train_renderer"),
+    Worlds = require("src.data.worlds"),
+    ImpactFX = require("src.systems.impact_fx"),
+    Sfx = require("src.systems.sfx"),
+    MusicDirector = require("src.systems.music_director"),
+    WorldLighting = require("src.systems.world_lighting"),
+    Vision = require("src.data.vision"),
+    GameDevApply = require("src.states.game_dev_apply"),
     combat_events = require("src.systems.combat_events"),
     damage_packet = require("src.systems.damage_packet"),
     game_rng = require("src.systems.game_rng"),
@@ -202,11 +200,11 @@ local function spawnCheatGoldDrops(amount)
         local v = base + (i <= rem and 1 or 0)
         if v <= 0 then break end
         local spread = (i - 1 - (n - 1) * 0.5) * 18
-        local px = player.x + player.w / 2 - pw / 2 + spread + (combatStack.game_rng.randomFloat("game.debug_gold.px", 0, 1) - 0.5) * 8
-        local py = player.y - 6 - combatStack.game_rng.randomFloat("game.debug_gold.py", 0, 16)
-        local p = Pickup.new(px, py, "gold", v)
-        p.vy = -150 - combatStack.game_rng.randomFloat("game.debug_gold.vy", 0, 130)
-        p.vx = (combatStack.game_rng.randomFloat("game.debug_gold.vx", 0, 1) - 0.5) * 200
+        local px = player.x + player.w / 2 - pw / 2 + spread + (Mods.game_rng.randomFloat("game.debug_gold.px", 0, 1) - 0.5) * 8
+        local py = player.y - 6 - Mods.game_rng.randomFloat("game.debug_gold.py", 0, 16)
+        local p = Mods.Pickup.new(px, py, "gold", v)
+        p.vy = -150 - Mods.game_rng.randomFloat("game.debug_gold.vy", 0, 130)
+        p.vx = (Mods.game_rng.randomFloat("game.debug_gold.vx", 0, 1) - 0.5) * 200
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end
@@ -220,14 +218,14 @@ local function handleDebugAction(action)
         pauseMenu.view = "main"
         pauseMenu.selectedIndex = 1
         pauseMenu.hoverIndex = nil
-        Gamestate.push(saloon, player, roomManager)
-        DevLog.push("sys", "Debug: Entered saloon")
+        Mods.Gamestate.push(saloon, player, roomManager)
+        Mods.DevLog.push("sys", "Debug: Entered saloon")
     elseif action == "debug_add_gold" then
         spawnCheatGoldDrops(10)
-        DevLog.push("sys", "Debug: +10 gold (drops)")
+        Mods.DevLog.push("sys", "Debug: +10 gold (drops)")
     elseif action == "debug_sub_gold" then
         player:spendGold(10, "dev_sub_gold")
-        DevLog.push("sys", "Debug: -10 gold")
+        Mods.DevLog.push("sys", "Debug: -10 gold")
     end
 end
 
@@ -291,7 +289,7 @@ local function defaultDevNpcSpawn()
 end
 
 local function getDevPanelLayout()
-    return DevPanel.panelRect(GAME_WIDTH, GAME_HEIGHT)
+    return Mods.DevPanel.panelRect(GAME_WIDTH, GAME_HEIGHT)
 end
 
 local function pointInRect(x, y, rx, ry, rw, rh)
@@ -345,7 +343,7 @@ local function nearestLivingEnemyLabel()
 end
 
 local function getDevSpawnLabel(typeId)
-    local data = EnemyData.types[typeId]
+    local data = Mods.EnemyData.types[typeId]
     return data and data.name or typeId
 end
 
@@ -424,7 +422,7 @@ local function validateDevSpawnCandidate(data, x, y)
 end
 
 local function buildDevSpawnPreview(typeId, worldX, worldY)
-    local data = EnemyData.getScaled(typeId, roomManager and roomManager.difficulty or 1)
+    local data = Mods.EnemyData.getScaled(typeId, roomManager and roomManager.difficulty or 1)
     if not data then
         return nil
     end
@@ -490,7 +488,7 @@ end
 
 local function clearDevNpcPlacement(pushLog)
     if devNpcSpawn and devNpcSpawn.placement and pushLog then
-        DevLog.push("sys", "[dev] NPC placement cancelled")
+        Mods.DevLog.push("sys", "[dev] NPC placement cancelled")
     end
     if devNpcSpawn then
         devNpcSpawn.placement = nil
@@ -508,7 +506,7 @@ local function startDevNpcPlacement(typeId)
     }
     local wx, wy = getMouseWorldPosition()
     updateDevSpawnPreview(wx, wy)
-    DevLog.push("sys", string.format("[dev] placing %s (%sx)", getDevSpawnLabel(typeId), tostring(currentDevSpawnCount())))
+    Mods.DevLog.push("sys", string.format("[dev] placing %s (%sx)", getDevSpawnLabel(typeId), tostring(currentDevSpawnCount())))
     devRebuildPanelRows()
     devClampScroll()
 end
@@ -519,14 +517,14 @@ local function commitDevNpcPlacement(worldX, worldY)
         return false
     end
     if preview.validCount <= 0 then
-        DevLog.push("sys", string.format("[dev] blocked spawn: %s", preview.label or preview.typeId))
+        Mods.DevLog.push("sys", string.format("[dev] blocked spawn: %s", preview.label or preview.typeId))
         return true
     end
 
     local spawned = 0
     for _, candidate in ipairs(preview.candidates) do
         if candidate.valid then
-            local enemy = Enemy.new(
+            local enemy = Mods.Enemy.new(
                 preview.typeId,
                 candidate.x,
                 candidate.y,
@@ -552,7 +550,7 @@ local function commitDevNpcPlacement(worldX, worldY)
         if devNpcSpawn and devNpcSpawn.unarmed then
             suffix = suffix .. " unarmed"
         end
-        DevLog.push("sys", string.format("[dev] spawned %s x%d%s", preview.label or preview.typeId, spawned, suffix))
+        Mods.DevLog.push("sys", string.format("[dev] spawned %s x%d%s", preview.label or preview.typeId, spawned, suffix))
     end
     updateDevSpawnPreview(worldX, worldY)
     if devPanelState.open then
@@ -569,7 +567,7 @@ local function drawDevSpawnPreview()
     end
 
     if not game.debugFont then
-        game.debugFont = Font.new(11)
+        game.debugFont = Mods.Font.new(11)
     end
 
     local summary = string.format(
@@ -626,14 +624,14 @@ local function drawDevPanelOverlay()
     end
 
     if not game.devPanelTitleFont then
-        game.devPanelTitleFont = Font.new(16)
+        game.devPanelTitleFont = Mods.Font.new(16)
     end
     if not game.devPanelRowFont then
-        game.devPanelRowFont = Font.new(13)
+        game.devPanelRowFont = Mods.Font.new(13)
     end
     devClampScroll()
     local px, py, pw, ph = getDevPanelLayout()
-    DevPanel.draw(devPanelState.rows, devPanelState.scroll, px, py, pw, ph, devPanelState.hover, {
+    Mods.DevPanel.draw(devPanelState.rows, devPanelState.scroll, px, py, pw, ph, devPanelState.hover, {
         title = game.devPanelTitleFont,
         row = game.devPanelRowFont,
     })
@@ -692,7 +690,7 @@ local function buildMusicSnapshot()
         hpRatio = hpRatio,
         playerDying = player.dying,
         deathTimer = player.deathTimer or 0,
-        deathDuration = Player.DEATH_DURATION,
+        deathDuration = Mods.Player.DEATH_DURATION,
     }
 end
 
@@ -704,7 +702,7 @@ local function processPendingEnemySpawns(dt)
         local e = q[i]
         e.time = e.time - dt
         if e.time <= 0 then
-            local enemy = Enemy.new(e.type, e.x, e.y, roomManager.difficulty, { elite = e.elite })
+            local enemy = Mods.Enemy.new(e.type, e.x, e.y, roomManager.difficulty, { elite = e.elite })
             table.remove(q, i)
             if enemy then
                 world:add(enemy, enemy.x, enemy.y, enemy.w, enemy.h)
@@ -742,7 +740,7 @@ end
 
 local function drawAimCrosshair()
     if not player then return end
-    if not Settings.getShowCrosshair() then return end
+    if not Mods.Settings.getShowCrosshair() then return end
     -- Hide only in pure auto+keyboard mode; show again while mouse is active (even with auto on)
     if player.autoGun and player.keyboardAimMode then return end
     local px = player.x + player.w * 0.5
@@ -759,9 +757,9 @@ local function drawAimCrosshair()
     love.graphics.setColor(1, 1, 1, 1)
 end
 
--- Route the global debugLog used by combat.lua → DevLog combat category
+-- Route the global debugLog used by combat.lua → Mods.DevLog combat category
 function debugLog(msg)
-    DevLog.push("combat", msg)
+    Mods.DevLog.push("combat", msg)
 end
 
 local function isOutOfBounds(entity, room)
@@ -999,7 +997,7 @@ local function wireRoomEntities(roomDef)
         chest.onLoot = function(drops)
             local spawnX, spawnY = chest:getSpawnPos()
             for _, drop in ipairs(drops) do
-                local p = Pickup.new(spawnX - 5, spawnY, drop.type, drop.value)
+                local p = Mods.Pickup.new(spawnX - 5, spawnY, drop.type, drop.value)
                 p.vx = drop.vx or 0
                 p.vy = drop.vy or -200
                 world:add(p, p.x, p.y, p.w, p.h)
@@ -1010,7 +1008,7 @@ local function wireRoomEntities(roomDef)
             for _, bp in ipairs(bonePiles) do
                 local ex = bp.x + (bp.w or 18) / 2 - 10
                 local ey = bp.y + (bp.h or 28) - 28
-                local skel = Enemy.new("skeleton", ex, ey, roomManager.difficulty, {})
+                local skel = Mods.Enemy.new("skeleton", ex, ey, roomManager.difficulty, {})
                 if skel then
                     world:add(skel, skel.x, skel.y, skel.w, skel.h)
                     table.insert(enemies, skel)
@@ -1073,25 +1071,25 @@ local function wireRoomEntities(roomDef)
                 local spawnX = sm.x + sm.w * 0.5
                 local spawnY = sm.y - 10
                 if rtype == "gold" then
-                    local p = Pickup.new(spawnX, spawnY, "gold", value)
+                    local p = Mods.Pickup.new(spawnX, spawnY, "gold", value)
                     world:add(p, p.x, p.y, p.w, p.h)
                     table.insert(pickups, p)
                 elseif rtype == "xp" then
-                    local p = Pickup.new(spawnX, spawnY, "xp", value)
+                    local p = Mods.Pickup.new(spawnX, spawnY, "xp", value)
                     world:add(p, p.x, p.y, p.w, p.h)
                     table.insert(pickups, p)
                 elseif rtype == "health" then
-                    local p = Pickup.new(spawnX, spawnY, "health", value)
+                    local p = Mods.Pickup.new(spawnX, spawnY, "health", value)
                     world:add(p, p.x, p.y, p.w, p.h)
                     table.insert(pickups, p)
                 elseif rtype == "weapon" and value then
-                    local p = Pickup.new(spawnX, spawnY, "weapon", value)
+                    local p = Mods.Pickup.new(spawnX, spawnY, "weapon", value)
                     world:add(p, p.x, p.y, p.w, p.h)
                     table.insert(pickups, p)
                 elseif rtype == "damage" and player then
                     local ok, dmg = player:takeDamage(value)
                     if ok then
-                        DamageNumbers.spawn(player.x + player.w * 0.5, player.y, dmg, "in")
+                        Mods.DamageNumbers.spawn(player.x + player.w * 0.5, player.y, dmg, "in")
                     end
                 end
             end
@@ -1107,13 +1105,13 @@ local function tryExitThroughDoor()
     -- Editor test-play: return to editor on door exit
     if editorTestMode then
         local editorState = require("src.states.editor")
-        Gamestate.switch(editorState)
+        Mods.Gamestate.switch(editorState)
         return
     end
     roomManager:onRoomCleared()
     if roomManager:isCheckpoint() then
         if game._runtime and game._runtime.runMetadata then
-            RunMetadata.recordCheckpoint(game._runtime.runMetadata, {
+            Mods.RunMetadata.recordCheckpoint(game._runtime.runMetadata, {
                 world_id = roomManager and roomManager.worldId or nil,
                 world_name = roomManager and roomManager.worldDef and roomManager.worldDef.name or nil,
                 room_index = roomManager and roomManager.currentRoomIndex or nil,
@@ -1123,7 +1121,7 @@ local function tryExitThroughDoor()
             })
         end
         local saloon = require("src.states.saloon")
-        Gamestate.push(saloon, player, roomManager)
+        Mods.Gamestate.push(saloon, player, roomManager)
     else
         transitionTimer = 0.5
     end
@@ -1169,7 +1167,7 @@ local function tryInteractWorld()
 end
 
 local bgImage
-local currentTheme   -- tile theme for current world (passed to TileRenderer)
+local currentTheme   -- tile theme for current world (passed to Mods.TileRenderer)
 
 -- Saloon door sprite (384×48, 8 frames of 48×48)
 local doorSheet
@@ -1208,7 +1206,7 @@ end
 local function pauseMenuEntries()
     return {
         { id = "resume", label = "Resume" },
-        { id = "settings", label = "Settings" },
+        { id = "settings", label = "Mods.Settings" },
         { id = "restart", label = "Restart" },
         { id = "main_menu", label = "Main menu" },
     }
@@ -1255,9 +1253,9 @@ local function pauseRestartRun()
     devShowHitboxes = true
     pendingGameOver = nil
     if devArenaMode then
-        Gamestate.switch(game, { devArena = true, introCountdown = false })
+        Mods.Gamestate.switch(game, { devArena = true, introCountdown = false })
     else
-        Gamestate.switch(game, { introCountdown = true })
+        Mods.Gamestate.switch(game, { introCountdown = true })
     end
 end
 
@@ -1271,7 +1269,7 @@ local function pauseGoToMainMenu()
     devPanelState.hover = nil
     pendingGameOver = nil
     local menu = require("src.states.menu")
-    Gamestate.switch(menu)
+    Mods.Gamestate.switch(menu)
 end
 
 local function drawCharacterSheet()
@@ -1286,10 +1284,10 @@ local function drawCharacterSheet()
     love.graphics.rectangle("line", x, y, w, h, 8, 8)
     love.graphics.setLineWidth(1)
     if not game.charSheetTitleFont then
-        game.charSheetTitleFont = Font.new(18)
+        game.charSheetTitleFont = Mods.Font.new(18)
     end
     if not game.charSheetBodyFont then
-        game.charSheetBodyFont = Font.new(14)
+        game.charSheetBodyFont = Mods.Font.new(14)
     end
     local py = y + pad
     love.graphics.setFont(game.charSheetTitleFont)
@@ -1311,7 +1309,7 @@ local function drawCharacterSheet()
         py = py + 20
     else
         love.graphics.setColor(0.78, 0.85, 0.72)
-        local ptext = table.concat(ContentTooltips.getPerkNames(player), ", ")
+        local ptext = table.concat(Mods.ContentTooltips.getPerkNames(player), ", ")
         local tw = w - 2 * pad
         local _, lines = game.charSheetBodyFont:getWrap(ptext, tw)
         love.graphics.printf(ptext, x + pad, py, tw, "left")
@@ -1346,7 +1344,7 @@ local function drawCharacterSheet()
         love.graphics.print(slotLabel, x + pad, py)
         py = py + 18
         if gun then
-            drawWrappedSectionLines(ContentTooltips.getLines("gun", gun), { 0.72, 0.8, 0.88, 1 })
+            drawWrappedSectionLines(Mods.ContentTooltips.getLines("gun", gun), { 0.72, 0.8, 0.88, 1 })
         else
             py = py + 4
         end
@@ -1357,7 +1355,7 @@ local function drawCharacterSheet()
         love.graphics.print(string.format("%s: %s", label, g and g.name or "—"), x + pad, py)
         py = py + 18
         if g then
-            drawWrappedSectionLines(ContentTooltips.getLines("gear", g), { 0.75, 0.84, 0.74, 1 })
+            drawWrappedSectionLines(Mods.ContentTooltips.getLines("gear", g), { 0.75, 0.84, 0.74, 1 })
         end
     end
     drawGearBlock("hat", "Hat")
@@ -1367,20 +1365,20 @@ local function drawCharacterSheet()
     drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
-    local ck = Keybinds.formatActionKey("character")
+    local ck = Mods.Keybinds.formatActionKey("character")
     love.graphics.print(string.format("%s to close  ·  ESC", ck), x + pad, py)
 end
 
 devClampScroll = function()
     if not devPanelState.rows then return end
     if not game.devPanelTitleFont then
-        game.devPanelTitleFont = Font.new(16)
+        game.devPanelTitleFont = Mods.Font.new(16)
     end
     if not game.devPanelRowFont then
-        game.devPanelRowFont = Font.new(13)
+        game.devPanelRowFont = Mods.Font.new(13)
     end
     local _, _, pw, ph = getDevPanelLayout()
-    local maxS = DevPanel.maxScroll(devPanelState.rows, game.devPanelTitleFont, game.devPanelRowFont, pw, ph)
+    local maxS = Mods.DevPanel.maxScroll(devPanelState.rows, game.devPanelTitleFont, game.devPanelRowFont, pw, ph)
     devPanelState.scroll = math.max(0, math.min(maxS, devPanelState.scroll))
 end
 
@@ -1398,7 +1396,7 @@ local function syncCurrentRoomNightMode()
     currentRoom.nightMode = want
     if want then
         if not currentRoom.fogExplored then
-            local fog = Vision.initFogForRoom({ width = currentRoom.width, height = currentRoom.height })
+            local fog = Mods.Vision.initFogForRoom({ width = currentRoom.width, height = currentRoom.height })
             currentRoom.fogCellSize = fog.fogCellSize
             currentRoom.fogGridW = fog.fogGridW
             currentRoom.fogGridH = fog.fogGridH
@@ -1424,10 +1422,10 @@ local function queueRunRecap(outcome, source)
         return
     end
 
-    local profile = RewardRuntime.buildProfile(player, {
+    local profile = Mods.RewardRuntime.buildProfile(player, {
         source = source or "run_end",
     })
-    local buildSnapshot = RunMetadata.snapshotBuild(player, profile)
+    local buildSnapshot = Mods.RunMetadata.snapshotBuild(player, profile)
     local roomsCleared = roomManager and roomManager.totalRoomsCleared or 0
     local perksCount = player.perks and #player.perks or 0
 
@@ -1439,7 +1437,7 @@ local function queueRunRecap(outcome, source)
                 vis = vis + 1
             end
         end
-        RunMetadata.finishRun(game._runtime.runMetadata, {
+        Mods.RunMetadata.finishRun(game._runtime.runMetadata, {
             outcome = outcome or "completed",
             source = source or "run_end",
             level = player.level,
@@ -1470,15 +1468,15 @@ end
 
 devRebuildPanelRows = function()
     if game._runtime and game._runtime.devRewardLab then
-        game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
+        game._runtime.devRewardLab.profileSummary = Mods.RewardRuntime.describeProfile(Mods.RewardRuntime.buildProfile(player, {
             source = "dev_panel",
         }))
     end
-    local metaSummary = MetaRuntime.summarize(game._runtime and game._runtime.runMetadata or nil, {
+    local metaSummary = Mods.MetaRuntime.summarize(game._runtime and game._runtime.runMetadata or nil, {
         roomsCleared = roomManager and roomManager.totalRoomsCleared or 0,
         perksCount = player and player.perks and #player.perks or 0,
     })
-    devPanelState.rows = DevPanel.buildRows({
+    devPanelState.rows = Mods.DevPanel.buildRows({
         gameplayPaused = devPanelState.pauseGameplay,
         showHitboxes = devShowHitboxes,
         nightOverride = roomManager and roomManager.nightVisualsOverride,
@@ -1500,7 +1498,7 @@ devRebuildPanelRows = function()
             profileSummary = (game._runtime.devRewardLab and game._runtime.devRewardLab.profileSummary) or "none",
             gold = player and player.gold or 0,
             shopRerollCost = (game._runtime.devRewardLab and game._runtime.devRewardLab.shop and game._runtime.devRewardLab.shop.getRerollCost and game._runtime.devRewardLab.shop:getRerollCost()) or 0,
-            levelupRerollCost = RewardRuntime.getRerollCost("levelup", game._runtime and game._runtime.runMetadata or nil),
+            levelupRerollCost = Mods.RewardRuntime.getRerollCost("levelup", game._runtime and game._runtime.runMetadata or nil),
         },
         metaLab = {
             summary = metaSummary,
@@ -1543,7 +1541,7 @@ local function openDevPanel()
     devPanelState.hover = nil
     devRebuildPanelRows()
     if not game.devPanelTitleFont then
-        game.devPanelTitleFont = Font.new(16)
+        game.devPanelTitleFont = Mods.Font.new(16)
     end
     devClampScroll()
 end
@@ -1563,7 +1561,7 @@ local function devApplyAction(id)
     r.devShowHitboxes = devShowHitboxes
     r.gameRef = game
     r.devRewardLab = game._runtime.devRewardLab
-    GameDevApply.apply(id, r)
+    Mods.GameDevApply.apply(id, r)
     doorOpen = r.doorOpen
     characterSheetOpen = r.characterSheetOpen
     devShowHitboxes = r.devShowHitboxes
@@ -1576,13 +1574,13 @@ local function initGameplaySessionState(opts)
     introCD.segT = 0
     introCD.overlayFade = 0
 
-    world = bump.newWorld(32)
-    camera = Camera(400, 200)
+    world = Mods.bump.newWorld(32)
+    camera = Mods.Camera(400, 200)
     camera.scale = CAM_ZOOM
     camCurrentX, camCurrentY = 400, 200
     camTargetX, camTargetY = 400, 200
-    player = Player.new(50, 300)
-    player.autoGun = Settings.getDefaultAutoGun()
+    player = Mods.Player.new(50, 300)
+    player.autoGun = Mods.Settings.getDefaultAutoGun()
     world:add(player, player.x, player.y, player.w, player.h)
     player.isPlayer = true
 
@@ -1630,18 +1628,18 @@ end
 
 local function initGameplayRuntime(opts)
     game._runtime = {}
-    combatStack.combat_events.clear()
+    Mods.combat_events.clear()
     if game._bindRuntimeHelpers then
         game._bindRuntimeHelpers()
     end
-    game._runtime.runSeed = (opts and opts.runSeed) or combatStack.game_rng.seedFromTime()
-    game._runtime.rng = combatStack.game_rng.new(game._runtime.runSeed)
-    combatStack.game_rng.setCurrent(game._runtime.rng)
+    game._runtime.runSeed = (opts and opts.runSeed) or Mods.game_rng.seedFromTime()
+    game._runtime.rng = Mods.game_rng.new(game._runtime.runSeed)
+    Mods.game_rng.setCurrent(game._runtime.rng)
     game._runtime.devRewardLab = {
-        shop = Shop.new(1),
+        shop = Mods.Shop.new(1),
         profileSummary = "uninitialized",
     }
-    combatStack.combat_events.subscribe("OnKill", function(payload)
+    Mods.combat_events.subscribe("OnKill", function(payload)
         if not payload or payload.target_kind ~= "enemy" then
             return
         end
@@ -1652,7 +1650,7 @@ local function initGameplayRuntime(opts)
         if not game._runtime or not game._runtime.runMetadata then
             return
         end
-        RunMetadata.recordBossKilled(game._runtime.runMetadata, target, {
+        Mods.RunMetadata.recordBossKilled(game._runtime.runMetadata, target, {
             room_id = currentRoom and currentRoom.id or nil,
             room_name = currentRoom and currentRoom.name or nil,
             world_id = roomManager and roomManager.worldId or nil,
@@ -1663,7 +1661,7 @@ local function initGameplayRuntime(opts)
             dev_arena = roomManager and roomManager.devArenaMode == true,
         })
     end)
-    combatStack.combat_events.subscribe("OnDamageTaken", function(payload)
+    Mods.combat_events.subscribe("OnDamageTaken", function(payload)
         if not payload or payload.target_kind ~= "enemy" then
             return
         end
@@ -1673,35 +1671,35 @@ local function initGameplayRuntime(opts)
         if not game._runtime or not game._runtime.runMetadata then
             return
         end
-        RunMetadata.recordDamageDealt(
+        Mods.RunMetadata.recordDamageDealt(
             game._runtime.runMetadata,
             payload.final_applied_damage,
             classifyDamageBreakdown(payload),
             buildDamageTraceDetail(payload)
         )
     end)
-    combatStack.combat_events.subscribe("OnDamageTaken", function(payload)
+    Mods.combat_events.subscribe("OnDamageTaken", function(payload)
         if not payload or payload.target_kind ~= "player" then
             return
         end
         if not game._runtime or not game._runtime.runMetadata then
             return
         end
-        RunMetadata.recordDamageToPlayer(game._runtime.runMetadata, buildIncomingDamageDetail(payload))
+        Mods.RunMetadata.recordDamageToPlayer(game._runtime.runMetadata, buildIncomingDamageDetail(payload))
     end)
 end
 
 local function initGameplayWorld()
-    world = bump.newWorld(32)
-    camera = Camera(400, 200)
+    world = Mods.bump.newWorld(32)
+    camera = Mods.Camera(400, 200)
     camera.scale = getGameplayCameraScale()
     camCurrentX, camCurrentY = 400, 200
     camTargetX, camTargetY = 400, 200
-    player = Player.new(50, 300)
+    player = Mods.Player.new(50, 300)
     player.runMetadata = game._runtime.runMetadata
-    player.autoGun = Settings.getDefaultAutoGun()
-    game._runtime.procRuntime = combatStack.proc_runtime.init(player)
-    game._runtime.presentationRuntime = combatStack.presentation_runtime.init()
+    player.autoGun = Mods.Settings.getDefaultAutoGun()
+    game._runtime.procRuntime = Mods.proc_runtime.init(player)
+    game._runtime.presentationRuntime = Mods.presentation_runtime.init()
     world:add(player, player.x, player.y, player.w, player.h)
     player.isPlayer = true
 
@@ -1712,7 +1710,7 @@ local function initGameplayWorld()
     shakeTimer = 0
     shakeIntensity = 0
     gameTimer = 0
-    Combat.setExplosiveShakeHook(function(duration, intensity)
+    Mods.Combat.setExplosiveShakeHook(function(duration, intensity)
         duration = tonumber(duration) or 0
         intensity = tonumber(intensity) or 0
         if duration <= 0 or intensity <= 0 then
@@ -1724,36 +1722,36 @@ local function initGameplayWorld()
 end
 
 local function configureGameplayRun(opts)
-    local worldId = (opts and opts.worldId) or Worlds.order[1]
+    local worldId = (opts and opts.worldId) or Mods.Worlds.order[1]
     devArenaMode = opts and opts.devArena == true
-    roomManager = RoomManager.new(worldId)
+    roomManager = Mods.RoomManager.new(worldId)
     roomManager.devArenaMode = devArenaMode
     currentTheme = roomManager:getTheme()
-    TileRenderer.preloadTheme(currentTheme)
+    Mods.TileRenderer.preloadTheme(currentTheme)
 
     if worldId == "train" then
-        Wind.activate()
-        TrainRenderer.preload()
+        Mods.Wind.activate()
+        Mods.TrainRenderer.preload()
     else
-        Wind.deactivate()
+        Mods.Wind.deactivate()
     end
 
-    local worldDef = Worlds.get(worldId)
-    game._runtime.runMetadata = RunMetadata.new(game._runtime.runSeed, {
+    local worldDef = Mods.Worlds.get(worldId)
+    game._runtime.runMetadata = Mods.RunMetadata.new(game._runtime.runSeed, {
         world_id = worldId,
         world_name = worldDef and worldDef.name or worldId,
         dev_arena = opts and opts.devArena == true,
     })
     player.runMetadata = game._runtime.runMetadata
-    game._runtime.devRewardLab.shop = Shop.new(roomManager.difficulty or 1, player, {
+    game._runtime.devRewardLab.shop = Mods.Shop.new(roomManager.difficulty or 1, player, {
         run_metadata = game._runtime.runMetadata,
         source = "dev_arena_shop",
         room_manager = roomManager,
     })
-    game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
+    game._runtime.devRewardLab.profileSummary = Mods.RewardRuntime.describeProfile(Mods.RewardRuntime.buildProfile(player, {
         source = "dev_arena",
     }))
-    local bgPath = worldDef and worldDef.background or Worlds.get(Worlds.order[1]).background
+    local bgPath = worldDef and worldDef.background or Mods.Worlds.get(Mods.Worlds.order[1]).background
     bgImage = love.graphics.newImage(bgPath)
     bgImage:setWrap("repeat", "clampzero")
     return worldId, worldDef
@@ -1764,30 +1762,30 @@ local function enterInitialGameplayState(opts, worldId, worldDef)
     editorTestMode = (editorRoom ~= nil)
     if editorRoom then
         roomManager:generateSequence()
-        DevLog.init()
-        DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
-        DevLog.push("sys", "Editor test play")
+        Mods.DevLog.init()
+        Mods.DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
+        Mods.DevLog.push("sys", "Editor test play")
         currentRoom = roomManager:loadRoom(editorRoom, world, player)
         currentTheme = roomManager:getTheme()
-        TileRenderer.preloadTheme(currentTheme)
+        Mods.TileRenderer.preloadTheme(currentTheme)
         enemies = currentRoom.enemies
         wireRoomEntities(editorRoom)
         updateCamera(0, true)
     else
         roomManager:generateSequence()
-        DevLog.init()
-        DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
+        Mods.DevLog.init()
+        Mods.DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
         if devArenaMode then
-            combatStack.dev_event_echo.init()
+            Mods.dev_event_echo.init()
             if opts and opts.devBoot then
-                DevLog.push("sys", "CLI dev boot active")
+                Mods.DevLog.push("sys", "CLI dev boot active")
             end
-            DevLog.push("sys", "Dev arena started")
+            Mods.DevLog.push("sys", "Dev arena started")
             loadNextRoom()
         else
-            DevLog.push("sys", string.format("Run started — World: %s", worldDef and worldDef.name or worldId))
+            Mods.DevLog.push("sys", string.format("Run started — World: %s", worldDef and worldDef.name or worldId))
             local saloonState = require("src.states.saloon")
-            Gamestate.push(saloonState, player, roomManager)
+            Mods.Gamestate.push(saloonState, player, roomManager)
         end
     end
 end
@@ -1798,20 +1796,20 @@ local function finalizeGameplayEnter(opts)
         openDevPanel()
     end
 
-    if opts and opts.introCountdown and Gamestate.current() == game then
+    if opts and opts.introCountdown and Mods.Gamestate.current() == game then
         introCD.active = true
         introCD.n = 3
         introCD.segT = 0
         introCD.overlayFade = 0
         if not game.introCountdownFont then
-            game.introCountdownFont = Font.new(120)
+            game.introCountdownFont = Mods.Font.new(120)
         end
     end
 
     -- loadNextRoom may push saloon; only apply gameplay cursor if we're still the top state
-    if Gamestate.current() == game then
-        Cursor.setGameplay()
-        MusicDirector.onEnterGameplay()
+    if Mods.Gamestate.current() == game then
+        Mods.Cursor.setGameplay()
+        Mods.MusicDirector.onEnterGameplay()
     end
 end
 
@@ -1825,14 +1823,14 @@ function game:enter(_, opts)
 end
 
 function game:leave()
-    Cursor.setDefault()
-    MusicDirector.onLeaveGameplay()
-    Wind.deactivate()
+    Mods.Cursor.setDefault()
+    Mods.MusicDirector.onLeaveGameplay()
+    Mods.Wind.deactivate()
 end
 
 function loadNextRoom()
-    DamageNumbers.clear()
-    ImpactFX.clear()
+    Mods.DamageNumbers.clear()
+    Mods.ImpactFX.clear()
     -- Remove every bump body (forward loop on a stale snapshot can skip items → broken transitions)
     while world:countItems() > 0 do
         local items, n = world:getItems()
@@ -1871,39 +1869,39 @@ function loadNextRoom()
     if not roomData then
         -- Checkpoint reached
         local saloon = require("src.states.saloon")
-        Gamestate.push(saloon, player, roomManager)
+        Mods.Gamestate.push(saloon, player, roomManager)
         return
     end
 
     currentRoom = roomManager:loadRoom(roomData, world, player)
     currentTheme = roomManager:getTheme()
-    TileRenderer.preloadTheme(currentTheme)
+    Mods.TileRenderer.preloadTheme(currentTheme)
     enemies = currentRoom.enemies
     wireRoomEntities(roomData)
-    RunMetadata.recordRoom(game._runtime.runMetadata, currentRoom, {
+    Mods.RunMetadata.recordRoom(game._runtime.runMetadata, currentRoom, {
         world_id = roomManager and roomManager.worldId or nil,
         room_index = roomManager.currentRoomIndex,
         total_cleared = roomManager.totalRoomsCleared,
         difficulty = roomManager.difficulty or 1,
         dev_arena = roomManager.devArenaMode == true,
     })
-    game._runtime.devRewardLab.profileSummary = RewardRuntime.describeProfile(RewardRuntime.buildProfile(player, {
+    game._runtime.devRewardLab.profileSummary = Mods.RewardRuntime.describeProfile(Mods.RewardRuntime.buildProfile(player, {
         source = "room_load",
     }))
     -- Snap camera to player on room load (no lerp lag)
     updateCamera(0, true)
     if roomManager.devArenaMode then
-        DevLog.push("sys", string.format("Dev arena loaded  (diff %.1f)", roomManager.difficulty or 1))
+        Mods.DevLog.push("sys", string.format("Dev arena loaded  (diff %.1f)", roomManager.difficulty or 1))
     else
-        DevLog.push("sys", string.format("Room %d/%d loaded  (diff %.1f)",
+        Mods.DevLog.push("sys", string.format("Room %d/%d loaded  (diff %.1f)",
             roomManager.currentRoomIndex, #roomManager.roomSequence,
             roomManager.difficulty or 1))
     end
 end
 
 function game:resume()
-    Cursor.setGameplay()
-    MusicDirector.resumeGameplay()
+    Mods.Cursor.setGameplay()
+    Mods.MusicDirector.resumeGameplay()
     -- Returning from saloon -> load new cycle of rooms
     if roomManager.needsNewRooms then
         roomManager.needsNewRooms = false
@@ -1913,7 +1911,7 @@ end
 
 function game:update(dt)
     if player and roomManager then
-        MusicDirector.update(dt, buildMusicSnapshot())
+        Mods.MusicDirector.update(dt, buildMusicSnapshot())
     end
 
     if paused then return end
@@ -1970,13 +1968,13 @@ function game:update(dt)
                     local ty = target.y + target.h / 2
                     local angle = math.atan2(ty - py, tx - px)
                     local effectiveStats = player:getEffectiveStats()
-                    local source_ref = combatStack.source_ref.new({
+                    local source_ref = Mods.source_ref.new({
                         owner_actor_id = player.actorId or "player",
                         owner_source_type = "ultimate",
                         owner_source_id = "dead_mans_hand",
                     })
                     local base_damage = (effectiveStats.bulletDamage or 0) * 3
-                    local packet = combatStack.damage_packet.new({
+                    local packet = Mods.damage_packet.new({
                         kind = "direct_hit",
                         family = "physical",
                         base_min = base_damage,
@@ -2007,7 +2005,7 @@ function game:update(dt)
                             explosion_damage_scale = 0.5,
                         },
                     })
-                    local b = Combat.spawnBullet(world, {
+                    local b = Mods.Combat.spawnBullet(world, {
                         x = px, y = py,
                         angle = angle,
                         speed = effectiveStats.bulletSpeed * 2.0,
@@ -2023,7 +2021,7 @@ function game:update(dt)
                         damage_tags = { "projectile", "ultimate" },
                     })
                     table.insert(bullets, b)
-                    Sfx.play("ult_shot", { volume = 0.7 })
+                    Mods.Sfx.play("ult_shot", { volume = 0.7 })
                     shakeTimer = 0.1
                     shakeIntensity = 4
                     -- Shockwave ring + screen flash per shot
@@ -2037,7 +2035,7 @@ function game:update(dt)
                 player.ultPhase = "cooldown"
                 player.ultTimer = 0.6
                 if #player.ultTargets > 0 then
-                    Sfx.play("ult_explosion")
+                    Mods.Sfx.play("ult_explosion")
                     shakeTimer = 0.6
                     shakeIntensity = 10
                 end
@@ -2096,10 +2094,10 @@ function game:update(dt)
     local viewR, viewB = camX + halfW, camY + halfH
 
     -- Update wind (needs camera position for particle spawning)
-    Wind.update(dt, camX, camY, halfW * 2, halfH * 2)
+    Mods.Wind.update(dt, camX, camY, halfW * 2, halfH * 2)
 
     if currentRoom and currentRoom.nightMode and currentRoom.fogExplored and player and not player.dying then
-        Vision.markFogExplored(currentRoom, player, getGameplayCameraScale())
+        Mods.Vision.markFogExplored(currentRoom, player, getGameplayCameraScale())
     end
 
     local autoTx, autoTy
@@ -2116,13 +2114,13 @@ function game:update(dt)
             player.aimWorldY = wy
         end
 
-        local aimIdle = Settings.getMouseAimIdleSec()
+        local aimIdle = Mods.Settings.getMouseAimIdleSec()
         refreshMouseAimOverride(player, aimIdle)
         local tNow = love.timer.getTime()
         mouseAimOn = tNow < (player.mouseAimOverrideUntil or 0)
         player.keyboardAimMode = not mouseAimOn
         local nightMode = currentRoom and currentRoom.nightMode
-        autoTx, autoTy = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB, camera, nightMode, 0, 0)
+        autoTx, autoTy = Mods.Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB, camera, nightMode, 0, 0)
         if mouseAimOn then
             player.effectiveAimX, player.effectiveAimY = player.aimWorldX, player.aimWorldY
         elseif autoTx then
@@ -2132,7 +2130,7 @@ function game:update(dt)
         end
     end
 
-    -- Player update
+    -- Mods.Player update
     player:update(dt, world, enemies)
 
     do
@@ -2172,16 +2170,16 @@ function game:update(dt)
         end
     end
 
-    -- Wind physics: nudge player with headwind (train world only)
-    if Wind.active and not player.dying and player.filter then
-        local windNudge = Wind.getForce() * dt
+    -- Mods.Wind physics: nudge player with headwind (train world only)
+    if Mods.Wind.active and not player.dying and player.filter then
+        local windNudge = Mods.Wind.getForce() * dt
         if windNudge ~= 0 then
             local nx, ny = world:move(player, player.x + windNudge, player.y, player.filter)
             player.x = nx
             player.y = ny
         end
-        -- Wind gusts add a mild camera shake
-        if Wind.isGusting() and shakeTimer <= 0 then
+        -- Mods.Wind gusts add a mild camera shake
+        if Mods.Wind.isGusting() and shakeTimer <= 0 then
             shakeTimer    = 0.08
             shakeIntensity = 1.2
         end
@@ -2220,7 +2218,7 @@ function game:update(dt)
             if bulletData then
                 emitPlayerNoise(PLAYER_GUNSHOT_NOISE_RADIUS, "gunshot")
                 for _, data in ipairs(bulletData) do
-                    local b = Combat.spawnBullet(world, data)
+                    local b = Mods.Combat.spawnBullet(world, data)
                     table.insert(bullets, b)
                 end
                 local gun = gunForShake
@@ -2232,10 +2230,10 @@ function game:update(dt)
         end
     end
 
-    Combat.updateBullets(bullets, dt, world, enemies, player)
+    Mods.Combat.updateBullets(bullets, dt, world, enemies, player)
     if player.dying then goto skipLivingCombat end
 
-    local autoMeleeStarted = Combat.tryAutoMelee(
+    local autoMeleeStarted = Mods.Combat.tryAutoMelee(
         player,
         enemies,
         world,
@@ -2251,8 +2249,8 @@ function game:update(dt)
     if autoMeleeStarted then
         emitPlayerNoise(PLAYER_MELEE_NOISE_RADIUS, "melee")
     end
-    Combat.checkPlayerMelee(player, enemies)
-    Combat.checkPlayerMeleeVegetation(player, currentRoom and currentRoom.decorProps)
+    Mods.Combat.checkPlayerMelee(player, enemies)
+    Mods.Combat.checkPlayerMeleeVegetation(player, currentRoom and currentRoom.decorProps)
 
     -- Enemies update
     local enemyContext = {
@@ -2268,7 +2266,7 @@ function game:update(dt)
             if e.alive then
                 local bulletData = e:update(dt, world, enemyContext)
                 if bulletData then
-                    bulletData.source_ref = bulletData.source_ref or combatStack.source_ref.new({
+                    bulletData.source_ref = bulletData.source_ref or Mods.source_ref.new({
                         owner_actor_id = e.actorId or e.typeId or "enemy",
                         owner_source_type = "enemy_attack",
                         owner_source_id = e.typeId or e.name or "enemy",
@@ -2276,8 +2274,8 @@ function game:update(dt)
                     bulletData.packet_kind = bulletData.packet_kind or "direct_hit"
                     bulletData.damage_family = bulletData.damage_family or "physical"
                     bulletData.damage_tags = bulletData.damage_tags or { "projectile", "enemy" }
-                    local b = Combat.spawnBullet(world, bulletData)
-                    Sfx.play("shoot", { volume = 0.35 })
+                    local b = Mods.Combat.spawnBullet(world, bulletData)
+                    Mods.Sfx.play("shoot", { volume = 0.35 })
                     table.insert(bullets, b)
                 end
             if isOutOfBounds(e, currentRoom) then
@@ -2289,11 +2287,11 @@ function game:update(dt)
             end
             i = i + 1
         else
-            DevLog.push("combat", string.format("Killed %s  (xp+%d)", e.name or "enemy", e.xpValue or 0))
-            local enemyDrops = Combat.onEnemyKilled(e, player)
+            Mods.DevLog.push("combat", string.format("Killed %s  (xp+%d)", e.name or "enemy", e.xpValue or 0))
+            local enemyDrops = Mods.Combat.onEnemyKilled(e, player)
             if enemyDrops then
                 for _, drop in ipairs(enemyDrops) do
-                    local p = Pickup.new(drop.x, drop.y, drop.type, drop.value)
+                    local p = Mods.Pickup.new(drop.x, drop.y, drop.type, drop.value)
                     world:add(p, p.x, p.y, p.w, p.h)
                     table.insert(pickups, p)
                 end
@@ -2306,7 +2304,7 @@ function game:update(dt)
     end
 
     -- Contact damage
-    Combat.checkContactDamage(enemies, player)
+    Mods.Combat.checkContactDamage(enemies, player)
     if player.dying then goto skipLivingCombat end
 
     -- Pickups update
@@ -2328,23 +2326,23 @@ function game:update(dt)
     end
 
     -- Check pickup collection
-    leveledUp = Combat.checkPickups(pickups, player, world)
+    leveledUp = Mods.Combat.checkPickups(pickups, player, world)
 
     -- Level up
     if leveledUp then
-        DevLog.push("progress", "Level up → " .. player.level)
+        Mods.DevLog.push("progress", "Level up → " .. player.level)
         local levelup = require("src.states.levelup")
-        Gamestate.push(levelup, player, function() end)
+        Mods.Gamestate.push(levelup, player, function() end)
     end
 
     -- Check if all enemies dead (and no staggered spawns left) -> open door
     if currentRoom and currentRoom.door and #enemies == 0 and not doorOpen and not pendingEnemiesIncoming() then
-        Sfx.play("door_open")
+        Mods.Sfx.play("door_open")
         doorOpen = true
         doorAnimFrame = 1
         doorAnimTimer = 0
         currentRoom.door.locked = false
-        DevLog.push("sys", "All enemies cleared — door open")
+        Mods.DevLog.push("sys", "All enemies cleared — door open")
     end
 
     -- Latch off-screen enemy hints: touch locked exit once, keep arrows until room clears
@@ -2365,11 +2363,11 @@ function game:update(dt)
             local loss = OUT_OF_BOUNDS_HP_PENALTY
             player.hp = math.max(0, player.hp - loss)
             player.iframes = math.max(player.iframes or 0, 1.0)
-            Sfx.play("hurt")
+            Mods.Sfx.play("hurt")
             local pcx = player.x + player.w / 2
             local pcy = player.y + player.h / 2
-            DamageNumbers.spawn(pcx, pcy, loss, "out")
-            DevLog.push("sys", string.format("Out of bounds —%d HP  (respawn)", loss))
+            Mods.DamageNumbers.spawn(pcx, pcy, loss, "out")
+            Mods.DevLog.push("sys", string.format("Out of bounds —%d HP  (respawn)", loss))
             if player.hp <= 0 then
                 player:beginDeath()
             else
@@ -2382,8 +2380,8 @@ function game:update(dt)
     ::skipLivingCombat::
     end -- not player.dying
 
-    DamageNumbers.update(dt)
-    ImpactFX.update(dt)
+    Mods.DamageNumbers.update(dt)
+    Mods.ImpactFX.update(dt)
 
     -- Animate door opening
     if doorOpen and doorAnimFrame < DOOR_FRAMES then
@@ -2398,15 +2396,15 @@ function game:update(dt)
         end
     end
 
-    -- Player death (after collapse animation); snapshot taken in draw after world is rendered
-    if player.dying and player.deathTimer >= Player.DEATH_DURATION then
+    -- Mods.Player death (after collapse animation); snapshot taken in draw after world is rendered
+    if player.dying and player.deathTimer >= Mods.Player.DEATH_DURATION then
         if editorTestMode then
             local editorState = require("src.states.editor")
-            Gamestate.switch(editorState)
+            Mods.Gamestate.switch(editorState)
             return
         end
         if not pendingGameOver then
-            DevLog.push("sys", string.format("Player died  lv%d  %d rooms  $%d",
+            Mods.DevLog.push("sys", string.format("Mods.Player died  lv%d  %d rooms  $%d",
                 player.level, roomManager.totalRoomsCleared, player.gold))
             queueRunRecap("death", "player_death")
         end
@@ -2425,7 +2423,7 @@ function game:keypressed(key)
         end
         if key == "escape" then
             local menu = require("src.states.menu")
-            Gamestate.switch(menu)
+            Mods.Gamestate.switch(menu)
         end
         return
     end
@@ -2433,16 +2431,16 @@ function game:keypressed(key)
     local _, _, _, consoleH = getDebugConsoleLayout()
     if DEBUG then
         if key == "end" then
-            DevLog.followConsole()
+            Mods.DevLog.followConsole()
             return
         elseif key == "pageup" then
-            DevLog.scrollConsole(10, consoleH)
+            Mods.DevLog.scrollConsole(10, consoleH)
             return
         elseif key == "pagedown" then
-            DevLog.scrollConsole(-10, consoleH)
+            Mods.DevLog.scrollConsole(-10, consoleH)
             return
         elseif key == "home" then
-            DevLog.scrollConsole(9999, consoleH)
+            Mods.DevLog.scrollConsole(9999, consoleH)
             return
         end
     end
@@ -2487,7 +2485,7 @@ function game:keypressed(key)
             activeMerchant:selectNext()
             return
         end
-        if Keybinds.matches("interact", key) or key == "return" or key == "space" or key == "kpenter" then
+        if Mods.Keybinds.matches("interact", key) or key == "return" or key == "space" or key == "kpenter" then
             activeMerchant:buySelected(player)
             return
         end
@@ -2498,9 +2496,9 @@ function game:keypressed(key)
         if key == "escape" then
             pauseMenu.settingsBindCapture = nil
         else
-            local normalized = Keybinds.normalizeCapturedKey(key)
-            Settings.setKeybind(pauseMenu.settingsBindCapture, normalized)
-            Settings.save()
+            local normalized = Mods.Keybinds.normalizeCapturedKey(key)
+            Mods.Settings.setKeybind(pauseMenu.settingsBindCapture, normalized)
+            Mods.Settings.save()
             pauseMenu.settingsBindCapture = nil
         end
         return
@@ -2537,9 +2535,9 @@ function game:keypressed(key)
                 pauseMenu.settingsBindCapture = nil
                 pauseMenu.settingsSliderDragKey = nil
             elseif key == "[" then
-                pauseMenu.settingsTab = SettingsPanel.cycleTab(pauseMenu.settingsTab, -1)
+                pauseMenu.settingsTab = Mods.SettingsPanel.cycleTab(pauseMenu.settingsTab, -1)
             elseif key == "]" then
-                pauseMenu.settingsTab = SettingsPanel.cycleTab(pauseMenu.settingsTab, 1)
+                pauseMenu.settingsTab = Mods.SettingsPanel.cycleTab(pauseMenu.settingsTab, 1)
             end
             return
         end
@@ -2566,11 +2564,11 @@ function game:keypressed(key)
         return
     end
 
-    if Keybinds.matches("character", key) then
+    if Mods.Keybinds.matches("character", key) then
         characterSheetOpen = not characterSheetOpen
         return
     end
-    if Keybinds.matches("ult", key) then
+    if Mods.Keybinds.matches("ult", key) then
         if player:tryActivateUlt() then
             -- Mark all alive on-screen enemies as targets
             local camX, camY = camera:position()
@@ -2587,30 +2585,30 @@ function game:keypressed(key)
             end
             ult.flashAlpha = 1
             ult.vignetteAlpha = 1
-            Sfx.play("ult_activate")
+            Mods.Sfx.play("ult_activate")
             shakeTimer = 0.55
             shakeIntensity = 8
         end
         return
     end
 
-    if Keybinds.matches("jump", key) or key == "w" or key == "up" then
+    if Mods.Keybinds.matches("jump", key) or key == "w" or key == "up" then
         player:jump()
     end
-    if Keybinds.matches("dash", key) then
+    if Mods.Keybinds.matches("dash", key) then
         player:tryDash()
     end
-    if Keybinds.matches("drop", key) or key == "down" then
+    if Mods.Keybinds.matches("drop", key) or key == "down" then
         player:tryDropThrough()
     end
-    if Keybinds.matches("reload", key) then
+    if Mods.Keybinds.matches("reload", key) then
         local wasReloading = player.reloading
         player:reload()
         if not wasReloading and player.reloading then
             emitPlayerNoise(PLAYER_RELOAD_NOISE_RADIUS, "reload")
         end
     end
-    if Keybinds.matches("melee", key) then
+    if Mods.Keybinds.matches("melee", key) then
         if player:meleeAttack() then
             emitPlayerNoise(PLAYER_MELEE_NOISE_RADIUS, "melee")
         end
@@ -2621,7 +2619,7 @@ function game:keypressed(key)
     if key == "tab" then
         player:switchWeapon()
     end
-    if Keybinds.matches("interact", key) then
+    if Mods.Keybinds.matches("interact", key) then
         tryInteractWorld()
     end
 end
@@ -2630,14 +2628,14 @@ function game:mousemoved(x, y, dx, dy)
     local gx, gy = windowToGame(x, y)
     if devToolsEnabled() and devPanelState.open and devPanelState.rows then
         if not game.devPanelTitleFont then
-            game.devPanelTitleFont = Font.new(16)
+            game.devPanelTitleFont = Mods.Font.new(16)
         end
         if not game.devPanelRowFont then
-            game.devPanelRowFont = Font.new(13)
+            game.devPanelRowFont = Mods.Font.new(13)
         end
         local px, py, pw, ph = getDevPanelLayout()
         if pointInRect(gx, gy, px, py, pw, ph) then
-            devPanelState.hover = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
+            devPanelState.hover = Mods.DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
         else
             devPanelState.hover = nil
         end
@@ -2651,14 +2649,14 @@ function game:mousemoved(x, y, dx, dy)
     if player and player.dying then return end
     if paused then
         if pauseMenu.view == "settings" and pauseMenu.settingsSliderDragKey and game.pauseMenuButtonFont then
-            local v = SettingsPanel.sliderValueFromPointerX(
+            local v = Mods.SettingsPanel.sliderValueFromPointerX(
                 GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, game.pauseMenuButtonFont,
                 pauseMenu.settingsSliderDragKey, gx
             )
             if v then
-                Settings.setVolumeKey(pauseMenu.settingsSliderDragKey, v)
-                Settings.save()
-                Settings.apply()
+                Mods.Settings.setVolumeKey(pauseMenu.settingsSliderDragKey, v)
+                Mods.Settings.save()
+                Mods.Settings.apply()
             end
             return
         end
@@ -2673,9 +2671,9 @@ function game:mousemoved(x, y, dx, dy)
             end
         else
             if not game.pauseMenuButtonFont then
-                game.pauseMenuButtonFont = Font.new(26)
+                game.pauseMenuButtonFont = Mods.Font.new(26)
             end
-            local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, gx, gy, game.pauseMenuButtonFont)
+            local h = Mods.SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, gx, gy, game.pauseMenuButtonFont)
             if h then
                 if h.kind == "tab" then
                     pauseMenu.settingsHover = { kind = "tab", id = h.id }
@@ -2694,7 +2692,7 @@ function game:mousemoved(x, y, dx, dy)
     end
     if not player then return end
     if math.abs(dx) + math.abs(dy) > 0.25 then
-        player.mouseAimOverrideUntil = love.timer.getTime() + Settings.getMouseAimIdleSec()
+        player.mouseAimOverrideUntil = love.timer.getTime() + Mods.Settings.getMouseAimIdleSec()
     end
 end
 
@@ -2702,10 +2700,10 @@ function game:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
     if devToolsEnabled() and devPanelState.open and devPanelState.rows then
         if not game.devPanelTitleFont then
-            game.devPanelTitleFont = Font.new(16)
+            game.devPanelTitleFont = Mods.Font.new(16)
         end
         if not game.devPanelRowFont then
-            game.devPanelRowFont = Font.new(13)
+            game.devPanelRowFont = Mods.Font.new(13)
         end
         local px, py, pw, ph = getDevPanelLayout()
         local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
@@ -2713,7 +2711,7 @@ function game:mousepressed(x, y, button)
         local insideConsole = pointInRect(gx, gy, consoleX - 4, consoleY - 4, consoleW + 8, consoleH)
         if insidePanel then
             if button == 1 then
-                local hit = DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
+                local hit = Mods.DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
                 if hit then
                     devApplyAction(hit)
                 end
@@ -2759,10 +2757,10 @@ function game:mousepressed(x, y, button)
             end
         else
             if not game.pauseMenuButtonFont then
-                game.pauseMenuButtonFont = Font.new(26)
+                game.pauseMenuButtonFont = Mods.Font.new(26)
             end
-            local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, gx, gy, game.pauseMenuButtonFont)
-            local r = SettingsPanel.applyHit(h, player)
+            local h = Mods.SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, gx, gy, game.pauseMenuButtonFont)
+            local r = Mods.SettingsPanel.applyHit(h, player)
             if h and h.kind == "slider" then
                 pauseMenu.settingsSliderDragKey = h.key
             end
@@ -2778,7 +2776,7 @@ function game:mousepressed(x, y, button)
         return
     end
     if player then
-        player.mouseAimOverrideUntil = love.timer.getTime() + Settings.getMouseAimIdleSec()
+        player.mouseAimOverrideUntil = love.timer.getTime() + Mods.Settings.getMouseAimIdleSec()
     end
     if button == 1 and player and not player.blocking then
         local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
@@ -2792,7 +2790,7 @@ function game:mousepressed(x, y, button)
                 if bulletData then
                     emitPlayerNoise(PLAYER_GUNSHOT_NOISE_RADIUS, "gunshot")
                     for _, data in ipairs(bulletData) do
-                        local b = Combat.spawnBullet(world, data)
+                        local b = Mods.Combat.spawnBullet(world, data)
                         table.insert(bullets, b)
                     end
                     local gun = player:getActiveGun()
@@ -2810,7 +2808,7 @@ function game:mousepressed(x, y, button)
         end
     end
     if button == 2 then
-        local slot = HUD.hitLoadout(gx, gy, GAME_HEIGHT)
+        local slot = Mods.HUD.hitLoadout(gx, gy, GAME_HEIGHT)
         if slot == "gun" then
             player.autoGun = not player.autoGun
         elseif slot == "melee" then
@@ -2845,12 +2843,12 @@ function game:wheelmoved(x, y)
             devPanelState.scroll = devPanelState.scroll - y * 36
             devClampScroll()
         elseif overConsole then
-            DevLog.scrollConsole(y * 3, consoleH)
+            Mods.DevLog.scrollConsole(y * 3, consoleH)
         end
         return
     end
     if overConsole then
-        DevLog.scrollConsole(y * 3, consoleH)
+        Mods.DevLog.scrollConsole(y * 3, consoleH)
     end
 end
 
@@ -2858,17 +2856,17 @@ function game:draw()
     local outputCanvas = love.graphics.getCanvas()
     local nightMode = currentRoom and currentRoom.nightMode
 
-    -- Camera with shake
+    -- Mods.Camera with shake
     local sx, sy = 0, 0
     if shakeTimer > 0 then
-        local sk = Settings.getScreenShakeScale()
+        local sk = Mods.Settings.getScreenShakeScale()
         sx = (math.random() - 0.5) * shakeIntensity * 2 * sk
         sy = (math.random() - 0.5) * shakeIntensity * 2 * sk
     end
 
     if nightMode then
-        WorldLighting.ensure()
-        love.graphics.setCanvas(WorldLighting.getWorldCanvas())
+        Mods.WorldLighting.ensure()
+        love.graphics.setCanvas(Mods.WorldLighting.getWorldCanvas())
     else
         love.graphics.setCanvas(outputCanvas)
     end
@@ -2912,13 +2910,13 @@ function game:draw()
         -- Western: layered mountain bands (same ground texture, darker / dimmed) behind level art
         if currentTheme and currentTheme._mountainSilhouette and currentRoom.width and currentRoom.height then
             local wsh = currentTheme._waterStripH or 0
-            TileRenderer.drawWesternMountainSilhouette(
+            Mods.TileRenderer.drawWesternMountainSilhouette(
                 currentRoom.width, currentRoom.height, wsh, currentTheme)
         end
 
         -- Rail tracks (train world — drawn behind everything else)
         if roomManager and roomManager.worldId == "train" then
-            TrainRenderer.drawRails(camX, camY, viewW, viewH, currentRoom.height)
+            Mods.TrainRenderer.drawRails(camX, camY, viewW, viewH, currentRoom.height)
         end
 
         -- Water: river in floor gaps then bottom strip (desert / any theme with _waterTexture)
@@ -2926,13 +2924,13 @@ function game:draw()
             love.graphics.setColor(1, 1, 1)
             if currentRoom.waterGapRects then
                 for _, wr in ipairs(currentRoom.waterGapRects) do
-                    TileRenderer.drawWaterBand(wr.x, wr.y, wr.w, wr.h, currentTheme)
+                    Mods.TileRenderer.drawWaterBand(wr.x, wr.y, wr.w, wr.h, currentTheme)
                 end
             end
             if currentTheme._waterStripH and currentTheme._waterStripH > 0 then
                 local wsX = currentRoom.waterStripX or 0
                 local wsW = currentRoom.waterStripW or currentRoom.width
-                TileRenderer.drawWaterBand(
+                Mods.TileRenderer.drawWaterBand(
                     wsX,
                     currentRoom.height - currentTheme._waterStripH,
                     wsW,
@@ -2944,19 +2942,19 @@ function game:draw()
 
         -- Walls (left, right, ceiling)
         for _, wall in ipairs(currentRoom.walls) do
-            TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h, currentTheme)
+            Mods.TileRenderer.drawWall(wall.x, wall.y, wall.w, wall.h, currentTheme)
         end
 
         -- Platforms: train cars use the sprite renderer; others use tiles
         if roomManager and roomManager.worldId == "train" then
-            TrainRenderer.drawRoomCars(currentRoom.platforms, currentRoom.height)
+            Mods.TrainRenderer.drawRoomCars(currentRoom.platforms, currentRoom.height)
             -- Non-car platforms (crates, structural overhangs, etc.) still use tiles
             for _, plat in ipairs(currentRoom.platforms) do
                 if not plat.trainCar then
                     if plat.h >= 32 then
-                        TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme)
+                        Mods.TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme)
                     else
-                        TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme, plat)
+                        Mods.TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme, plat)
                     end
                 end
             end
@@ -2968,10 +2966,10 @@ function game:draw()
             for _, plat in ipairs(currentRoom.platforms) do
                 if plat.h < 32 then
                     if plat.isGapBridge then
-                        TileRenderer.drawGapBridgeMountainSupports(
+                        Mods.TileRenderer.drawGapBridgeMountainSupports(
                             plat.x, plat.y, plat.w, plat.h, cliffBottom, currentTheme, plat)
                     else
-                        TileRenderer.drawLedgeMountainSupport(
+                        Mods.TileRenderer.drawLedgeMountainSupport(
                             plat.x, plat.y, plat.w, plat.h, cliffBottom, currentTheme, plat)
                     end
                 end
@@ -2981,21 +2979,21 @@ function game:draw()
             if not plat.isGapBridge then
                 if plat.h >= 32 then
                     -- Draw cliff below elevated solid platforms (mesa/butte look)
-                    TileRenderer.drawPlatformCliff(plat.x, plat.y, plat.w, plat.h, cliffBottom, currentTheme, terrainDepthOpts)
-                    TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme, terrainDepthOpts)
+                    Mods.TileRenderer.drawPlatformCliff(plat.x, plat.y, plat.w, plat.h, cliffBottom, currentTheme, terrainDepthOpts)
+                    Mods.TileRenderer.drawWall(plat.x, plat.y, plat.w, plat.h, currentTheme, terrainDepthOpts)
                 else
-                    TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme, plat, terrainDepthOpts)
+                    Mods.TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme, plat, terrainDepthOpts)
                 end
             end
         end
         for _, plat in ipairs(currentRoom.platforms) do
             if plat.isGapBridge then
-                TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme, plat, terrainDepthOpts)
+                Mods.TileRenderer.drawPlatform(plat.x, plat.y, plat.w, plat.h, currentTheme, plat, terrainDepthOpts)
             end
         end
         end  -- end train/non-train platform branch
 
-        RoomProps.drawDecor(currentRoom)
+        Mods.RoomProps.drawDecor(currentRoom)
 
         -- Secret entrance walls drawn before entities (they're part of the environment)
         for _, se in ipairs(trapEnts.secretEntrances) do
@@ -3050,7 +3048,7 @@ function game:draw()
             if doorOpen then
                 love.graphics.setColor(1, 1, 1, 0.85)
                 if player and isPlayerNearDoor() then
-                    local ik = Keybinds.formatActionKey("interact")
+                    local ik = Mods.Keybinds.formatActionKey("interact")
                     love.graphics.printf(string.format("[%s] Exit", ik), door.x - 24, door.y - 20, door.w + 48, "center")
                 else
                     love.graphics.printf("Exit", door.x - 10, door.y - 18, door.w + 20, "center")
@@ -3064,7 +3062,7 @@ function game:draw()
             local fogHalfH = GAME_HEIGHT / (2 * gameplayScale)
             local fogVL, fogVT = camX - fogHalfW, camY - fogHalfH
             local fogVR, fogVB = camX + fogHalfW, camY + fogHalfH
-            Vision.drawFogOfWar(currentRoom, fogVL, fogVT, fogVR, fogVB)
+            Mods.Vision.drawFogOfWar(currentRoom, fogVL, fogVT, fogVR, fogVB)
         end
     end
 
@@ -3078,7 +3076,7 @@ function game:draw()
         e:draw(player, camera, sx, sy, currentRoom)
     end
 
-    -- Player
+    -- Mods.Player
     player:draw()
     if not introCD.active then
         drawAimCrosshair()
@@ -3089,11 +3087,11 @@ function game:draw()
         b:draw()
     end
 
-    ImpactFX.draw()
-    DamageNumbers.draw()
+    Mods.ImpactFX.draw()
+    Mods.DamageNumbers.draw()
 
-    -- Wind particles (world-space, drawn over entities but under HUD)
-    Wind.draw()
+    -- Mods.Wind particles (world-space, drawn over entities but under Mods.HUD)
+    Mods.Wind.draw()
 
     drawActiveDevSpawnPreview()
     -- Ult world-space effects: shockwave rings + target reticles
@@ -3157,16 +3155,16 @@ function game:draw()
     love.graphics.setCanvas(outputCanvas)
     if nightMode then
         do
-            local pos = (player and camera) and WorldLighting.computeLightPositions(camera, player, sx, sy) or {
+            local pos = (player and camera) and Mods.WorldLighting.computeLightPositions(camera, player, sx, sy) or {
                 lightPos0 = { 0.5, 0.55 },
                 lightPos1 = { 0.5, 0.22 },
                 lightForward0 = { 1, 0 },
             }
             local staticPack = {}
             if camera and currentRoom and currentRoom.staticLights then
-                staticPack = WorldLighting.computeStaticLightPack(camera, currentRoom.staticLights, sx, sy)
+                staticPack = Mods.WorldLighting.computeStaticLightPack(camera, currentRoom.staticLights, sx, sy)
             end
-            WorldLighting.apply(WorldLighting.getWorldCanvas(), {
+            Mods.WorldLighting.apply(Mods.WorldLighting.getWorldCanvas(), {
                 lightPos0 = pos.lightPos0,
                 lightPos1 = pos.lightPos1,
                 lightForward0 = pos.lightForward0,
@@ -3205,8 +3203,8 @@ function game:draw()
         }
         pendingGameOver = nil
         local gameover = require("src.states.gameover")
-        Gamestate.switch(gameover, args)
-        local cur = Gamestate.current()
+        Mods.Gamestate.switch(gameover, args)
+        local cur = Mods.Gamestate.current()
         if cur and cur.draw then
             cur:draw(cur)
         end
@@ -3218,16 +3216,16 @@ function game:draw()
         drawExitBlockedOffscreenArrows()
         drawExitArrow()
 
-        -- HUD (screen space)
-        HUD.draw(player)
+        -- Mods.HUD (screen space)
+        Mods.HUD.draw(player)
         if DEBUG then
-            HUD.drawReadabilityTierDebug(GAME_WIDTH, GAME_HEIGHT)
+            Mods.HUD.drawReadabilityTierDebug(GAME_WIDTH, GAME_HEIGHT)
         end
         if not DEBUG then
-            DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
+            Mods.DevLog.drawOverlay(GAME_WIDTH, GAME_HEIGHT)
         end
         if roomManager then
-            HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
+            Mods.HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
         end
 
         if activeMerchant and activeMerchant.state == "browsing" then
@@ -3241,7 +3239,7 @@ function game:draw()
             love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
         end
 
-        HUD.drawDeadEye(player)
+        Mods.HUD.drawDeadEye(player)
 
         -- ── Ultimate: Dead Man's Hand overlay ──
         if player.ultActive or ult.flashAlpha > 0 or ult.shotFlashScreen > 0 or ult.vignetteAlpha > 0 then
@@ -3295,16 +3293,16 @@ function game:draw()
             love.graphics.rectangle("fill", 0, 0, GAME_WIDTH, GAME_HEIGHT)
 
             if not game.pauseTitleFont then
-                game.pauseTitleFont = Font.new(32)
+                game.pauseTitleFont = Mods.Font.new(32)
             end
             if not game.pauseMenuButtonFont then
-                game.pauseMenuButtonFont = Font.new(26)
+                game.pauseMenuButtonFont = Mods.Font.new(26)
             end
             if not game.pauseHintFont then
-                game.pauseHintFont = Font.new(15)
+                game.pauseHintFont = Mods.Font.new(15)
             end
             if not game.pauseSettingsBodyFont then
-                game.pauseSettingsBodyFont = Font.new(16)
+                game.pauseSettingsBodyFont = Mods.Font.new(16)
             end
 
             if pauseMenu.view == "main" then
@@ -3330,7 +3328,7 @@ function game:draw()
                     love.graphics.printf(
                         r.label,
                         r.x,
-                        TextLayout.printfYCenteredInRect(game.pauseMenuButtonFont, r.y, r.h),
+                        Mods.TextLayout.printfYCenteredInRect(game.pauseMenuButtonFont, r.y, r.h),
                         r.w,
                         "center"
                     )
@@ -3340,7 +3338,7 @@ function game:draw()
                 love.graphics.setColor(0.45, 0.45, 0.48)
                 love.graphics.printf("Arrows / mouse  ·  Enter  ·  ESC to resume", 0, GAME_HEIGHT * 0.88, GAME_WIDTH, "center")
             else
-                SettingsPanel.draw(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, {
+                Mods.SettingsPanel.draw(GAME_WIDTH, GAME_HEIGHT, pauseMenu.settingsTab, {
                     title = game.pauseTitleFont,
                     tab = game.pauseMenuButtonFont,
                     row = game.pauseSettingsBodyFont,
@@ -3363,7 +3361,7 @@ function game:draw()
         love.graphics.pop()
 
         if not game.introHintFont then
-            game.introHintFont = Font.new(14)
+            game.introHintFont = Mods.Font.new(14)
         end
         love.graphics.setColor(0.5, 0.5, 0.55, 0.85 * introCD.overlayFade)
         love.graphics.setFont(game.introHintFont)
@@ -3374,7 +3372,7 @@ function game:draw()
     if DEBUG then
         local es = player:getEffectiveStats()
         if not game.debugFont then
-            game.debugFont = Font.new(11)
+            game.debugFont = Mods.Font.new(11)
         end
         love.graphics.setFont(game.debugFont)
         local bulletDamage = es.bulletDamage or 0
@@ -3427,7 +3425,7 @@ function game:draw()
 
         -- Dev log: wide console to the left of the stat panel.
         local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
-        DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
+        Mods.DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
     end
 
     drawDevPanelOverlay()
