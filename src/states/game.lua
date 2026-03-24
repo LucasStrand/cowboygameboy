@@ -30,6 +30,7 @@ local Mods = {
     Wind = require("src.systems.wind"),
     TrainRenderer = require("src.systems.train_renderer"),
     Worlds = require("src.data.worlds"),
+    GoldCoin = require("src.data.gold_coin"),
     ImpactFX = require("src.systems.impact_fx"),
     Sfx = require("src.systems.sfx"),
     MusicDirector = require("src.systems.music_director"),
@@ -83,6 +84,10 @@ local pauseMenu = {
     settingsSliderDragKey = nil,
 }
 local characterSheetOpen = false
+--- Weapon floor pickups: hold/tap interact (see Combat.advanceWeaponPickupInteraction).
+local weaponPickupInteractState = {}
+--- True for one stroke after tryInteractWorld handled the interact key (blocks equip-on-release).
+local worldInteractConsumed = false
 --- Set in update when death completes; next draw captures world → game over (see pendingGameOver block after camera:detach).
 local pendingGameOver = nil
 --- When true, we're in editor test-play mode — death/door returns to editor.
@@ -192,19 +197,20 @@ end
 --- Spawn world gold pickups (same as loot) instead of crediting instantly — for dev cheats.
 local function spawnCheatGoldDrops(amount)
     if not amount or amount <= 0 or not player or not world then return end
+    local specs, overflow = Mods.GoldCoin.pickupSpecsForTotal(amount, 28)
+    if overflow > 0 then
+        player:addGold(overflow, "debug_gold_overflow")
+    end
+    if #specs < 1 then return end
     local pw = 10
-    local n = math.min(28, math.max(1, math.ceil(amount / 25)))
-    local base = math.floor(amount / n)
-    local rem = amount - base * n
-    for i = 1, n do
-        local v = base + (i <= rem and 1 or 0)
-        if v <= 0 then break end
-        local spread = (i - 1 - (n - 1) * 0.5) * 18
+    for i = 1, #specs do
+        local sp = specs[i]
+        local spread = (i - 1 - (#specs - 1) * 0.5) * 18
         local px = player.x + player.w / 2 - pw / 2 + spread + (Mods.game_rng.randomFloat("game.debug_gold.px", 0, 1) - 0.5) * 8
         local py = player.y - 6 - Mods.game_rng.randomFloat("game.debug_gold.py", 0, 16)
-        local p = Mods.Pickup.new(px, py, "gold", v)
-        p.vy = -150 - Mods.game_rng.randomFloat("game.debug_gold.vy", 0, 130)
-        p.vx = (Mods.game_rng.randomFloat("game.debug_gold.vx", 0, 1) - 0.5) * 200
+        local p = Mods.Pickup.new(px, py, sp.type, sp.value)
+        p.vy = -200 - Mods.game_rng.randomFloat("game.debug_gold.vy", 0, 160)
+        p.vx = (Mods.game_rng.randomFloat("game.debug_gold.vx", 0, 1) - 0.5) * 240
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end
@@ -999,7 +1005,7 @@ local function wireRoomEntities(roomDef)
             for _, drop in ipairs(drops) do
                 local p = Mods.Pickup.new(spawnX - 5, spawnY, drop.type, drop.value)
                 p.vx = drop.vx or 0
-                p.vy = drop.vy or -200
+                p.vy = drop.vy or -280
                 world:add(p, p.x, p.y, p.w, p.h)
                 table.insert(pickups, p)
             end
@@ -1071,9 +1077,16 @@ local function wireRoomEntities(roomDef)
                 local spawnX = sm.x + sm.w * 0.5
                 local spawnY = sm.y - 10
                 if rtype == "gold" then
-                    local p = Mods.Pickup.new(spawnX, spawnY, "gold", value)
-                    world:add(p, p.x, p.y, p.w, p.h)
-                    table.insert(pickups, p)
+                    local specs, overflow = Mods.GoldCoin.pickupSpecsForTotal(value or 0, 28)
+                    if overflow > 0 and player then
+                        player:addGold(overflow, "field_slot_gold_overflow")
+                    end
+                    for gi = 1, #specs do
+                        local sp = specs[gi]
+                        local p = Mods.Pickup.new(spawnX + (gi - 1) * 5, spawnY, sp.type, sp.value)
+                        world:add(p, p.x, p.y, p.w, p.h)
+                        table.insert(pickups, p)
+                    end
                 elseif rtype == "xp" then
                     local p = Mods.Pickup.new(spawnX, spawnY, "xp", value)
                     world:add(p, p.x, p.y, p.w, p.h)
@@ -1100,13 +1113,13 @@ end
 
 local function tryExitThroughDoor()
     if transitionTimer > 0 or not isPlayerNearDoor() or not roomManager then
-        return
+        return false
     end
     -- Editor test-play: return to editor on door exit
     if editorTestMode then
         local editorState = require("src.states.editor")
         Mods.Gamestate.switch(editorState)
-        return
+        return true
     end
     roomManager:onRoomCleared()
     if roomManager:isCheckpoint() then
@@ -1122,24 +1135,26 @@ local function tryExitThroughDoor()
         end
         local saloon = require("src.states.saloon")
         Mods.Gamestate.push(saloon, player, roomManager)
+        return true
     else
         transitionTimer = 0.5
+        return true
     end
 end
 
 local function tryInteractWorld()
-    if not player or not currentRoom or transitionTimer > 0 then return end
+    if not player or not currentRoom or transitionTimer > 0 then return false end
     local px = player.x + player.w / 2
     local py = player.y + player.h / 2
 
     for _, altar in ipairs(weaponAltars) do
         if altar.state == "choosing" and altar:isNearPlayer(px, py) then
-            if altar:tryChoose(player) then return end
+            if altar:tryChoose(player) then return true end
         end
     end
     for _, shrine in ipairs(shrines) do
         if shrine:isNearPlayer(px, py) and shrine:tryActivate(player) then
-            return
+            return true
         end
     end
     for _, chest in ipairs(chests) do
@@ -1147,23 +1162,23 @@ local function tryInteractWorld()
             local function applyCursed(dmg)
                 if dmg and dmg > 0 then player:takeDamage(dmg) end
             end
-            if chest:tryOpen(player, applyCursed) then return end
+            if chest:tryOpen(player, applyCursed) then return true end
         end
     end
     for _, m in ipairs(merchants) do
         if m:isNearPlayer(px, py) and m.state == "idle" then
             if m:tryInteract() then
                 activeMerchant = m
-                return
+                return true
             end
         end
     end
     for _, sm in ipairs(trapEnts.slotMachines) do
         if sm:isNearPlayer(px, py) then
-            if sm:tryPlay(player) then return end
+            if sm:tryPlay(player) then return true end
         end
     end
-    tryExitThroughDoor()
+    return tryExitThroughDoor()
 end
 
 local bgImage
@@ -1617,6 +1632,8 @@ local function initGameplaySessionState(opts)
     pauseMenu.settingsBindCapture = nil
     pauseMenu.settingsSliderDragKey = nil
     characterSheetOpen = false
+    weaponPickupInteractState = {}
+    worldInteractConsumed = false
     pendingGameOver = nil
     devPanelState.open = false
     devPanelState.scroll = 0
@@ -1839,6 +1856,8 @@ function loadNextRoom()
     end
     bullets = {}
     pickups = {}
+    weaponPickupInteractState = {}
+    worldInteractConsumed = false
     enemies = {}
     chests = {}
     shrines = {}
@@ -2292,6 +2311,8 @@ function game:update(dt)
             if enemyDrops then
                 for _, drop in ipairs(enemyDrops) do
                     local p = Mods.Pickup.new(drop.x, drop.y, drop.type, drop.value)
+                    if drop.vx then p.vx = drop.vx end
+                    if drop.vy then p.vy = drop.vy end
                     world:add(p, p.x, p.y, p.w, p.h)
                     table.insert(pickups, p)
                 end
@@ -2325,7 +2346,15 @@ function game:update(dt)
         end
     end
 
-    -- Check pickup collection
+    -- Weapon pickups: hold interact to sell, short release to equip (after other uses clear worldInteractConsumed)
+    weaponPickupInteractState = Mods.Combat.advanceWeaponPickupInteraction(
+        dt, pickups, player, world, weaponPickupInteractState, worldInteractConsumed
+    )
+    if not Mods.Keybinds.isDown("interact") then
+        worldInteractConsumed = false
+    end
+
+    -- Pickup collection (gold/xp/health — magnet only after grounded)
     leveledUp = Mods.Combat.checkPickups(pickups, player, world)
 
     -- Level up
@@ -2620,7 +2649,7 @@ function game:keypressed(key)
         player:switchWeapon()
     end
     if Mods.Keybinds.matches("interact", key) then
-        tryInteractWorld()
+        worldInteractConsumed = tryInteractWorld() == true
     end
 end
 

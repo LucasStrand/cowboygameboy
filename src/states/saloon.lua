@@ -27,6 +27,7 @@ local HUD = require("src.ui.hud")
 local MusicDirector = require("src.systems.music_director")
 local Perks = require("src.data.perks")
 local GameRng = require("src.systems.game_rng")
+local GoldCoin = require("src.data.gold_coin")
 
 local saloonRoom = require("src.data.saloon_room")
 
@@ -243,25 +244,27 @@ end
 --- Gold from casino wins — scattered around the player so you walk to collect (lighter pop than dev cheat).
 local function spawnSaloonGoldDrops(amount)
     if not amount or amount <= 0 or not world or not player then return end
+    local specs, overflow = GoldCoin.pickupSpecsForTotal(amount, 28)
+    if overflow > 0 then
+        player:addGold(overflow, "casino_payout_overflow")
+    end
+    if #specs < 1 then return end
     local pw = 10
-    local n = math.min(28, math.max(1, math.ceil(amount / 25)))
-    local base = math.floor(amount / n)
-    local rem = amount - base * n
     local cx = player.x + player.w / 2
     local roomW = saloonRoom.width
+    local n = #specs
     for i = 1, n do
-        local v = base + (i <= rem and 1 or 0)
-        if v <= 0 then break end
+        local sp = specs[i]
         -- Ring around the player (not underfoot): ~56–112 px so you move to grab them
         local ang = (i / n) * math.pi * 2 + (GameRng.randomFloat("saloon.payout.ang", 0, 1) - 0.5) * 0.45
         local dist = 56 + GameRng.randomFloat("saloon.payout.dist", 0, 56)
         local px = cx - pw / 2 + math.cos(ang) * dist + (GameRng.randomFloat("saloon.payout.px", 0, 1) - 0.5) * 10
         px = math.max(4, math.min(roomW - pw - 4, px))
         local py = player.y - 5 - GameRng.randomFloat("saloon.payout.py", 0, 10)
-        local p = Pickup.new(px, py, "gold", v)
+        local p = Pickup.new(px, py, sp.type, sp.value)
         p.casinoPayout = true
-        p.vy = -95 - GameRng.randomFloat("saloon.payout.vy", 0, 85)
-        p.vx = (GameRng.randomFloat("saloon.payout.vx", 0, 1) - 0.5) * 115
+        p.vy = -140 - GameRng.randomFloat("saloon.payout.vy", 0, 120)
+        p.vx = (GameRng.randomFloat("saloon.payout.vx", 0, 1) - 0.5) * 165
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end
@@ -589,6 +592,68 @@ local function nearSlotMachine()
     return dx * dx + dy * dy <= sm.r * sm.r
 end
 
+--- Weapon floor pickups (tap/hold interact)
+local weaponPickupInteractState = {}
+local saloonWalkInteractConsumed = false
+
+local function trySaloonWalkingInteract(key)
+    if not Keybinds.matches("interact", key) then return false end
+    if nearSlotMachine() and slotsGame then
+        applyOutcome(slotsGame:enterTable(player.gold, "walking"))
+        return true
+    end
+    if not monster.drunk and monster.img then
+        local pcx = player.x + player.w / 2
+        local pcy = player.y + player.h / 2
+        local mcx = monster.x + 6
+        local mcy = monster.y + 8
+        local mdx = pcx - mcx
+        local mdy = pcy - mcy
+        if (mdx * mdx + mdy * mdy) <= 35 * 35 then
+            monster.drunk = true
+            player:consumeMonsterEnergy()
+            message = "Full heal!"
+            messageTimer = 2.5
+            Sfx.play("pickup_gold")
+            return true
+        end
+    end
+    if nearbyNPC then
+        if nearbyNPC.type == "dealer" then
+            mode = "casino_menu"
+        elseif nearbyNPC.type == "bartender" then
+            if player and player.runMetadata then
+                local RunMetadata = require("src.systems.run_metadata")
+                RunMetadata.recordShopVisit(player.runMetadata, {
+                    source = "saloon_shop_enter",
+                    difficulty = difficulty,
+                    gold_before = player.gold,
+                })
+            end
+            mode = "shop"
+        end
+        return true
+    end
+    local pcx = player.x + player.w / 2
+    local pcy = player.y + player.h / 2
+    local dcx = exitDoor.x + exitDoor.w / 2
+    local dcy = exitDoor.y + exitDoor.h / 2
+    local dx = pcx - dcx
+    local dy = pcy - dcy
+    if dx * dx + dy * dy < 50 * 50 then
+        continueGame()
+        return true
+    end
+    local bx = backRoomDoor.x + backRoomDoor.w / 2
+    local by = backRoomDoor.y + backRoomDoor.h / 2
+    if (pcx - bx) ^ 2 + (pcy - by) ^ 2 < 50 * 50 then
+        local saloonBackroom = require("src.states.saloon_backroom")
+        Gamestate.switch(saloonBackroom, player, roomManager)
+        return true
+    end
+    return false
+end
+
 ---------------------------------------------------------------------------
 -- State callbacks
 ---------------------------------------------------------------------------
@@ -734,6 +799,8 @@ function saloon:enter(_, _player, _roomManager)
         room_manager = roomManager,
     })
     pickups = {}
+    weaponPickupInteractState = {}
+    saloonWalkInteractConsumed = false
     DamageNumbers.clear()
 
     -- Monster Energy on the bar counter — reset each visit
@@ -810,6 +877,12 @@ function saloon:update(dt)
             else
                 pi = pi + 1
             end
+        end
+        weaponPickupInteractState = Combat.advanceWeaponPickupInteraction(
+            dt, pickups, player, world, weaponPickupInteractState, saloonWalkInteractConsumed
+        )
+        if not Keybinds.isDown("interact") then
+            saloonWalkInteractConsumed = false
         end
         Combat.checkPickups(pickups, player, world)
         DamageNumbers.update(dt)
@@ -1007,63 +1080,8 @@ function saloon:keypressed(key)
     end
 
     if mode == "walking" then
-        if Keybinds.matches("interact", key) then
-            if nearSlotMachine() and slotsGame then
-                applyOutcome(slotsGame:enterTable(player.gold, "walking"))
-                return
-            end
-            -- Monster Energy on bar counter
-            if not monster.drunk and monster.img then
-                local pcx = player.x + player.w / 2
-                local pcy = player.y + player.h / 2
-                local mcx = monster.x + 6
-                local mcy = monster.y + 8
-                local mdx = pcx - mcx
-                local mdy = pcy - mcy
-                if (mdx * mdx + mdy * mdy) <= 35 * 35 then
-                    monster.drunk = true
-                    player:consumeMonsterEnergy()
-                    message = "Full heal!"
-                    messageTimer = 2.5
-                    Sfx.play("pickup_gold")
-                    return
-                end
-            end
-            if nearbyNPC then
-                if nearbyNPC.type == "dealer" then
-                    mode = "casino_menu"
-                elseif nearbyNPC.type == "bartender" then
-                    if player and player.runMetadata then
-                        local RunMetadata = require("src.systems.run_metadata")
-                        RunMetadata.recordShopVisit(player.runMetadata, {
-                            source = "saloon_shop_enter",
-                            difficulty = difficulty,
-                            gold_before = player.gold,
-                        })
-                    end
-                    mode = "shop"
-                end
-                return
-            end
-            -- Check if near exit door
-            local pcx = player.x + player.w / 2
-            local pcy = player.y + player.h / 2
-            local dcx = exitDoor.x + exitDoor.w / 2
-            local dcy = exitDoor.y + exitDoor.h / 2
-            local dx = pcx - dcx
-            local dy = pcy - dcy
-            if dx * dx + dy * dy < 50 * 50 then
-                continueGame()
-                return
-            end
-            -- Back room door
-            local bx = backRoomDoor.x + backRoomDoor.w / 2
-            local by = backRoomDoor.y + backRoomDoor.h / 2
-            if (pcx-bx)^2 + (pcy-by)^2 < 50 * 50 then
-                local saloonBackroom = require("src.states.saloon_backroom")
-                Gamestate.switch(saloonBackroom, player, roomManager)
-                return
-            end
+        if trySaloonWalkingInteract(key) then
+            saloonWalkInteractConsumed = true
         end
 
         if Keybinds.matches("jump", key) or key == "w" or key == "up" then

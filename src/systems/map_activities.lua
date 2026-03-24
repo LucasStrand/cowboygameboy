@@ -11,6 +11,7 @@ local WeaponAltar    = require("src.entities.weapon_altar")
 local Chest          = require("src.entities.chest")
 local Pickup         = require("src.entities.pickup")
 local Guns           = require("src.data.guns")
+local GoldCoin       = require("src.data.gold_coin")
 local SpikeTrap      = require("src.entities.spike_trap")
 local PressurePlate  = require("src.entities.pressure_plate")
 local SecretEntrance = require("src.entities.secret_entrance")
@@ -26,7 +27,8 @@ local ACTIVITY_CHANCES = {
     merchant      = 0.15,   -- 15% chance a travelling merchant
     weapon_altar  = 0.12,   -- 12% chance for a weapon altar
     normal_chest  = 0.30,   -- 30% chance for a normal loot chest
-    fake_ambush   = 0.18,   -- 18% chance for a fake-ambush chest (looks scary, harmless)
+    ambush_chest  = 0.18,   -- 18% chance for a real skeleton ambush chest
+    fake_ambush   = 0.14,   -- 14% chance for a fake-ambush chest (looks scary, harmless)
     wild_pickup   = 0.35,   -- 35% chance for items in the wild
     trapped_chest = 0.22,   -- 22% chance for a pressure-plate trapped chest
     slot_machine  = 0.15,   -- 15% chance for a dusty slot machine
@@ -196,6 +198,26 @@ function MapActivities.generate(room, difficulty, roomIndex)
         end
     end
 
+    -- Real ambush chest (bone piles that rise into skeletons, chest locked until cleared)
+    if math.random() < ACTIVITY_CHANCES.ambush_chest then
+        local ax, ay, plat = tryPlace(48, 32)
+        if ax and plat then
+            local snappedY = Chest.snapYToGround(room.platforms, ax, ay, 32)
+            local floorY = plat.y - 28
+            local bonePiles = {
+                { x = ax - 26, y = floorY, w = 18, h = 28 },
+                { x = ax + 52, y = floorY, w = 18, h = 28 },
+            }
+            local chest = Chest.new(ax, snappedY, {
+                tier = "normal",
+                spriteRow = 2,
+                bonePiles = bonePiles,
+                fakeAmbush = false,
+            })
+            result.extraChests[#result.extraChests + 1] = chest
+        end
+    end
+
     -- Fake ambush chest (has bone pile visuals but no actual skeletons)
     if math.random() < ACTIVITY_CHANCES.fake_ambush then
         local ax, ay, plat = tryPlace(48, 32)
@@ -274,7 +296,8 @@ function MapActivities.generate(room, difficulty, roomIndex)
                 pickValue = math.random(10, 25)
             elseif roll < 0.65 then
                 pickType = "gold"
-                pickValue = math.random(5, 15)
+                -- Total wallet gold 7–17 (gold + silver coins)
+                pickValue = math.random(7, 17)
             else
                 pickType = "xp"
                 pickValue = math.random(10, 30)
@@ -284,11 +307,27 @@ function MapActivities.generate(room, difficulty, roomIndex)
                 -- Place on a random platform
                 if #platforms > 0 then
                     local plat = platforms[math.random(#platforms)]
-                    local px = randomXOnPlatform(plat, 10, 8)
                     local py = plat.y - 12
-                    local pickup = Pickup.new(px, py, pickType, pickValue)
-                    pickup.grounded = true  -- already on the platform
-                    result.wildPickups[#result.wildPickups + 1] = pickup
+                    if pickType == "gold" then
+                        local specs = GoldCoin.pickupSpecsForTotal(pickValue or 0, nil)
+                        for c = 1, #specs do
+                            local sp = specs[c]
+                            local px = randomXOnPlatform(plat, 10, 8) + (c - 1) * 8
+                            local pickup = Pickup.new(px, py, sp.type, sp.value)
+                            pickup.grounded = true
+                            result.wildPickups[#result.wildPickups + 1] = pickup
+                        end
+                    else
+                        local px = randomXOnPlatform(plat, 10, 8)
+                        local pickup = Pickup.new(px, py, pickType, pickValue)
+                        pickup.grounded = true  -- already on the platform
+                        if pickType == "xp" then
+                            pickup.xpMagnetDelay = nil
+                            pickup.attracted = true
+                            pickup.attractSpeed = 260 -- match XP homing start speed (see Pickup)
+                        end
+                        result.wildPickups[#result.wildPickups + 1] = pickup
+                    end
                 end
             end
         end

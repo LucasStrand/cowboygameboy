@@ -1,11 +1,18 @@
 --- Chest loot table. Returns a list of {type, value, vx, vy} drop specs.
+--- Gold chest coins are all gold pieces (5 wallet gold each); silver is used elsewhere for exact totals.
 --- Types match Pickup.new() types: "gold", "health", "xp".
 
+local GoldCoin = require("src.data.gold_coin")
+
 local LootTable = {}
+
+LootTable.GOLD_COIN_VALUE = GoldCoin.GOLD_VALUE
 
 local function randBetween(a, b)
     return a + math.random() * (b - a)
 end
+
+local V = GoldCoin.GOLD_VALUE
 
 --- Spawn a scattered burst of pickups from a chest position.
 --- tier: "normal" | "rich" | "cursed"
@@ -14,80 +21,73 @@ function LootTable.rollChest(tier)
     tier = tier or "normal"
 
     if tier == "normal" then
-        -- 4-8 gold coins, each worth 3-7
-        local n = math.random(4, 8)
+        -- 4–9 coins × V → e.g. 20–45 gold total, always same per-coin value
+        local n = math.random(4, 9)
         for _ = 1, n do
             table.insert(drops, {
                 type = "gold",
-                value = math.random(3, 7),
-                vx = randBetween(-140, 140),
-                vy = randBetween(-260, -120),
+                value = V,
+                vx = randBetween(-220, 220),
+                vy = randBetween(-380, -200),
             })
         end
-        -- 40% health pickup
         if math.random() < 0.40 then
             table.insert(drops, {
                 type = "health",
                 value = 20,
-                vx = randBetween(-60, 60),
-                vy = randBetween(-220, -100),
+                vx = randBetween(-90, 90),
+                vy = randBetween(-280, -140),
             })
         end
-        -- 20% XP gem
         if math.random() < 0.20 then
             table.insert(drops, {
                 type = "xp",
                 value = math.random(15, 30),
-                vx = randBetween(-80, 80),
-                vy = randBetween(-240, -100),
+                vx = randBetween(-120, 120),
+                vy = randBetween(-320, -180),
             })
         end
 
     elseif tier == "rich" then
-        -- 10-18 gold, higher values
-        local n = math.random(10, 18)
+        local n = math.random(14, 24)
         for _ = 1, n do
             table.insert(drops, {
                 type = "gold",
-                value = math.random(6, 14),
-                vx = randBetween(-180, 180),
-                vy = randBetween(-300, -130),
+                value = V,
+                vx = randBetween(-260, 260),
+                vy = randBetween(-440, -240),
             })
         end
-        -- Guaranteed health
         table.insert(drops, {
             type = "health",
             value = 35,
-            vx = randBetween(-50, 50),
-            vy = randBetween(-200, -100),
+            vx = randBetween(-70, 70),
+            vy = randBetween(-260, -150),
         })
-        -- 50% XP gem
         if math.random() < 0.50 then
             table.insert(drops, {
                 type = "xp",
                 value = math.random(30, 55),
-                vx = randBetween(-80, 80),
-                vy = randBetween(-240, -100),
+                vx = randBetween(-130, 130),
+                vy = randBetween(-340, -200),
             })
         end
 
     elseif tier == "cursed" then
-        -- Cursed: tempting gold, but risky.  Caller applies damage separately.
-        local n = math.random(6, 12)
+        local n = math.random(8, 16)
         for _ = 1, n do
             table.insert(drops, {
                 type = "gold",
-                value = math.random(5, 10),
-                vx = randBetween(-160, 160),
-                vy = randBetween(-280, -120),
+                value = V,
+                vx = randBetween(-240, 240),
+                vy = randBetween(-400, -220),
             })
         end
-        -- Always XP
         table.insert(drops, {
             type = "xp",
             value = math.random(25, 45),
-            vx = randBetween(-80, 80),
-            vy = randBetween(-220, -100),
+            vx = randBetween(-120, 120),
+            vy = randBetween(-320, -180),
         })
     end
 

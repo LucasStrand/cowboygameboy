@@ -141,6 +141,14 @@ function Guns.getById(id)
     return _byId[id]
 end
 
+--- Gold granted when selling a weapon pickup (floor scrap).
+function Guns.getSellValue(gun)
+    if not gun then return 0 end
+    if gun.rarity == "rare" then return 55 end
+    if gun.rarity == "uncommon" then return 30 end
+    return 18
+end
+
 --- Weighted random pick from droppable weapons (dropWeight > 0).
 --- Luck increases the weight of rarer weapons (same formula as perks).
 function Guns.rollDrop(luck)
