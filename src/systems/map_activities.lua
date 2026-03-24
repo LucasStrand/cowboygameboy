@@ -1,12 +1,12 @@
 --- Map Activities system: randomly places interactive encounters on platforms
 --- in generated rooms. Runs after room assembly, before game loop starts.
 ---
---- Activities: shrines, merchants, weapon altars, wild pickups,
+--- Activities: shrines, travelling croupiers, weapon altars, wild pickups,
 ---             normal chests, fake-ambush chests, trapped chests,
 ---             secret area rewards + entrance markers.
 
 local Shrine         = require("src.entities.shrine")
-local Merchant       = require("src.entities.merchant")
+local Croupier         = require("src.entities.croupier")
 local WeaponAltar    = require("src.entities.weapon_altar")
 local Chest          = require("src.entities.chest")
 local Pickup         = require("src.entities.pickup")
@@ -24,7 +24,7 @@ local MapActivities = {}
 ---------------------------------------------------------------------------
 local ACTIVITY_CHANCES = {
     shrine        = 0.25,   -- 25% chance a shrine spawns
-    merchant      = 0.15,   -- 15% chance a travelling merchant
+    croupier      = 0.15,   -- 15% chance a travelling croupier (trail coin flip, not saloon blackjack)
     weapon_altar  = 0.12,   -- 12% chance for a weapon altar
     normal_chest  = 0.30,   -- 30% chance for a normal loot chest
     ambush_chest  = 0.18,   -- 18% chance for a real skeleton ambush chest
@@ -100,12 +100,12 @@ end
 --- @param room table  The assembled room data (may include secretAreas)
 --- @param difficulty number  Current difficulty level
 --- @param roomIndex number  Which room in the sequence (1-based)
---- @return table  { shrines, merchants, weaponAltars, wildPickups, extraChests,
+--- @return table  { shrines, croupiers, weaponAltars, wildPickups, extraChests,
 ---                  pressurePlates, spikeTraps, secretEntrances }
 function MapActivities.generate(room, difficulty, roomIndex)
     local result = {
         shrines         = {},
-        merchants       = {},
+        croupiers       = {},
         weaponAltars    = {},
         wildPickups     = {},
         extraChests     = {},
@@ -166,14 +166,14 @@ function MapActivities.generate(room, difficulty, roomIndex)
         end
     end
 
-    -- Merchant (rarer in early rooms)
-    local merchantChance = ACTIVITY_CHANCES.merchant
-    if roomIndex and roomIndex <= 1 then merchantChance = merchantChance * 0.5 end
-    if math.random() < merchantChance then
+    -- Travelling croupier (rarer in early rooms)
+    local croupierChance = ACTIVITY_CHANCES.croupier
+    if roomIndex and roomIndex <= 1 then croupierChance = croupierChance * 0.5 end
+    if math.random() < croupierChance then
         local ax, ay = tryPlace(24, 36)
         if ax then
-            local merchant = Merchant.new(ax, ay, difficulty)
-            result.merchants[#result.merchants + 1] = merchant
+            local c = Croupier.new(ax, ay, difficulty)
+            result.croupiers[#result.croupiers + 1] = c
         end
     end
 
@@ -390,7 +390,7 @@ end
 function MapActivities.generateAll(room, difficulty, roomIndex)
     local result = {
         shrines         = {},
-        merchants       = {},
+        croupiers       = {},
         weaponAltars    = {},
         wildPickups     = {},
         extraChests     = {},
@@ -460,11 +460,11 @@ function MapActivities.generateAll(room, difficulty, roomIndex)
         end
     end
 
-    -- Merchant
+    -- Travelling croupier
     do
         local ax, ay = placeOnPlatform(24, 36)
         if ax then
-            result.merchants[#result.merchants + 1] = Merchant.new(ax, ay, difficulty or 1)
+            result.croupiers[#result.croupiers + 1] = Croupier.new(ax, ay, difficulty or 1)
         end
     end
 

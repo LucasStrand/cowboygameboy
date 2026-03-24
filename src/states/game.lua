@@ -57,11 +57,11 @@ local enemies
 local pickups
 local chests
 local shrines
-local merchants
+local croupiers
 local weaponAltars
 -- Packed into one table to stay under LuaJIT's 60-upvalue closure limit.
 local trapEnts = { pressurePlates = {}, spikeTraps = {}, secretEntrances = {}, slotMachines = {} }
-local activeMerchant
+local activeCroupier
 local roomManager
 local currentRoom
 local roomData
@@ -983,13 +983,13 @@ local function drawExitArrow()
     love.graphics.setColor(1, 1, 1)
 end
 
---- Hook chest loot / ambush and procedural shrines, merchants, altars, wild pickups.
+--- Hook chest loot / ambush and procedural shrines, field croupiers, altars, wild pickups.
 local function wireRoomEntities(roomDef)
     chests = {}
     shrines = {}
-    merchants = {}
+    croupiers = {}
     weaponAltars = {}
-    activeMerchant = nil
+    activeCroupier = nil
 
     if currentRoom and currentRoom.chests then
         for _, c in ipairs(currentRoom.chests) do
@@ -1051,8 +1051,8 @@ local function wireRoomEntities(roomDef)
             end
             shrines[#shrines + 1] = shrine
         end
-        for _, m in ipairs(activities.merchants or {}) do
-            merchants[#merchants + 1] = m
+        for _, m in ipairs(activities.croupiers or {}) do
+            croupiers[#croupiers + 1] = m
         end
         for _, altar in ipairs(activities.weaponAltars or {}) do
             altar.onChoose = function(gun)
@@ -1172,10 +1172,10 @@ local function tryInteractWorld()
             if chest:tryOpen(player, applyCursed) then return true end
         end
     end
-    for _, m in ipairs(merchants) do
+    for _, m in ipairs(croupiers) do
         if m:isNearPlayer(px, py) and m.state == "idle" then
             if m:tryInteract() then
-                activeMerchant = m
+                activeCroupier = m
                 return true
             end
         end
@@ -1611,13 +1611,13 @@ local function initGameplaySessionState(opts)
     pickups = {}
     chests = {}
     shrines = {}
-    merchants = {}
+    croupiers = {}
     weaponAltars = {}
     trapEnts.pressurePlates = {}
     trapEnts.spikeTraps = {}
     trapEnts.secretEntrances = {}
     trapEnts.slotMachines = {}
-    activeMerchant = nil
+    activeCroupier = nil
     enemyNoiseEvents = {}
     shakeTimer = 0
     shakeIntensity = 0
@@ -1868,13 +1868,13 @@ function loadNextRoom()
     enemies = {}
     chests = {}
     shrines = {}
-    merchants = {}
+    croupiers = {}
     weaponAltars = {}
     trapEnts.pressurePlates = {}
     trapEnts.spikeTraps = {}
     trapEnts.secretEntrances = {}
     trapEnts.slotMachines = {}
-    activeMerchant = nil
+    activeCroupier = nil
     enemyNoiseEvents = {}
     if devNpcSpawn then
         devNpcSpawn.preview = nil
@@ -2173,8 +2173,8 @@ function game:update(dt)
         for _, shrine in ipairs(shrines) do
             shrine:update(dt)
         end
-        for _, m in ipairs(merchants) do
-            m:update(dt)
+        for _, m in ipairs(croupiers) do
+            m:update(dt, px, py, player, world, pickups, currentRoom and currentRoom.platforms)
         end
         for _, altar in ipairs(weaponAltars) do
             altar:update(dt)
@@ -2510,25 +2510,20 @@ function game:keypressed(key)
 
     if player and player.dying then return end
 
-    if activeMerchant and activeMerchant.state == "browsing" then
-        if key == "q" or key == "escape" then
-            activeMerchant:closeBrowse()
-            activeMerchant = nil
+    if activeCroupier then
+        if activeCroupier.state == "gambling" then
+            if key == "q" or key == "escape" then
+                activeCroupier:closeGamble()
+                activeCroupier = nil
+                return
+            end
+            activeCroupier:onKey(key, player)
+            -- If flip started, dialog closes — release input
+            if activeCroupier.state ~= "gambling" then
+                activeCroupier = nil
+            end
             return
         end
-        if key == "w" or key == "up" then
-            activeMerchant:selectPrev()
-            return
-        end
-        if key == "s" or key == "down" then
-            activeMerchant:selectNext()
-            return
-        end
-        if Mods.Keybinds.matches("interact", key) or key == "return" or key == "space" or key == "kpenter" then
-            activeMerchant:buySelected(player)
-            return
-        end
-        return
     end
 
     if paused and pauseMenu.view == "settings" and pauseMenu.settingsBindCapture then
@@ -3051,7 +3046,7 @@ function game:draw()
             for _, shrine in ipairs(shrines) do
                 shrine:draw(shrine:isNearPlayer(px, py))
             end
-            for _, m in ipairs(merchants) do
+            for _, m in ipairs(croupiers) do
                 m:draw(m:isNearPlayer(px, py), player.gold)
             end
             for _, altar in ipairs(weaponAltars) do
@@ -3267,8 +3262,8 @@ function game:draw()
             Mods.HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
         end
 
-        if activeMerchant and activeMerchant.state == "browsing" then
-            activeMerchant:drawShopUI(GAME_WIDTH / 2, GAME_HEIGHT - 8, player.gold)
+        if activeCroupier and activeCroupier.state == "gambling" then
+            activeCroupier:drawGambleUI(GAME_WIDTH / 2, GAME_HEIGHT - 8, player.gold, GAME_WIDTH)
         end
 
         -- Transition fade
