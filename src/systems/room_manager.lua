@@ -383,6 +383,7 @@ function RoomManager:loadRoom(room, world, player, opts)
         waterGapRects = (#waterGapRects > 0) and waterGapRects or nil,
         waterStripX = floorExtentX,
         waterStripW = floorExtentW,
+        secretAreas = room.secretAreas,
     }
     if nightMode then
         local fog = Vision.initFogForRoom(room)

@@ -46,6 +46,8 @@ local chests
 local shrines
 local merchants
 local weaponAltars
+-- Packed into one table to stay under LuaJIT's 60-upvalue closure limit.
+local trapEnts = { pressurePlates = {}, spikeTraps = {}, secretEntrances = {}, slotMachines = {} }
 local activeMerchant
 local roomManager
 local currentRoom
@@ -844,10 +846,11 @@ local function wireRoomEntities(roomDef)
 
     if roomDef and currentRoom and not roomDef.devArena then
         local mapRoom = {
-            platforms = currentRoom.platforms,
+            platforms   = currentRoom.platforms,
             playerSpawn = roomDef.playerSpawn,
-            exitDoor = roomDef.exitDoor,
-            chests = roomDef.chests,
+            exitDoor    = roomDef.exitDoor,
+            chests      = roomDef.chests,
+            secretAreas = currentRoom.secretAreas,
         }
         local activities = MapActivities.generate(mapRoom, roomManager.difficulty, roomManager.currentRoomIndex)
         for _, shrine in ipairs(activities.shrines or {}) do
@@ -874,6 +877,44 @@ local function wireRoomEntities(roomDef)
         for _, p in ipairs(activities.wildPickups or {}) do
             world:add(p, p.x, p.y, p.w, p.h)
             table.insert(pickups, p)
+        end
+        for _, plate in ipairs(activities.pressurePlates or {}) do
+            trapEnts.pressurePlates[#trapEnts.pressurePlates + 1] = plate
+        end
+        for _, trap in ipairs(activities.spikeTraps or {}) do
+            trapEnts.spikeTraps[#trapEnts.spikeTraps + 1] = trap
+        end
+        for _, se in ipairs(activities.secretEntrances or {}) do
+            trapEnts.secretEntrances[#trapEnts.secretEntrances + 1] = se
+        end
+        for _, sm in ipairs(activities.slotMachines or {}) do
+            sm.onResult = function(rtype, value)
+                local spawnX = sm.x + sm.w * 0.5
+                local spawnY = sm.y - 10
+                if rtype == "gold" then
+                    local p = Pickup.new(spawnX, spawnY, "gold", value)
+                    world:add(p, p.x, p.y, p.w, p.h)
+                    table.insert(pickups, p)
+                elseif rtype == "xp" then
+                    local p = Pickup.new(spawnX, spawnY, "xp", value)
+                    world:add(p, p.x, p.y, p.w, p.h)
+                    table.insert(pickups, p)
+                elseif rtype == "health" then
+                    local p = Pickup.new(spawnX, spawnY, "health", value)
+                    world:add(p, p.x, p.y, p.w, p.h)
+                    table.insert(pickups, p)
+                elseif rtype == "weapon" and value then
+                    local p = Pickup.new(spawnX, spawnY, "weapon", value)
+                    world:add(p, p.x, p.y, p.w, p.h)
+                    table.insert(pickups, p)
+                elseif rtype == "damage" and player then
+                    local ok, dmg = player:takeDamage(value)
+                    if ok then
+                        DamageNumbers.spawn(player.x + player.w * 0.5, player.y, dmg, "in")
+                    end
+                end
+            end
+            trapEnts.slotMachines[#trapEnts.slotMachines + 1] = sm
         end
     end
 end
@@ -926,6 +967,11 @@ local function tryInteractWorld()
                 activeMerchant = m
                 return
             end
+        end
+    end
+    for _, sm in ipairs(trapEnts.slotMachines) do
+        if sm:isNearPlayer(px, py) then
+            if sm:tryPlay(player) then return end
         end
     end
     tryExitThroughDoor()
@@ -1233,6 +1279,10 @@ function game:enter(_, opts)
     shrines = {}
     merchants = {}
     weaponAltars = {}
+    trapEnts.pressurePlates = {}
+    trapEnts.spikeTraps = {}
+    trapEnts.secretEntrances = {}
+    trapEnts.slotMachines = {}
     activeMerchant = nil
     enemyNoiseEvents = {}
     shakeTimer = 0
@@ -1344,6 +1394,10 @@ function loadNextRoom()
     shrines = {}
     merchants = {}
     weaponAltars = {}
+    trapEnts.pressurePlates = {}
+    trapEnts.spikeTraps = {}
+    trapEnts.secretEntrances = {}
+    trapEnts.slotMachines = {}
     activeMerchant = nil
     enemyNoiseEvents = {}
     if devNpcSpawn then
@@ -1597,6 +1651,18 @@ function game:update(dt)
             if altar.state == "choosing" and altar:isNearPlayer(px, py) then
                 altar:updateSelection(px, py)
             end
+        end
+        for _, plate in ipairs(trapEnts.pressurePlates) do
+            plate:update(dt, player)
+        end
+        for _, trap in ipairs(trapEnts.spikeTraps) do
+            trap:update(dt, player)
+        end
+        for _, se in ipairs(trapEnts.secretEntrances) do
+            se:update(dt, player)
+        end
+        for _, sm in ipairs(trapEnts.slotMachines) do
+            sm:update(dt)
         end
     end
 
@@ -2361,9 +2427,20 @@ function game:draw()
 
         RoomProps.drawDecor(currentRoom)
 
+        -- Secret entrance walls drawn before entities (they're part of the environment)
+        for _, se in ipairs(trapEnts.secretEntrances) do
+            se:draw()
+        end
+
         if player then
             local px = player.x + player.w / 2
             local py = player.y + player.h / 2
+            for _, trap in ipairs(trapEnts.spikeTraps) do
+                trap:draw()
+            end
+            for _, plate in ipairs(trapEnts.pressurePlates) do
+                plate:draw()
+            end
             for _, shrine in ipairs(shrines) do
                 shrine:draw(shrine:isNearPlayer(px, py))
             end
@@ -2375,6 +2452,9 @@ function game:draw()
             end
             for _, chest in ipairs(chests) do
                 chest:draw(player, chest:isNearPlayer(px, py))
+            end
+            for _, sm in ipairs(trapEnts.slotMachines) do
+                sm:draw(sm:isNearPlayer(px, py))
             end
         end
 

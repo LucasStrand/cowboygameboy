@@ -448,6 +448,7 @@ local function flattenToRoom(cells, cols, rows)
     local allPlatforms = {}
     local playerSpawn = nil
     local exitDoor = nil
+    local secretAreas = {}
 
     for _, cell in ipairs(cells) do
         local chunk = cell.chunk
@@ -469,6 +470,24 @@ local function flattenToRoom(cells, cols, rows)
                 y = chunk.exitDoor.y + oy,
                 w = chunk.exitDoor.w or 32,
                 h = chunk.exitDoor.h or 32,
+            }
+        end
+
+        -- Record secret areas so map_activities can spawn guaranteed rewards
+        if chunk.chunkType == "secret" then
+            local entrance = nil
+            local leftH  = hEdgeHeight(chunk, "left")
+            local rightH = hEdgeHeight(chunk, "right")
+            if leftH then
+                -- Accessible from left: entrance wall on the left edge of this cell
+                entrance = { x = ox, y = leftH + oy - 70, w = 14, h = 80 }
+            elseif rightH then
+                -- Accessible from right: entrance wall on the right edge of this cell
+                entrance = { x = ox + CELL_W - 14, y = rightH + oy - 70, w = 14, h = 80 }
+            end
+            secretAreas[#secretAreas + 1] = {
+                x = ox, y = oy, w = CELL_W, h = CELL_H,
+                entrance = entrance,
             }
         end
     end
@@ -494,6 +513,7 @@ local function flattenToRoom(cells, cols, rows)
         },
         spawns = {},
         generated = true,
+        secretAreas = #secretAreas > 0 and secretAreas or nil,
     }
 end
 

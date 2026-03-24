@@ -2,14 +2,19 @@
 --- in generated rooms. Runs after room assembly, before game loop starts.
 ---
 --- Activities: shrines, merchants, weapon altars, wild pickups,
----             normal chests, fake-ambush chests.
+---             normal chests, fake-ambush chests, trapped chests,
+---             secret area rewards + entrance markers.
 
-local Shrine      = require("src.entities.shrine")
-local Merchant    = require("src.entities.merchant")
-local WeaponAltar = require("src.entities.weapon_altar")
-local Chest       = require("src.entities.chest")
-local Pickup      = require("src.entities.pickup")
-local Guns        = require("src.data.guns")
+local Shrine         = require("src.entities.shrine")
+local Merchant       = require("src.entities.merchant")
+local WeaponAltar    = require("src.entities.weapon_altar")
+local Chest          = require("src.entities.chest")
+local Pickup         = require("src.entities.pickup")
+local Guns           = require("src.data.guns")
+local SpikeTrap      = require("src.entities.spike_trap")
+local PressurePlate  = require("src.entities.pressure_plate")
+local SecretEntrance = require("src.entities.secret_entrance")
+local SlotMachine    = require("src.entities.slot_machine")
 
 local MapActivities = {}
 
@@ -23,6 +28,8 @@ local ACTIVITY_CHANCES = {
     normal_chest  = 0.30,   -- 30% chance for a normal loot chest
     fake_ambush   = 0.18,   -- 18% chance for a fake-ambush chest (looks scary, harmless)
     wild_pickup   = 0.35,   -- 35% chance for items in the wild
+    trapped_chest = 0.22,   -- 22% chance for a pressure-plate trapped chest
+    slot_machine  = 0.15,   -- 15% chance for a dusty slot machine
 }
 
 -- Maximum activities per room (keeps things from getting cluttered)
@@ -88,17 +95,22 @@ end
 ---------------------------------------------------------------------------
 
 --- Generate activities for a room. Returns a table of activity instances.
---- @param room table  The assembled room data
+--- @param room table  The assembled room data (may include secretAreas)
 --- @param difficulty number  Current difficulty level
 --- @param roomIndex number  Which room in the sequence (1-based)
---- @return table  { shrines={}, merchants={}, weaponAltars={}, wildPickups={}, extraChests={} }
+--- @return table  { shrines, merchants, weaponAltars, wildPickups, extraChests,
+---                  pressurePlates, spikeTraps, secretEntrances }
 function MapActivities.generate(room, difficulty, roomIndex)
     local result = {
-        shrines      = {},
-        merchants    = {},
-        weaponAltars = {},
-        wildPickups  = {},
-        extraChests  = {},
+        shrines         = {},
+        merchants       = {},
+        weaponAltars    = {},
+        wildPickups     = {},
+        extraChests     = {},
+        pressurePlates  = {},
+        spikeTraps      = {},
+        secretEntrances = {},
+        slotMachines    = {},
     }
 
     local platforms = findSuitablePlatforms(room)
@@ -204,6 +216,44 @@ function MapActivities.generate(room, difficulty, roomIndex)
         end
     end
 
+    -- Trapped chest: a rich chest flanked by pressure plates that trigger spike traps.
+    -- Layout (120px zone): [plate(28)] [gap(8)] [chest(48)] [gap(8)] [plate(28)]
+    -- Observant players can jump over the plates; others get spiked reaching for the loot.
+    if math.random() < ACTIVITY_CHANCES.trapped_chest then
+        local ax, ay, plat = tryPlace(120, 32)
+        if ax and plat then
+            -- Rich chest in the centre of the zone
+            local chestX   = ax + 36
+            local snappedY = Chest.snapYToGround(room.platforms, chestX, ay, 32)
+            local chest = Chest.new(chestX, snappedY, { tier = "rich" })
+            result.extraChests[#result.extraChests + 1] = chest
+
+            -- Spike trap bases flush with the platform surface
+            local trapY = plat.y - 4
+            local trap1 = SpikeTrap.new(ax,      trapY, 28)
+            local trap2 = SpikeTrap.new(ax + 92, trapY, 28)
+
+            -- Pressure plates on top of the trap bases; stepping on either fires both traps
+            local plateY = plat.y - 5
+            local plate1 = PressurePlate.new(ax,      plateY, { trap1, trap2 })
+            local plate2 = PressurePlate.new(ax + 92, plateY, { trap1, trap2 })
+
+            result.pressurePlates[#result.pressurePlates + 1] = plate1
+            result.pressurePlates[#result.pressurePlates + 1] = plate2
+            result.spikeTraps[#result.spikeTraps + 1]     = trap1
+            result.spikeTraps[#result.spikeTraps + 1]     = trap2
+        end
+    end
+
+    -- Slot machine: dusty gambling cabinet found in the wild
+    if math.random() < ACTIVITY_CHANCES.slot_machine then
+        local ax, ay = tryPlace(48, 72)
+        if ax then
+            local sm = SlotMachine.new(ax, ay)
+            result.slotMachines[#result.slotMachines + 1] = sm
+        end
+    end
+
     -- Wild pickups (items just lying around)
     if math.random() < ACTIVITY_CHANCES.wild_pickup then
         -- Place 1-3 wild pickups
@@ -240,6 +290,53 @@ function MapActivities.generate(room, difficulty, roomIndex)
                     pickup.grounded = true  -- already on the platform
                     result.wildPickups[#result.wildPickups + 1] = pickup
                 end
+            end
+        end
+    end
+
+    ---------------------------------------------------------------------------
+    -- Secret area rewards: guaranteed rich chest + shrine in each secret chunk
+    ---------------------------------------------------------------------------
+    if room.secretAreas then
+        for _, sa in ipairs(room.secretAreas) do
+            -- Collect platforms within this secret cell's bounding box
+            local secretPlats = {}
+            for _, plat in ipairs(room.platforms) do
+                local platCx = plat.x + plat.w / 2
+                if plat.w >= 60
+                   and platCx >= sa.x and platCx <= sa.x + sa.w
+                   and plat.y >= sa.y and plat.y <= sa.y + sa.h then
+                    secretPlats[#secretPlats + 1] = plat
+                end
+            end
+
+            if #secretPlats > 0 then
+                -- Sort top-to-bottom; place loot on an upper platform for exploration reward
+                table.sort(secretPlats, function(a, b) return a.y < b.y end)
+
+                -- Rich chest on the highest reachable platform
+                local chestPlat = secretPlats[1]
+                if chestPlat.w >= 64 then
+                    local cx = chestPlat.x + math.max(8, math.floor((chestPlat.w - 48) / 2))
+                    local snappedY = Chest.snapYToGround(room.platforms, cx, chestPlat.y - 32, 32)
+                    local chest = Chest.new(cx, snappedY, { tier = "rich" })
+                    result.extraChests[#result.extraChests + 1] = chest
+                end
+
+                -- Shrine on the floor platform (lowest in the secret area)
+                local shrinePlat = secretPlats[#secretPlats]
+                if shrinePlat.w >= 60 then
+                    local sx = shrinePlat.x + math.max(8, math.floor((shrinePlat.w - 32) / 2))
+                    local shrine = Shrine.new(sx, shrinePlat.y - 48)
+                    result.shrines[#result.shrines + 1] = shrine
+                end
+            end
+
+            -- Secret entrance: cracked-wall visual at the passage opening
+            if sa.entrance then
+                local e = sa.entrance
+                local se = SecretEntrance.new(e.x, e.y, e.w, e.h)
+                result.secretEntrances[#result.secretEntrances + 1] = se
             end
         end
     end

@@ -117,7 +117,8 @@
       "Bash(lua -c src/systems/room_serializer.lua)",
       "Bash(lua -c src/systems/room_manager.lua)",
       "Bash(luac -p src/data/worlds.lua src/data/rooms.lua src/systems/room_manager.lua src/states/editor.lua)",
-      "Bash(lua -e \"loadfile\\(''src/states/editor.lua''\\)\")"
+      "Bash(lua -e \"loadfile\\(''src/states/editor.lua''\\)\")",
+      "Bash(echo \"EXIT:$?\")"
     ]
   }
 }
