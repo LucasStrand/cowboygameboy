@@ -27,7 +27,7 @@ function LootTable.rollChest(tier)
             table.insert(drops, {
                 type = "gold",
                 value = V,
-                vx = randBetween(-220, 220),
+                vx = randBetween(-105, 105),
                 vy = randBetween(-380, -200),
             })
         end
@@ -79,7 +79,7 @@ function LootTable.rollChest(tier)
             table.insert(drops, {
                 type = "gold",
                 value = V,
-                vx = randBetween(-240, 240),
+                vx = randBetween(-115, 115),
                 vy = randBetween(-400, -220),
             })
         end

@@ -210,7 +210,7 @@ local function spawnCheatGoldDrops(amount)
         local py = player.y - 6 - Mods.game_rng.randomFloat("game.debug_gold.py", 0, 16)
         local p = Mods.Pickup.new(px, py, sp.type, sp.value)
         p.vy = -200 - Mods.game_rng.randomFloat("game.debug_gold.vy", 0, 160)
-        p.vx = (Mods.game_rng.randomFloat("game.debug_gold.vx", 0, 1) - 0.5) * 240
+        p.vx = (Mods.game_rng.randomFloat("game.debug_gold.vx", 0, 1) - 0.5) * 120
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end

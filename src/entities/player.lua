@@ -171,7 +171,6 @@ function Player.new(x, y)
     self.dashTimer = 0
     self.dashCooldown = 0
     self.dashDir = 1
-    self.combatDisabled = false
 
     self.stats = {
         maxHP = 100,
@@ -696,7 +695,6 @@ function Player:tryDropThrough()
 end
 
 function Player:tryDash()
-    if self.combatDisabled then return end
     if Buffs.getControlState(self.statuses).stunned then return end
     local s = self:getEffectiveStats()
     if self.blocking and s.blockMobility <= 0 then
@@ -716,7 +714,7 @@ function Player:tryDash()
     self.iframes = math.max(self.iframes, 0.2)
     Sfx.play("dash")
 
-    -- Dash strike: active melee hitbox for the full dash, aimed in dash direction
+    -- Dash strike: active melee hitbox for the full dash
     if s.meleeDamage > 0 then
         self.meleeAimAngle  = dir == 1 and 0 or math.pi
         self.meleeSwingTimer = DASH_MELEE_SWING_DURATION
@@ -762,7 +760,6 @@ function Player:shootFromSlot(slotIndex, mx, my)
 end
 
 function Player:shoot(mx, my)
-    if self.combatDisabled then return nil end
     if self:isAkimbo() then
         local allBullets = {}
         local any = false
@@ -855,7 +852,6 @@ function Player:spinHolster()
 end
 
 function Player:meleeAttack(aimX, aimY)
-    if self.combatDisabled then return false end
     if Buffs.getControlState(self.statuses).stunned then return false end
     local s = self:getEffectiveStats()
     if self.meleeCooldown > 0 or s.meleeDamage <= 0 then return false end

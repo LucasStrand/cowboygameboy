@@ -357,7 +357,7 @@ function Combat.onEnemyKilled(enemy, player)
         dropIdx = dropIdx + 1
         local ch = "combat.enemy_drop." .. kind .. "." .. dropIdx
         if kind == "gold" or kind == "silver" then
-            t.vx = GameRng.randomFloat(ch .. ".vx", -260, 260)
+            t.vx = GameRng.randomFloat(ch .. ".vx", -115, 115)
             t.vy = GameRng.randomFloat(ch .. ".vy", -480, -280)
         elseif kind == "xp" then
             t.vx = GameRng.randomFloat(ch .. ".vx", -190, 190)

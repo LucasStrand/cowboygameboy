@@ -1,35 +1,37 @@
-local Gamestate = require("lib.hump.gamestate")
-local Camera = require("lib.hump.camera")
-local bump = require("lib.bump")
-
-local Font = require("src.ui.font")
-local Blackjack = require("src.systems.blackjack")
-local Roulette = require("src.systems.roulette")
-local Slots = require("src.systems.slots")
-local Shop = require("src.systems.shop")
-local PerkCard = require("src.ui.perk_card")
-local Cursor = require("src.ui.cursor")
-local Keybinds = require("src.systems.keybinds")
-local ContentTooltips = require("src.systems.content_tooltips")
-local NPC = require("src.entities.npc")
-local Pickup = require("src.entities.pickup")
-local Combat = require("src.systems.combat")
-local DamageNumbers = require("src.ui.damage_numbers")
-local DevLog = require("src.ui.devlog")
-local DevPanel = require("src.ui.dev_panel")
-local TextLayout = require("src.ui.text_layout")
-local Settings = require("src.systems.settings")
-local SettingsPanel = require("src.ui.settings_panel")
-local Progression = require("src.systems.progression")
-local Sfx = require("src.systems.sfx")
-local Buffs = require("src.systems.buffs")
-local HUD = require("src.ui.hud")
-local MusicDirector = require("src.systems.music_director")
-local Perks = require("src.data.perks")
-local GameRng = require("src.systems.game_rng")
-local GoldCoin = require("src.data.gold_coin")
-
-local saloonRoom = require("src.data.saloon_room")
+-- Single `Mods` table for requires: LuaJIT 60-upvalue closure limit (saloon:enter / callbacks).
+local Mods = {
+    Gamestate = require("lib.hump.gamestate"),
+    Camera = require("lib.hump.camera"),
+    bump = require("lib.bump"),
+    Font = require("src.ui.font"),
+    Blackjack = require("src.systems.blackjack"),
+    Roulette = require("src.systems.roulette"),
+    Slots = require("src.systems.slots"),
+    Shop = require("src.systems.shop"),
+    PerkCard = require("src.ui.perk_card"),
+    Cursor = require("src.ui.cursor"),
+    Keybinds = require("src.systems.keybinds"),
+    ContentTooltips = require("src.systems.content_tooltips"),
+    NPC = require("src.entities.npc"),
+    Pickup = require("src.entities.pickup"),
+    Combat = require("src.systems.combat"),
+    DamageNumbers = require("src.ui.damage_numbers"),
+    DevLog = require("src.ui.devlog"),
+    DevPanel = require("src.ui.dev_panel"),
+    TextLayout = require("src.ui.text_layout"),
+    Settings = require("src.systems.settings"),
+    SettingsPanel = require("src.ui.settings_panel"),
+    Progression = require("src.systems.progression"),
+    Sfx = require("src.systems.sfx"),
+    Buffs = require("src.systems.buffs"),
+    HUD = require("src.ui.hud"),
+    MusicDirector = require("src.systems.music_director"),
+    Perks = require("src.data.perks"),
+    GameRng = require("src.systems.game_rng"),
+    GoldCoin = require("src.data.gold_coin"),
+    ImpactFX = require("src.systems.impact_fx"),
+    saloonRoom = require("src.data.saloon_room"),
+}
 
 local saloon = {}
 
@@ -53,7 +55,6 @@ local npcs = {}
 local platforms = {}
 local walls = {}
 local exitDoor = nil
-local backRoomDoor = nil
 local difficulty = 1
 
 local mode = "walking"  -- walking | blackjack | roulette | slots | casino_menu | shop | perk_selection
@@ -83,6 +84,7 @@ local monster = { img = nil, drunk = false, x = 0, y = 0 }
 
 local nearbyNPC = nil  -- NPC currently in interact range
 local pickups = {}
+local bullets = {}
 
 -- Pause / debug (parity with game state — Esc pause, F2 dev panel, F1 stats when DEBUG)
 local paused = false
@@ -160,7 +162,7 @@ local function pauseRestartRun()
     devShowHitboxes = true
     characterSheetOpen = false
     local game = require("src.states.game")
-    Gamestate.switch(game, { introCountdown = true })
+    Mods.Gamestate.switch(game, { introCountdown = true })
 end
 
 local function pauseGoToMainMenu()
@@ -174,11 +176,11 @@ local function pauseGoToMainMenu()
     devPanelPauseGameplay = true
     characterSheetOpen = false
     local menu = require("src.states.menu")
-    Gamestate.switch(menu)
+    Mods.Gamestate.switch(menu)
 end
 
 local function devPerkById(pid)
-    for _, p in ipairs(Perks.pool) do
+    for _, p in ipairs(Mods.Perks.pool) do
         if p.id == pid then return p end
     end
 end
@@ -196,7 +198,7 @@ local function pointInRect(x, y, rx, ry, rw, rh)
 end
 
 local function getDevPanelLayout()
-    return DevPanel.panelRect(GAME_WIDTH, GAME_HEIGHT)
+    return Mods.DevPanel.panelRect(GAME_WIDTH, GAME_HEIGHT)
 end
 
 local function getDebugConsoleLayout()
@@ -211,13 +213,13 @@ end
 local function devClampScroll()
     if not devPanelRows then return end
     if not saloon.devPanelTitleFont then
-        saloon.devPanelTitleFont = Font.new(16)
+        saloon.devPanelTitleFont = Mods.Font.new(16)
     end
     if not saloon.devPanelRowFont then
-        saloon.devPanelRowFont = Font.new(13)
+        saloon.devPanelRowFont = Mods.Font.new(13)
     end
     local _, _, pw, ph = getDevPanelLayout()
-    local maxS = DevPanel.maxScroll(devPanelRows, saloon.devPanelTitleFont, saloon.devPanelRowFont, pw, ph)
+    local maxS = Mods.DevPanel.maxScroll(devPanelRows, saloon.devPanelTitleFont, saloon.devPanelRowFont, pw, ph)
     devPanelScroll = math.max(0, math.min(maxS, devPanelScroll))
 end
 
@@ -228,15 +230,15 @@ local function openDevPanel()
     characterSheetOpen = false
     devPanelScroll = 0
     devPanelHover = nil
-    devPanelRows = DevPanel.buildRows({
+    devPanelRows = Mods.DevPanel.buildRows({
         gameplayPaused = devPanelPauseGameplay,
         showHitboxes = devShowHitboxes,
     })
     if not saloon.devPanelTitleFont then
-        saloon.devPanelTitleFont = Font.new(16)
+        saloon.devPanelTitleFont = Mods.Font.new(16)
     end
     if not saloon.devPanelRowFont then
-        saloon.devPanelRowFont = Font.new(13)
+        saloon.devPanelRowFont = Mods.Font.new(13)
     end
     devClampScroll()
 end
@@ -244,27 +246,27 @@ end
 --- Gold from casino wins — scattered around the player so you walk to collect (lighter pop than dev cheat).
 local function spawnSaloonGoldDrops(amount)
     if not amount or amount <= 0 or not world or not player then return end
-    local specs, overflow = GoldCoin.pickupSpecsForTotal(amount, 28)
+    local specs, overflow = Mods.GoldCoin.pickupSpecsForTotal(amount, 28)
     if overflow > 0 then
         player:addGold(overflow, "casino_payout_overflow")
     end
     if #specs < 1 then return end
     local pw = 10
     local cx = player.x + player.w / 2
-    local roomW = saloonRoom.width
+    local roomW = Mods.saloonRoom.width
     local n = #specs
     for i = 1, n do
         local sp = specs[i]
         -- Ring around the player (not underfoot): ~56–112 px so you move to grab them
-        local ang = (i / n) * math.pi * 2 + (GameRng.randomFloat("saloon.payout.ang", 0, 1) - 0.5) * 0.45
-        local dist = 56 + GameRng.randomFloat("saloon.payout.dist", 0, 56)
-        local px = cx - pw / 2 + math.cos(ang) * dist + (GameRng.randomFloat("saloon.payout.px", 0, 1) - 0.5) * 10
+        local ang = (i / n) * math.pi * 2 + (Mods.GameRng.randomFloat("saloon.payout.ang", 0, 1) - 0.5) * 0.45
+        local dist = 56 + Mods.GameRng.randomFloat("saloon.payout.dist", 0, 56)
+        local px = cx - pw / 2 + math.cos(ang) * dist + (Mods.GameRng.randomFloat("saloon.payout.px", 0, 1) - 0.5) * 10
         px = math.max(4, math.min(roomW - pw - 4, px))
-        local py = player.y - 5 - GameRng.randomFloat("saloon.payout.py", 0, 10)
-        local p = Pickup.new(px, py, sp.type, sp.value)
+        local py = player.y - 5 - Mods.GameRng.randomFloat("saloon.payout.py", 0, 10)
+        local p = Mods.Pickup.new(px, py, sp.type, sp.value)
         p.casinoPayout = true
-        p.vy = -140 - GameRng.randomFloat("saloon.payout.vy", 0, 120)
-        p.vx = (GameRng.randomFloat("saloon.payout.vx", 0, 1) - 0.5) * 165
+        p.vy = -140 - Mods.GameRng.randomFloat("saloon.payout.vy", 0, 120)
+        p.vx = (Mods.GameRng.randomFloat("saloon.payout.vx", 0, 1) - 0.5) * 95
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end
@@ -293,15 +295,15 @@ end
 local function saloonSettingsDebugAction(action)
     if not action or not player then return end
     if action == "debug_saloon" then
-        DevLog.push("sys", "Already in the saloon.")
+        Mods.DevLog.push("sys", "Already in the saloon.")
     elseif action == "debug_add_gold" then
         spawnSaloonGoldDrops(10)
-        DevLog.push("sys", "Debug: +10 gold (drops)")
+        Mods.DevLog.push("sys", "Debug: +10 gold (drops)")
     elseif action == "debug_sub_gold" then
         player:spendGold(10, "dev_sub_gold")
-        DevLog.push("sys", "Debug: -10 gold")
+        Mods.DevLog.push("sys", "Debug: -10 gold")
     elseif action == "fake_session" then
-        DevLog.push("sys", "Fake session: use from main menu.")
+        Mods.DevLog.push("sys", "Fake session: use from main menu.")
     end
 end
 
@@ -309,68 +311,68 @@ local function saloonDevApplyAction(id)
     if not devToolsEnabled() or not player or not id then return end
     if id == "toggle_dev_pause" then
         devPanelPauseGameplay = not (devPanelPauseGameplay ~= false)
-        devPanelRows = DevPanel.buildRows({
+        devPanelRows = Mods.DevPanel.buildRows({
             gameplayPaused = devPanelPauseGameplay,
             showHitboxes = devShowHitboxes,
         })
         devClampScroll()
-        DevLog.push("sys", "[dev] gameplay " .. ((devPanelPauseGameplay ~= false) and "paused" or "live"))
+        Mods.DevLog.push("sys", "[dev] gameplay " .. ((devPanelPauseGameplay ~= false) and "paused" or "live"))
         return
     end
     if id == "kill_player" then
         devPanelOpen = false
         characterSheetOpen = false
-        DevLog.push("sys", "[dev] kill player — N/A in saloon (resume run first)")
+        Mods.DevLog.push("sys", "[dev] kill player — N/A in saloon (resume run first)")
     elseif id == "full_heal" then
         player.hp = player:getEffectiveStats().maxHP
-        DevLog.push("sys", "[dev] full heal")
+        Mods.DevLog.push("sys", "[dev] full heal")
     elseif id == "hurt_1" then
         if not player.devGodMode then
             player.hp = math.max(1, player.hp - 1)
         end
-        DevLog.push("sys", "[dev] hurt 1")
+        Mods.DevLog.push("sys", "[dev] hurt 1")
     elseif id == "toggle_hitboxes" then
         devShowHitboxes = not devShowHitboxes
-        devPanelRows = DevPanel.buildRows({
+        devPanelRows = Mods.DevPanel.buildRows({
             gameplayPaused = devPanelPauseGameplay,
             showHitboxes = devShowHitboxes,
         })
         devClampScroll()
-        DevLog.push("sys", "[dev] hitboxes " .. (devShowHitboxes and "on" or "off"))
+        Mods.DevLog.push("sys", "[dev] hitboxes " .. (devShowHitboxes and "on" or "off"))
     elseif id == "toggle_god" then
         player.devGodMode = not player.devGodMode
-        DevLog.push("sys", "[dev] god mode " .. tostring(player.devGodMode))
+        Mods.DevLog.push("sys", "[dev] god mode " .. tostring(player.devGodMode))
     elseif id == "ult_full" then
         player.ultCharge = 1
-        DevLog.push("sys", "[dev] ult charge full")
+        Mods.DevLog.push("sys", "[dev] ult charge full")
     elseif id == "gold_100" then
         spawnSaloonGoldDrops(100)
-        DevLog.push("sys", "[dev] +100 gold (drops)")
+        Mods.DevLog.push("sys", "[dev] +100 gold (drops)")
     elseif id == "gold_500" then
         spawnSaloonGoldDrops(500)
-        DevLog.push("sys", "[dev] +500 gold (drops)")
+        Mods.DevLog.push("sys", "[dev] +500 gold (drops)")
     elseif id == "xp_50" then
         devPanelOpen = false
         characterSheetOpen = false
         if player:addXP(50) then
             local levelup = require("src.states.levelup")
-            Gamestate.push(levelup, player, function() end)
+            Mods.Gamestate.push(levelup, player, function() end)
         end
     elseif id == "xp_200" then
         devPanelOpen = false
         characterSheetOpen = false
         if player:addXP(200) then
             local levelup = require("src.states.levelup")
-            Gamestate.push(levelup, player, function() end)
+            Mods.Gamestate.push(levelup, player, function() end)
         end
     elseif id == "force_levelup" then
         devPanelOpen = false
         characterSheetOpen = false
         local levelup = require("src.states.levelup")
-        Gamestate.push(levelup, player, function() end)
+        Mods.Gamestate.push(levelup, player, function() end)
     elseif id == "open_door" or id == "clear_enemies" or id == "clear_bullets"
         or id == "spawn_bandit" or id == "spawn_gunslinger" or id == "spawn_buzzard" then
-        DevLog.push("sys", "[dev] " .. id .. " — N/A in saloon (resume run for room tools)")
+        Mods.DevLog.push("sys", "[dev] " .. id .. " — N/A in saloon (resume run for room tools)")
     elseif id:sub(1, 4) == "gun:" then
         local gunId = id:sub(5)
         local Guns = require("src.data.guns")
@@ -378,18 +380,18 @@ local function saloonDevApplyAction(id)
         if gunDef then
             local slot = player.activeWeaponSlot
             player:equipWeapon(gunDef, slot)
-            DevLog.push("sys", "[dev] equipped " .. gunDef.name .. " to slot " .. slot)
+            Mods.DevLog.push("sys", "[dev] equipped " .. gunDef.name .. " to slot " .. slot)
         end
     elseif id:sub(1, 5) == "perk:" then
         local pid = id:sub(6)
         if devPlayerHasPerk(pid) then
-            DevLog.push("sys", "[dev] already have perk: " .. pid)
+            Mods.DevLog.push("sys", "[dev] already have perk: " .. pid)
             return
         end
         local perk = devPerkById(pid)
         if perk then
-            Progression.applyPerk(player, perk)
-            DevLog.push("sys", "[dev] perk " .. pid)
+            Mods.Progression.applyPerk(player, perk)
+            Mods.DevLog.push("sys", "[dev] perk " .. pid)
         end
     end
 end
@@ -406,10 +408,10 @@ local function drawCharacterSheet()
     love.graphics.rectangle("line", x, y, w, h, 8, 8)
     love.graphics.setLineWidth(1)
     if not saloon.charSheetTitleFont then
-        saloon.charSheetTitleFont = Font.new(18)
+        saloon.charSheetTitleFont = Mods.Font.new(18)
     end
     if not saloon.charSheetBodyFont then
-        saloon.charSheetBodyFont = Font.new(14)
+        saloon.charSheetBodyFont = Mods.Font.new(14)
     end
     local py = y + pad
     love.graphics.setFont(saloon.charSheetTitleFont)
@@ -431,7 +433,7 @@ local function drawCharacterSheet()
         py = py + 20
     else
         love.graphics.setColor(0.78, 0.85, 0.72)
-        local ptext = table.concat(ContentTooltips.getPerkNames(player), ", ")
+        local ptext = table.concat(Mods.ContentTooltips.getPerkNames(player), ", ")
         local tw = w - 2 * pad
         local _, lines = saloon.charSheetBodyFont:getWrap(ptext, tw)
         love.graphics.printf(ptext, x + pad, py, tw, "left")
@@ -466,7 +468,7 @@ local function drawCharacterSheet()
         love.graphics.print(slotLabel, x + pad, py)
         py = py + 18
         if gun then
-            drawWrappedSectionLines(ContentTooltips.getLines("gun", gun), { 0.72, 0.8, 0.88, 1 })
+            drawWrappedSectionLines(Mods.ContentTooltips.getLines("gun", gun), { 0.72, 0.8, 0.88, 1 })
         else
             py = py + 4
         end
@@ -477,7 +479,7 @@ local function drawCharacterSheet()
         love.graphics.print(string.format("%s: %s", label, g and g.name or "—"), x + pad, py)
         py = py + 18
         if g then
-            drawWrappedSectionLines(ContentTooltips.getLines("gear", g), { 0.75, 0.84, 0.74, 1 })
+            drawWrappedSectionLines(Mods.ContentTooltips.getLines("gear", g), { 0.75, 0.84, 0.74, 1 })
         end
     end
     drawGearBlock("hat", "Hat")
@@ -487,7 +489,7 @@ local function drawCharacterSheet()
     drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
-    local ck = Keybinds.formatActionKey("character")
+    local ck = Mods.Keybinds.formatActionKey("character")
     love.graphics.print(string.format("%s to close  ·  ESC", ck), x + pad, py)
 end
 
@@ -570,8 +572,7 @@ local function continueGame()
     if world and player then
         pcall(function() world:remove(player) end)
     end
-    player.combatDisabled = false
-    Gamestate.pop()
+    Mods.Gamestate.pop()
 end
 
 local function findNearbyNPC()
@@ -584,7 +585,7 @@ local function findNearbyNPC()
 end
 
 local function nearSlotMachine()
-    local sm = saloonRoom.slotMachine
+    local sm = Mods.saloonRoom.slotMachine
     if not sm or not player then return false end
     local px = player.x + player.w / 2
     local py = player.y + player.h / 2
@@ -597,7 +598,7 @@ local weaponPickupInteractState = {}
 local saloonWalkInteractConsumed = false
 
 local function trySaloonWalkingInteract(key)
-    if not Keybinds.matches("interact", key) then return false end
+    if not Mods.Keybinds.matches("interact", key) then return false end
     if nearSlotMachine() and slotsGame then
         applyOutcome(slotsGame:enterTable(player.gold, "walking"))
         return true
@@ -614,7 +615,7 @@ local function trySaloonWalkingInteract(key)
             player:consumeMonsterEnergy()
             message = "Full heal!"
             messageTimer = 2.5
-            Sfx.play("pickup_gold")
+            Mods.Sfx.play("pickup_gold")
             return true
         end
     end
@@ -644,13 +645,6 @@ local function trySaloonWalkingInteract(key)
         continueGame()
         return true
     end
-    local bx = backRoomDoor.x + backRoomDoor.w / 2
-    local by = backRoomDoor.y + backRoomDoor.h / 2
-    if (pcx - bx) ^ 2 + (pcy - by) ^ 2 < 50 * 50 then
-        local saloonBackroom = require("src.states.saloon_backroom")
-        Gamestate.switch(saloonBackroom, player, roomManager)
-        return true
-    end
     return false
 end
 
@@ -662,12 +656,10 @@ function saloon:enter(_, _player, _roomManager)
     roomManager = _roomManager
     difficulty = _roomManager and _roomManager.difficulty or 1
 
-    -- Disable combat
-    player.combatDisabled = true
     player.vx = 0
     player.vy = 0
 
-    MusicDirector.suspendGameplay()
+    Mods.MusicDirector.suspendGameplay()
 
     -- Load persistent assets
     if not bgImage then
@@ -690,20 +682,20 @@ function saloon:enter(_, _player, _roomManager)
     loadDecorations()
 
     -- Fonts
-    fonts.title = Font.new(36)
-    fonts.stat = Font.new(18)
-    fonts.body = Font.new(16)
-    fonts.card = Font.new(20)
-    fonts.shopTitle = Font.new(24)
-    fonts.default = Font.new(12)
-    Cursor.setDefault()
+    fonts.title = Mods.Font.new(36)
+    fonts.stat = Mods.Font.new(18)
+    fonts.body = Mods.Font.new(16)
+    fonts.card = Mods.Font.new(20)
+    fonts.shopTitle = Mods.Font.new(24)
+    fonts.default = Mods.Font.new(12)
+    Mods.Cursor.setDefault()
 
     -- Create bump world
-    world = bump.newWorld(32)
+    world = Mods.bump.newWorld(32)
 
     -- Add platforms (only floor — bar counter is decorative only)
     platforms = {}
-    for _, p in ipairs(saloonRoom.platforms) do
+    for _, p in ipairs(Mods.saloonRoom.platforms) do
         local plat = { x = p.x, y = p.y, w = p.w, h = p.h, oneWay = p.oneWay or false, isPlatform = true }
         world:add(plat, plat.x, plat.y, plat.w, plat.h)
         table.insert(platforms, plat)
@@ -711,25 +703,20 @@ function saloon:enter(_, _player, _roomManager)
 
     -- Add walls
     walls = {}
-    for _, w in ipairs(saloonRoom.walls) do
+    for _, w in ipairs(Mods.saloonRoom.walls) do
         local wall = { x = w.x, y = w.y, w = w.w, h = w.h, isWall = true }
         world:add(wall, wall.x, wall.y, wall.w, wall.h)
         table.insert(walls, wall)
     end
 
     -- Add exit door (collision zone, passthrough)
-    local d = saloonRoom.exitDoor
+    local d = Mods.saloonRoom.exitDoor
     exitDoor = { x = d.x, y = d.y, w = d.w, h = d.h, isDoor = true }
     world:add(exitDoor, exitDoor.x, exitDoor.y, exitDoor.w, exitDoor.h)
 
-    -- Add back room door
-    local brd = saloonRoom.backRoomDoor
-    backRoomDoor = { x = brd.x, y = brd.y, w = brd.w, h = brd.h, isDoor = true }
-    world:add(backRoomDoor, backRoomDoor.x, backRoomDoor.y, backRoomDoor.w, backRoomDoor.h)
-
     -- Spawn NPCs — NO collision bodies, player walks freely in front of them
     npcs = {}
-    for _, npcDef in ipairs(saloonRoom.npcs) do
+    for _, npcDef in ipairs(Mods.saloonRoom.npcs) do
         local npcConfig = {
             type = npcDef.type,
             x = npcDef.x,
@@ -764,13 +751,13 @@ function saloon:enter(_, _player, _roomManager)
             npcConfig.spritePath = "assets/sprites/bartender/rotations/south.png"
         end
 
-        local npc = NPC.new(npcConfig)
+        local npc = Mods.NPC.new(npcConfig)
         -- NOT added to bump world — NPCs are decorative, player walks in front
         table.insert(npcs, npc)
     end
 
     -- Position player at spawn
-    local sp = saloonRoom.playerSpawn
+    local sp = Mods.saloonRoom.playerSpawn
     player.x = sp.x
     player.y = sp.y
     player.grounded = false
@@ -782,30 +769,31 @@ function saloon:enter(_, _player, _roomManager)
     world:add(player, player.x, player.y, player.w, player.h)
 
     -- Camera — snap to player spawn on enter
-    camera = Camera(saloonRoom.playerSpawn.x, saloonRoom.playerSpawn.y)
+    camera = Mods.Camera(Mods.saloonRoom.playerSpawn.x, Mods.saloonRoom.playerSpawn.y)
     camera.scale = CAM_ZOOM
-    cam.currentX = saloonRoom.playerSpawn.x
-    cam.currentY = saloonRoom.playerSpawn.y
+    cam.currentX = Mods.saloonRoom.playerSpawn.x
+    cam.currentY = Mods.saloonRoom.playerSpawn.y
     cam.targetX = cam.currentX
     cam.targetY = cam.currentY
 
     -- Game systems
-    blackjackGame = Blackjack.new()
-    rouletteGame = Roulette.new()
-    slotsGame = Slots.new()
-    shop = Shop.new(difficulty, player, {
+    blackjackGame = Mods.Blackjack.new()
+    rouletteGame = Mods.Roulette.new()
+    slotsGame = Mods.Slots.new()
+    shop = Mods.Shop.new(difficulty, player, {
         run_metadata = player and player.runMetadata or nil,
         source = "saloon_shop",
         room_manager = roomManager,
     })
     pickups = {}
+    bullets = {}
     weaponPickupInteractState = {}
     saloonWalkInteractConsumed = false
-    DamageNumbers.clear()
+    Mods.DamageNumbers.clear()
 
     -- Monster Energy on the bar counter — reset each visit
     monster.drunk = false
-    local _floorY = saloonRoom.platforms[1].y
+    local _floorY = Mods.saloonRoom.platforms[1].y
     monster.x = 368
     monster.y = _floorY - 26
     local okM, imgM = pcall(love.graphics.newImage, "assets/monster.png")
@@ -835,17 +823,24 @@ function saloon:enter(_, _player, _roomManager)
     devPanelHover = nil
     devPanelPauseGameplay = true
     devShowHitboxes = true
-    devPanelRows = DevPanel.buildRows({
+    devPanelRows = Mods.DevPanel.buildRows({
         gameplayPaused = devPanelPauseGameplay,
         showHitboxes = devShowHitboxes,
     })
 end
 
 function saloon:leave()
+    if world then
+        for _, b in ipairs(bullets) do
+            if world:hasItem(b) then
+                world:remove(b)
+            end
+        end
+    end
+    bullets = {}
     if world and player then
         pcall(function() world:remove(player) end)
     end
-    player.combatDisabled = false
 end
 
 ---------------------------------------------------------------------------
@@ -862,7 +857,29 @@ function saloon:update(dt)
     if mode == "walking" then
         tryFlushCasinoGoldToFloor()
 
+        do
+            local mx, my = love.mouse.getPosition()
+            local gx, gy = windowToGame(mx, my)
+            local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            player.aimWorldX = wx
+            player.aimWorldY = wy
+            player.effectiveAimX, player.effectiveAimY = wx, wy
+            player.keyboardAimMode = false
+        end
+
         player:update(dt, world, {})
+
+        Mods.Combat.updateBullets(bullets, dt, world, {}, player)
+        local bi = #bullets
+        while bi >= 1 do
+            if not bullets[bi].alive then
+                if world:hasItem(bullets[bi]) then
+                    world:remove(bullets[bi])
+                end
+                table.remove(bullets, bi)
+            end
+            bi = bi - 1
+        end
 
         for _, p in ipairs(pickups) do
             p:update(dt, world, player.x + player.w / 2, player.y + player.h / 2)
@@ -878,19 +895,20 @@ function saloon:update(dt)
                 pi = pi + 1
             end
         end
-        weaponPickupInteractState = Combat.advanceWeaponPickupInteraction(
+        weaponPickupInteractState = Mods.Combat.advanceWeaponPickupInteraction(
             dt, pickups, player, world, weaponPickupInteractState, saloonWalkInteractConsumed
         )
-        if not Keybinds.isDown("interact") then
+        if not Mods.Keybinds.isDown("interact") then
             saloonWalkInteractConsumed = false
         end
-        Combat.checkPickups(pickups, player, world)
-        DamageNumbers.update(dt)
+        Mods.Combat.checkPickups(pickups, player, world)
+        Mods.DamageNumbers.update(dt)
+        Mods.ImpactFX.update(dt)
 
         -- Clamp player to room bounds
         if player.x < 0 then player.x = 0 end
-        if player.x + player.w > saloonRoom.width then
-            player.x = saloonRoom.width - player.w
+        if player.x + player.w > Mods.saloonRoom.width then
+            player.x = Mods.saloonRoom.width - player.w
         end
 
         -- Dead Cells-style smooth camera with look-ahead
@@ -918,8 +936,8 @@ function saloon:update(dt)
             lookY = cam.lookAheadY
         end
 
-        cam.targetX = math.max(viewW / 2, math.min(saloonRoom.width - viewW / 2, px + lookX))
-        cam.targetY = math.max(viewH / 2, math.min(saloonRoom.height - viewH / 2, py + lookY))
+        cam.targetX = math.max(viewW / 2, math.min(Mods.saloonRoom.width - viewW / 2, px + lookX))
+        cam.targetY = math.max(viewH / 2, math.min(Mods.saloonRoom.height - viewH / 2, py + lookY))
 
         local t = 1 - math.exp(-cam.lerpSpeed * dt)
         cam.currentX = cam.currentX + (cam.targetX - cam.currentX) * t
@@ -942,7 +960,7 @@ function saloon:update(dt)
 
     elseif mode == "perk_selection" and perkOptions then
         local mx, my = windowToGame(love.mouse.getPosition())
-        hoveredPerk = PerkCard.getHovered(perkOptions, mx, my)
+        hoveredPerk = Mods.PerkCard.getHovered(perkOptions, mx, my)
     elseif mode == "blackjack" then
         local mx, my = windowToGame(love.mouse.getPosition())
         blackjackGame:updateHover(mx, my, GAME_WIDTH, GAME_HEIGHT)
@@ -961,16 +979,16 @@ function saloon:keypressed(key)
     local _, _, _, consoleH = getDebugConsoleLayout()
     if devToolsEnabled() and devPanelOpen then
         if key == "end" then
-            DevLog.followConsole()
+            Mods.DevLog.followConsole()
             return
         elseif key == "pageup" then
-            DevLog.scrollConsole(10, consoleH)
+            Mods.DevLog.scrollConsole(10, consoleH)
             return
         elseif key == "pagedown" then
-            DevLog.scrollConsole(-10, consoleH)
+            Mods.DevLog.scrollConsole(-10, consoleH)
             return
         elseif key == "home" then
-            DevLog.scrollConsole(9999, consoleH)
+            Mods.DevLog.scrollConsole(9999, consoleH)
             return
         elseif key == "escape" or key == "f2" then
             devPanelOpen = false
@@ -986,16 +1004,16 @@ function saloon:keypressed(key)
 
     if DEBUG and not devPanelOpen then
         if key == "end" then
-            DevLog.followConsole()
+            Mods.DevLog.followConsole()
             return
         elseif key == "pageup" then
-            DevLog.scrollConsole(10, consoleH)
+            Mods.DevLog.scrollConsole(10, consoleH)
             return
         elseif key == "pagedown" then
-            DevLog.scrollConsole(-10, consoleH)
+            Mods.DevLog.scrollConsole(-10, consoleH)
             return
         elseif key == "home" then
-            DevLog.scrollConsole(9999, consoleH)
+            Mods.DevLog.scrollConsole(9999, consoleH)
             return
         end
     end
@@ -1004,9 +1022,9 @@ function saloon:keypressed(key)
         if key == "escape" then
             pauseSettingsBindCapture = nil
         else
-            local normalized = Keybinds.normalizeCapturedKey(key)
-            Settings.setKeybind(pauseSettingsBindCapture, normalized)
-            Settings.save()
+            local normalized = Mods.Keybinds.normalizeCapturedKey(key)
+            Mods.Settings.setKeybind(pauseSettingsBindCapture, normalized)
+            Mods.Settings.save()
             pauseSettingsBindCapture = nil
         end
         return
@@ -1045,9 +1063,9 @@ function saloon:keypressed(key)
                 pauseSettingsBindCapture = nil
                 pauseSettingsSliderDragKey = nil
             elseif key == "[" then
-                pauseSettingsTab = SettingsPanel.cycleTab(pauseSettingsTab, -1)
+                pauseSettingsTab = Mods.SettingsPanel.cycleTab(pauseSettingsTab, -1)
             elseif key == "]" then
-                pauseSettingsTab = SettingsPanel.cycleTab(pauseSettingsTab, 1)
+                pauseSettingsTab = Mods.SettingsPanel.cycleTab(pauseSettingsTab, 1)
             end
             return
         end
@@ -1074,7 +1092,7 @@ function saloon:keypressed(key)
         return
     end
 
-    if Keybinds.matches("character", key) then
+    if Mods.Keybinds.matches("character", key) then
         characterSheetOpen = not characterSheetOpen
         return
     end
@@ -1084,11 +1102,26 @@ function saloon:keypressed(key)
             saloonWalkInteractConsumed = true
         end
 
-        if Keybinds.matches("jump", key) or key == "w" or key == "up" then
+        if Mods.Keybinds.matches("jump", key) or key == "w" or key == "up" then
             player:jump()
         end
-        if Keybinds.matches("drop", key) or key == "down" then
+        if Mods.Keybinds.matches("dash", key) then
+            player:tryDash()
+        end
+        if Mods.Keybinds.matches("drop", key) or key == "down" then
             player:tryDropThrough()
+        end
+        if Mods.Keybinds.matches("reload", key) then
+            player:reload()
+        end
+        if Mods.Keybinds.matches("melee", key) then
+            player:meleeAttack()
+        end
+        if key == "h" then
+            player:spinHolster()
+        end
+        if key == "tab" then
+            player:switchWeapon()
         end
 
     elseif mode == "casino_menu" then
@@ -1152,7 +1185,7 @@ function saloon:keypressed(key)
     elseif mode == "perk_selection" then
         local num = tonumber(key)
         if num and num >= 1 and num <= #perkOptions then
-            Progression.applyPerk(player, perkOptions[num])
+            Mods.Progression.applyPerk(player, perkOptions[num])
             local nextMode = blackjackGame:completePerkSelection()
             mode = (nextMode == "main") and "walking" or nextMode
             perkOptions = nil
@@ -1164,14 +1197,14 @@ function saloon:mousemoved(x, y, dx, dy)
     local gx, gy = windowToGame(x, y)
     if devToolsEnabled() and devPanelOpen and devPanelRows then
         if not saloon.devPanelTitleFont then
-            saloon.devPanelTitleFont = Font.new(16)
+            saloon.devPanelTitleFont = Mods.Font.new(16)
         end
         if not saloon.devPanelRowFont then
-            saloon.devPanelRowFont = Font.new(13)
+            saloon.devPanelRowFont = Mods.Font.new(13)
         end
         local px, py, pw, ph = getDevPanelLayout()
         if pointInRect(gx, gy, px, py, pw, ph) then
-            devPanelHover = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont, saloon.devPanelRowFont)
+            devPanelHover = Mods.DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont, saloon.devPanelRowFont)
         else
             devPanelHover = nil
         end
@@ -1179,14 +1212,14 @@ function saloon:mousemoved(x, y, dx, dy)
     end
     if paused then
         if pauseMenuView == "settings" and pauseSettingsSliderDragKey and saloon.pauseMenuButtonFont then
-            local v = SettingsPanel.sliderValueFromPointerX(
+            local v = Mods.SettingsPanel.sliderValueFromPointerX(
                 GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, saloon.pauseMenuButtonFont,
                 pauseSettingsSliderDragKey, gx
             )
             if v then
-                Settings.setVolumeKey(pauseSettingsSliderDragKey, v)
-                Settings.save()
-                Settings.apply()
+                Mods.Settings.setVolumeKey(pauseSettingsSliderDragKey, v)
+                Mods.Settings.save()
+                Mods.Settings.apply()
             end
             return
         end
@@ -1201,9 +1234,9 @@ function saloon:mousemoved(x, y, dx, dy)
             end
         else
             if not saloon.pauseMenuButtonFont then
-                saloon.pauseMenuButtonFont = Font.new(26)
+                saloon.pauseMenuButtonFont = Mods.Font.new(26)
             end
-            local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, saloon.pauseMenuButtonFont)
+            local h = Mods.SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, saloon.pauseMenuButtonFont)
             if h then
                 if h.kind == "tab" then
                     pauseSettingsHover = { kind = "tab", id = h.id }
@@ -1225,10 +1258,10 @@ function saloon:mousepressed(x, y, button)
     local gx, gy = windowToGame(x, y)
     if devToolsEnabled() and devPanelOpen and devPanelRows then
         if not saloon.devPanelTitleFont then
-            saloon.devPanelTitleFont = Font.new(16)
+            saloon.devPanelTitleFont = Mods.Font.new(16)
         end
         if not saloon.devPanelRowFont then
-            saloon.devPanelRowFont = Font.new(13)
+            saloon.devPanelRowFont = Mods.Font.new(13)
         end
         local px, py, pw, ph = getDevPanelLayout()
         local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
@@ -1236,7 +1269,7 @@ function saloon:mousepressed(x, y, button)
         local insideConsole = pointInRect(gx, gy, consoleX - 4, consoleY - 4, consoleW + 8, consoleH)
         if insidePanel then
             if button == 1 then
-                local hit = DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont, saloon.devPanelRowFont)
+                local hit = Mods.DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont, saloon.devPanelRowFont)
                 if hit then
                     saloonDevApplyAction(hit)
                 end
@@ -1268,10 +1301,10 @@ function saloon:mousepressed(x, y, button)
             end
         else
             if not saloon.pauseMenuButtonFont then
-                saloon.pauseMenuButtonFont = Font.new(26)
+                saloon.pauseMenuButtonFont = Mods.Font.new(26)
             end
-            local h = SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, saloon.pauseMenuButtonFont)
-            local r = SettingsPanel.applyHit(h, player)
+            local h = Mods.SettingsPanel.hitTest(GAME_WIDTH, GAME_HEIGHT, pauseSettingsTab, gx, gy, saloon.pauseMenuButtonFont)
+            local r = Mods.SettingsPanel.applyHit(h, player)
             if h and h.kind == "slider" then
                 pauseSettingsSliderDragKey = h.key
             end
@@ -1290,7 +1323,7 @@ function saloon:mousepressed(x, y, button)
     end
 
     if mode == "perk_selection" and button == 1 and hoveredPerk then
-        Progression.applyPerk(player, perkOptions[hoveredPerk])
+        Mods.Progression.applyPerk(player, perkOptions[hoveredPerk])
         local nextMode = blackjackGame:completePerkSelection()
         mode = (nextMode == "main") and "walking" or nextMode
         perkOptions = nil
@@ -1322,6 +1355,36 @@ function saloon:mousepressed(x, y, button)
         local mx, my = gx, gy
         applyOutcome(slotsGame:handleMousePressed(mx, my, button, GAME_WIDTH, GAME_HEIGHT, player))
     end
+
+    if mode == "walking" and player and camera and world and not characterSheetOpen then
+        if button == 1 and not player.blocking then
+            local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+            player.aimWorldX = mx
+            player.aimWorldY = my
+            if player:getActiveGun() then
+                local es = player:getEffectiveStats()
+                local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+                if not player.autoGun and es.meleeDamage > 0 and not shiftShoot then
+                    player:meleeAttack(mx, my)
+                else
+                    local bulletData = player:shoot(mx, my)
+                    if bulletData then
+                        for _, data in ipairs(bulletData) do
+                            local b = Mods.Combat.spawnBullet(world, data)
+                            table.insert(bullets, b)
+                        end
+                    end
+                end
+            else
+                local s = player:getEffectiveStats()
+                if s.meleeDamage > 0 then
+                    player:meleeAttack(mx, my)
+                end
+            end
+        elseif button == 2 then
+            player:reload()
+        end
+    end
 end
 
 function saloon:mousereleased(x, y, button)
@@ -1342,12 +1405,12 @@ function saloon:wheelmoved(x, y)
             devPanelScroll = devPanelScroll - y * 36
             devClampScroll()
         elseif overConsole then
-            DevLog.scrollConsole(y * 3, consoleH)
+            Mods.DevLog.scrollConsole(y * 3, consoleH)
         end
         return
     end
     if overConsole then
-        DevLog.scrollConsole(y * 3, consoleH)
+        Mods.DevLog.scrollConsole(y * 3, consoleH)
     end
 end
 
@@ -1375,8 +1438,8 @@ end
 function saloon:draw()
     local screenW = GAME_WIDTH
     local screenH = GAME_HEIGHT
-    local roomW = saloonRoom.width
-    local floorY = saloonRoom.platforms[1].y  -- top of floor
+    local roomW = Mods.saloonRoom.width
+    local floorY = Mods.saloonRoom.platforms[1].y  -- top of floor
 
     -- Dark background
     love.graphics.setColor(0.08, 0.05, 0.03)
@@ -1579,35 +1642,6 @@ function saloon:draw()
         end
     end
 
-    -- === Back room door ===
-    if backRoomDoor then
-        if doorSheet and #doorQuads > 0 then
-            love.graphics.setColor(1, 1, 1)
-            local scale = backRoomDoor.h / DOOR_FRAME_SIZE
-            local drawX = backRoomDoor.x + backRoomDoor.w / 2 - (DOOR_FRAME_SIZE * scale) / 2
-            local drawY = backRoomDoor.y + backRoomDoor.h - DOOR_FRAME_SIZE * scale
-            love.graphics.draw(doorSheet, doorQuads[8], drawX, drawY, 0, scale, scale)
-        else
-            love.graphics.setColor(0.4, 0.25, 0.1)
-            love.graphics.rectangle("fill", backRoomDoor.x, backRoomDoor.y, backRoomDoor.w, backRoomDoor.h)
-        end
-        if mode == "walking" and player then
-            local pcx = player.x + player.w / 2
-            local pcy = player.y + player.h / 2
-            local bx  = backRoomDoor.x + backRoomDoor.w / 2
-            local by  = backRoomDoor.y + backRoomDoor.h / 2
-            if (pcx-bx)^2 + (pcy-by)^2 < 50 * 50 then
-                love.graphics.setFont(fonts.default)
-                local label = "[E] Back Room"
-                local tw = fonts.default:getWidth(label)
-                love.graphics.setColor(0, 0, 0, 0.7)
-                love.graphics.print(label, math.floor(bx - tw/2)+1, math.floor(backRoomDoor.y - 14)+1)
-                love.graphics.setColor(1, 0.9, 0.5)
-                love.graphics.print(label, math.floor(bx - tw/2), math.floor(backRoomDoor.y - 14))
-            end
-        end
-    end
-
     -- === LAYER 8: Pickups (gold on the floor) ===
     for _, p in ipairs(pickups) do
         p:draw()
@@ -1619,7 +1653,12 @@ function saloon:draw()
         player:draw()
     end
 
-    DamageNumbers.draw()
+    for _, b in ipairs(bullets) do
+        b:draw()
+    end
+    Mods.ImpactFX.draw()
+
+    Mods.DamageNumbers.draw()
 
     -- === LAYER 10: NPC prompts and speech (always on top in world space) ===
     for _, npc in ipairs(npcs) do
@@ -1650,7 +1689,7 @@ function saloon:draw()
     if mode == "walking" and player and nearSlotMachine() then
         love.graphics.setFont(fonts.default)
         local label = "[E] Slots"
-        local sm = saloonRoom.slotMachine
+        local sm = Mods.saloonRoom.slotMachine
         local tw = fonts.default:getWidth(label)
         love.graphics.setColor(0, 0, 0, 0.7)
         love.graphics.print(label, math.floor(sm.cx - tw / 2) + 1, math.floor(sm.cy - 42) + 1)
@@ -1688,19 +1727,19 @@ function saloon:draw()
         elseif mode == "shop" then
             drawShop(screenW, screenH)
         elseif mode == "perk_selection" then
-            PerkCard.draw(perkOptions, nil, hoveredPerk)
+            Mods.PerkCard.draw(perkOptions, nil, hoveredPerk)
         end
     end
 
     -- HUD — same pipeline as game state (saloon is another map)
-    HUD.draw(player)
+    Mods.HUD.draw(player)
     if not DEBUG then
-        DevLog.drawOverlay(screenW, screenH)
+        Mods.DevLog.drawOverlay(screenW, screenH)
     end
     if roomManager then
-        HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
+        Mods.HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
     end
-    HUD.drawDeadEye(player)
+    Mods.HUD.drawDeadEye(player)
 
     -- Message toast
     if messageTimer > 0 then
@@ -1722,16 +1761,16 @@ function saloon:draw()
         love.graphics.rectangle("fill", 0, 0, screenW, screenH)
 
         if not saloon.pauseTitleFont then
-            saloon.pauseTitleFont = Font.new(32)
+            saloon.pauseTitleFont = Mods.Font.new(32)
         end
         if not saloon.pauseMenuButtonFont then
-            saloon.pauseMenuButtonFont = Font.new(26)
+            saloon.pauseMenuButtonFont = Mods.Font.new(26)
         end
         if not saloon.pauseHintFont then
-            saloon.pauseHintFont = Font.new(15)
+            saloon.pauseHintFont = Mods.Font.new(15)
         end
         if not saloon.pauseSettingsBodyFont then
-            saloon.pauseSettingsBodyFont = Font.new(16)
+            saloon.pauseSettingsBodyFont = Mods.Font.new(16)
         end
 
         if pauseMenuView == "main" then
@@ -1757,7 +1796,7 @@ function saloon:draw()
                 love.graphics.printf(
                     r.label,
                     r.x,
-                    TextLayout.printfYCenteredInRect(saloon.pauseMenuButtonFont, r.y, r.h),
+                    Mods.TextLayout.printfYCenteredInRect(saloon.pauseMenuButtonFont, r.y, r.h),
                     r.w,
                     "center"
                 )
@@ -1767,7 +1806,7 @@ function saloon:draw()
             love.graphics.setColor(0.45, 0.45, 0.48)
             love.graphics.printf("Arrows / mouse  ·  Enter  ·  ESC to resume", 0, screenH * 0.88, screenW, "center")
         else
-            SettingsPanel.draw(screenW, screenH, pauseSettingsTab, {
+            Mods.SettingsPanel.draw(screenW, screenH, pauseSettingsTab, {
                 title = saloon.pauseTitleFont,
                 tab = saloon.pauseMenuButtonFont,
                 row = saloon.pauseSettingsBodyFont,
@@ -1791,7 +1830,7 @@ function saloon:draw()
         local cylinderSize = es.cylinderSize or 0
         local luck = es.luck or 0
         if not saloon.debugFont then
-            saloon.debugFont = Font.new(11)
+            saloon.debugFont = Mods.Font.new(11)
         end
         love.graphics.setFont(saloon.debugFont)
 
@@ -1829,21 +1868,21 @@ function saloon:draw()
         py = py + 20
 
         local consoleX, consoleY, consoleW, consoleH = getDebugConsoleLayout()
-        DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
+        Mods.DevLog.drawConsole(consoleX, consoleY, consoleW, consoleH)
     end
 
     if devToolsEnabled() and devPanelOpen and devPanelRows and player then
         love.graphics.setColor(0, 0, 0, 0.38)
         love.graphics.rectangle("fill", 0, 0, screenW, screenH)
         if not saloon.devPanelTitleFont then
-            saloon.devPanelTitleFont = Font.new(16)
+            saloon.devPanelTitleFont = Mods.Font.new(16)
         end
         if not saloon.devPanelRowFont then
-            saloon.devPanelRowFont = Font.new(13)
+            saloon.devPanelRowFont = Mods.Font.new(13)
         end
         devClampScroll()
         local px, py, pw, ph = getDevPanelLayout()
-        DevPanel.draw(devPanelRows, devPanelScroll, px, py, pw, ph, devPanelHover, {
+        Mods.DevPanel.draw(devPanelRows, devPanelScroll, px, py, pw, ph, devPanelHover, {
             title = saloon.devPanelTitleFont,
             row = saloon.devPanelRowFont,
         })
@@ -2083,7 +2122,7 @@ function handleBlackjackAction(action)
             local reward = blackjackGame:getReward()
             player:addGold(reward.gold, "blackjack_reward")
             if reward.perkRarity == "rare" or reward.anyWin then
-                perkOptions = Progression.rollLevelUpPerks(player, {
+                perkOptions = Mods.Progression.rollLevelUpPerks(player, {
                     run_metadata = player and player.runMetadata or nil,
                     source = "blackjack_reward",
                 })
@@ -2120,9 +2159,9 @@ function drawShop(screenW, screenH)
             love.graphics.setColor(0.6, 0.6, 0.6)
             local desc = item.description
             if item.type == "gear" and item.gearData then
-                desc = ContentTooltips.getJoinedText("gear", item.gearData)
+                desc = Mods.ContentTooltips.getJoinedText("gear", item.gearData)
             elseif item.tooltip_key or item.tooltip_override then
-                desc = ContentTooltips.getJoinedText("offer", item)
+                desc = Mods.ContentTooltips.getJoinedText("offer", item)
             end
             love.graphics.printf("    " .. tostring(desc or ""), 0, y, screenW, "center")
             y = y + 20

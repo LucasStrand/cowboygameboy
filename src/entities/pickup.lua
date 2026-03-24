@@ -71,12 +71,33 @@ function Pickup.filter(item, other)
         return "slide"
     end
     if other.isPlatform then
+        -- Let coins drop through one-way tops the frame after they lose center support (ledge edge).
+        if item._edgeFall and other.oneWay then
+            return nil
+        end
         if PlatformCollision.shouldPassThroughOneWay(item, other) then
             return nil
         end
         return "slide"
     end
     return nil
+end
+
+--- Solid geometry that can hold a coin up (center probe under feet).
+local function groundSupportFilter(item)
+    return item.isPlatform or item.isWall
+end
+
+local GROUND_PROBE_W = 4
+local GROUND_PROBE_H = 8
+
+--- True if a thin strip under the pickup center still overlaps floor (not past a ledge).
+function Pickup:hasGroundSupport(world)
+    if not world then return true end
+    local feetY = self.y + self.h
+    local probeX = self.x + self.w * 0.5 - GROUND_PROBE_W * 0.5
+    local _, len = world:queryRect(probeX, feetY, GROUND_PROBE_W, GROUND_PROBE_H, groundSupportFilter)
+    return len > 0
 end
 
 function Pickup:update(dt, world, playerX, playerY)
@@ -114,29 +135,47 @@ function Pickup:update(dt, world, playerX, playerY)
             world:update(self, self.x, self.y)
         end
         self.bobOffset = 0
-    elseif not self.grounded then
-        self.vy = self.vy + GRAVITY * dt
-        if self.vy > 400 then self.vy = 400 end
-
-        local goalX = self.x + self.vx * dt
-        local goalY = self.y + self.vy * dt
-        local actualX, actualY, cols, len = world:move(self, goalX, goalY, self.filter)
-        self.x = actualX
-        self.y = actualY
-
-        for i = 1, len do
-            local ny = cols[i].normal.y
-            if ny == -1 then
-                self.grounded = true
-                self.vy = 0
-                self.vx = 0
-            elseif math.abs(cols[i].normal.x) > 0.5 then
-                self.vx = 0
+    else
+        -- Coins: fall off one-way / platform edges when the center is no longer over solid ground.
+        if self.grounded and world and (self.pickupType == "gold" or self.pickupType == "silver") then
+            if not self:hasGroundSupport(world) then
+                self.grounded = false
+                self._edgeFall = true
             end
         end
-    else
-        self.bobTimer = self.bobTimer + dt * 3
-        self.bobOffset = math.sin(self.bobTimer) * 2
+
+        if not self.grounded then
+            self.vy = self.vy + GRAVITY * dt
+            if self.vy > 400 then self.vy = 400 end
+
+            local goalX = self.x + self.vx * dt
+            local goalY = self.y + self.vy * dt
+            local actualX, actualY, cols, len = world:move(self, goalX, goalY, self.filter)
+            self.x = actualX
+            self.y = actualY
+            self._edgeFall = nil
+
+            for i = 1, len do
+                local ny = cols[i].normal.y
+                if ny == -1 then
+                    self.grounded = true
+                    self.vy = 0
+                    self.vx = 0
+                elseif math.abs(cols[i].normal.x) > 0.5 then
+                    self.vx = 0
+                end
+            end
+            -- Bump can snap to floor while the coin center is still past a ledge; drop again next frame.
+            if self.grounded and world and (self.pickupType == "gold" or self.pickupType == "silver") then
+                if not self:hasGroundSupport(world) then
+                    self.grounded = false
+                    self._edgeFall = true
+                end
+            end
+        else
+            self.bobTimer = self.bobTimer + dt * 3
+            self.bobOffset = math.sin(self.bobTimer) * 2
+        end
     end
 end
 
@@ -178,7 +217,15 @@ function Pickup:draw(player, camera, shakeX, shakeY, room)
         local cy = self.y + self.h / 2 + dy
         local t = love.timer.getTime() + (self.coinPhase or 0)
         love.graphics.setColor(1, 1, 1, airMul)
-        if not GoldCoin.drawAnimatedCentered(cx, cy, 14, t, { fps = 9 }) then
+        if self.grounded then
+            if not GoldCoin.drawIdleFaceCentered(cx, cy, 14, {
+                alpha = airMul,
+                variant = "gold",
+            }) then
+                love.graphics.setColor(1.0, 0.85, 0.2, airMul)
+                love.graphics.circle("fill", cx, cy, 5)
+            end
+        elseif not GoldCoin.drawAnimatedCentered(cx, cy, 14, t, { fps = 9, alpha = airMul }) then
             love.graphics.setColor(1.0, 0.85, 0.2, airMul)
             love.graphics.circle("fill", cx, cy, 5)
         end
@@ -186,15 +233,33 @@ function Pickup:draw(player, camera, shakeX, shakeY, room)
         local cx = self.x + self.w / 2
         local cy = self.y + self.h / 2 + dy
         local t = love.timer.getTime() + (self.coinPhase or 0)
-        local pulse = 0.85 + 0.15 * math.sin(t * 5)
-        love.graphics.setColor(0.55, 0.62, 0.72, 0.35 * airMul * pulse)
-        love.graphics.circle("fill", cx, cy, 6)
-        love.graphics.setColor(0.78, 0.82, 0.9, airMul * pulse)
-        love.graphics.circle("fill", cx, cy, 4.5)
-        love.graphics.setColor(0.95, 0.97, 1.0, 0.5 * airMul)
-        love.graphics.setLineWidth(1)
-        love.graphics.circle("line", cx, cy, 4.5)
-        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1, airMul)
+        if self.grounded then
+            if not GoldCoin.drawIdleFaceCentered(cx, cy, 12, {
+                alpha = airMul,
+                variant = "silver",
+            }) then
+                local pulse = 0.85 + 0.15 * math.sin(t * 5)
+                love.graphics.setColor(0.55, 0.62, 0.72, 0.35 * airMul * pulse)
+                love.graphics.circle("fill", cx, cy, 6)
+                love.graphics.setColor(0.78, 0.82, 0.9, airMul * pulse)
+                love.graphics.circle("fill", cx, cy, 4.5)
+                love.graphics.setColor(0.95, 0.97, 1.0, 0.5 * airMul)
+                love.graphics.setLineWidth(1)
+                love.graphics.circle("line", cx, cy, 4.5)
+                love.graphics.setLineWidth(1)
+            end
+        elseif not GoldCoin.drawAnimatedCentered(cx, cy, 12, t, { fps = 9, variant = "silver", alpha = airMul }) then
+            local pulse = 0.85 + 0.15 * math.sin(t * 5)
+            love.graphics.setColor(0.55, 0.62, 0.72, 0.35 * airMul * pulse)
+            love.graphics.circle("fill", cx, cy, 6)
+            love.graphics.setColor(0.78, 0.82, 0.9, airMul * pulse)
+            love.graphics.circle("fill", cx, cy, 4.5)
+            love.graphics.setColor(0.95, 0.97, 1.0, 0.5 * airMul)
+            love.graphics.setLineWidth(1)
+            love.graphics.circle("line", cx, cy, 4.5)
+            love.graphics.setLineWidth(1)
+        end
     elseif self.pickupType == "health" then
         local cx = self.x + self.w / 2
         local cy = self.y + self.h / 2 + dy
