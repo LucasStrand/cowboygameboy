@@ -5,6 +5,16 @@
 local SecretEntrance = {}
 SecretEntrance.__index = SecretEntrance
 
+-- Sprite (lazy-loaded)
+local _sprite
+local function getSprite()
+    if not _sprite then
+        _sprite = love.graphics.newImage("assets/sprites/props/secret_entrance.png")
+        _sprite:setFilter("nearest", "nearest")
+    end
+    return _sprite
+end
+
 local REVEAL_DIST    = 90    -- px: begin fading here
 local FULL_FADE_DIST = 38    -- px: fully transparent here
 local RESTORE_RATE   = 0.55  -- alpha per second when player moves away
@@ -39,32 +49,16 @@ end
 function SecretEntrance:draw()
     if self.alpha < 0.02 then return end
     local t = love.timer.getTime()
+    local spr = getSprite()
+    local sw, sh = spr:getDimensions()
+    -- Scale to fill the entity height; center horizontally
+    local scale = self.h / sh
+    local drawX = self.x + (self.w - sw * scale) / 2
+    local drawY = self.y
 
-    -- Stone slab
-    love.graphics.setColor(0.36, 0.30, 0.24, self.alpha)
-    love.graphics.rectangle("fill", self.x, self.y, self.w, self.h)
-
-    -- Horizontal mortar lines
-    love.graphics.setColor(0.20, 0.16, 0.12, self.alpha * 0.7)
-    local bands = 4
-    for i = 1, bands - 1 do
-        local by = self.y + (self.h / bands) * i
-        love.graphics.line(self.x, by, self.x + self.w, by)
-    end
-
-    -- Vertical crack
-    love.graphics.setColor(0.14, 0.10, 0.08, self.alpha * 0.9)
-    love.graphics.setLineWidth(1)
-    local mx = self.x + self.w * 0.5
-    love.graphics.line(
-        mx - 1, self.y + 5,
-        mx + 2, self.y + self.h * 0.35,
-        mx - 2, self.y + self.h * 0.65,
-        mx + 1, self.y + self.h - 5)
-    love.graphics.line(
-        mx + 2, self.y + self.h * 0.35,
-        mx + 5, self.y + self.h * 0.52)
-    love.graphics.setLineWidth(1)
+    -- Draw sprite with fade alpha
+    love.graphics.setColor(1, 1, 1, self.alpha)
+    love.graphics.draw(spr, drawX, drawY, 0, scale, scale)
 
     -- Undiscovered shimmer (gold pulse — invites curiosity)
     if not self.discovered then

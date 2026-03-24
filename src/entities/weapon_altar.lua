@@ -9,6 +9,16 @@ WeaponAltar.__index = WeaponAltar
 
 local PEDESTAL_W = 28
 local PEDESTAL_H = 20
+
+-- Sprite (lazy-loaded)
+local _pedestalSprite
+local function getPedestalSprite()
+    if not _pedestalSprite then
+        _pedestalSprite = love.graphics.newImage("assets/sprites/props/weapon_altar.png")
+        _pedestalSprite:setFilter("nearest", "nearest")
+    end
+    return _pedestalSprite
+end
 local PEDESTAL_GAP = 16
 local INTERACT_RADIUS = 60
 local TOTAL_W = PEDESTAL_W * 3 + PEDESTAL_GAP * 2
@@ -141,11 +151,14 @@ function WeaponAltar:draw(showHint)
 
         local rc = RARITY_COLORS[gun.rarity] or RARITY_COLORS.common
 
-        -- Pedestal base
-        love.graphics.setColor(0.40, 0.36, 0.30)
-        love.graphics.rectangle("fill", pLeft, self.y + self.h - PEDESTAL_H, PEDESTAL_W, PEDESTAL_H, 2)
-        love.graphics.setColor(0.50, 0.46, 0.38)
-        love.graphics.rectangle("fill", pLeft, self.y + self.h - PEDESTAL_H, PEDESTAL_W, 4, 1)
+        -- Pedestal sprite (uniform scale, bottom-aligned)
+        local pedSpr = getPedestalSprite()
+        local psw, psh = pedSpr:getDimensions()
+        local pedScale = math.min(PEDESTAL_W / psw, PEDESTAL_H / psh)
+        local pedDrawX = pLeft + (PEDESTAL_W - psw * pedScale) / 2
+        local pedDrawY = self.y + self.h - psh * pedScale
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.draw(pedSpr, pedDrawX, pedDrawY, 0, pedScale, pedScale)
 
         -- Selection glow
         local selected = self.state == "choosing" and i == self.selectedIndex

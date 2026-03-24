@@ -6,6 +6,16 @@ local DamageNumbers = require("src.ui.damage_numbers")
 local SpikeTrap = {}
 SpikeTrap.__index = SpikeTrap
 
+-- Sprite (lazy-loaded)
+local _sprite
+local function getSprite()
+    if not _sprite then
+        _sprite = love.graphics.newImage("assets/sprites/props/spike_trap.png")
+        _sprite:setFilter("nearest", "nearest")
+    end
+    return _sprite
+end
+
 local RISE_TIME       = 0.12   -- seconds to fully extend
 local EXTENDED_TIME   = 2.2    -- seconds spikes stay up
 local RETRACT_TIME    = 0.35   -- seconds to fully retract
@@ -78,35 +88,25 @@ end
 
 function SpikeTrap:draw()
     local spikeH = SPIKE_HEIGHT * self.extension
+    local spr = getSprite()
+    local sw, sh = spr:getDimensions()
 
     -- Base strip embedded in the floor
-    love.graphics.setColor(0.28, 0.26, 0.30)
+    love.graphics.setColor(0.35, 0.32, 0.30)
     love.graphics.rectangle("fill", self.x, self.y, self.w, self.h)
 
     if spikeH > 0.5 then
-        -- Red glow when extended
-        if self.state == "extended" then
-            local glow = 0.14 + 0.08 * math.sin(love.timer.getTime() * 8)
-            love.graphics.setColor(1, 0.15, 0.1, glow)
-            love.graphics.rectangle("fill",
-                self.x - 2, self.y - spikeH - 2,
-                self.w + 4, spikeH + 6, 2)
-        end
+        -- Draw spike sprite scaled to match extension
+        local scaleX = self.w / sw
+        local scaleY = (spikeH / sh)
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.draw(spr, self.x, self.y - spikeH, 0, scaleX, scaleY)
 
-        -- Spike triangles
-        local count   = math.max(2, math.floor(self.w / 11))
-        local spacing = self.w / count
-        for i = 0, count - 1 do
-            local cx       = self.x + i * spacing + spacing * 0.5
-            local baseHalf = spacing * 0.38
-            love.graphics.setColor(0.72, 0.72, 0.80)
-            love.graphics.polygon("fill",
-                cx - baseHalf, self.y,
-                cx + baseHalf, self.y,
-                cx,            self.y - spikeH)
-            -- Dark center ridge
-            love.graphics.setColor(0.42, 0.42, 0.50)
-            love.graphics.line(cx, self.y - spikeH * 0.2, cx, self.y - spikeH * 0.88)
+        -- Subtle red tint when fully extended (on top of sprite, not a big rectangle)
+        if self.state == "extended" then
+            local glow = 0.06 + 0.04 * math.sin(love.timer.getTime() * 8)
+            love.graphics.setColor(1, 0.15, 0.1, glow)
+            love.graphics.draw(spr, self.x, self.y - spikeH, 0, scaleX, scaleY)
         end
     end
 end

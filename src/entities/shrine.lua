@@ -12,6 +12,16 @@ local SHRINE_W = 32
 local SHRINE_H = 48
 local INTERACT_RADIUS = 56
 
+-- Sprite (lazy-loaded)
+local _sprite
+local function getSprite()
+    if not _sprite then
+        _sprite = love.graphics.newImage("assets/sprites/props/shrine.png")
+        _sprite:setFilter("nearest", "nearest")
+    end
+    return _sprite
+end
+
 -- Blessings the shrine can bestow (maps to buff ids)
 local BLESSINGS = {
     { buffId = "regen",         name = "Regeneration",  color = {0.3, 0.9, 0.3} },
@@ -106,38 +116,23 @@ function Shrine:draw(showHint)
     local bc = self.blessing.color
     local pulse = 0.5 + 0.5 * math.sin(self.glowTimer * 2.5)
 
-    -- Base pedestal (stone slab)
-    love.graphics.setColor(0.45, 0.42, 0.38)
-    love.graphics.rectangle("fill", self.x - 2, self.y + self.h - 12, self.w + 4, 12, 2)
-    love.graphics.setColor(0.55, 0.52, 0.46)
-    love.graphics.rectangle("fill", self.x, self.y + self.h - 14, self.w, 4, 1)
-
-    -- Pillar
-    love.graphics.setColor(0.50, 0.47, 0.42)
-    love.graphics.rectangle("fill", self.x + 6, self.y + 8, self.w - 12, self.h - 20, 2)
-    -- Pillar highlight edge
-    love.graphics.setColor(0.58, 0.55, 0.48)
-    love.graphics.rectangle("fill", self.x + 6, self.y + 8, 3, self.h - 20, 1)
-
-    -- Capstone
-    love.graphics.setColor(0.48, 0.45, 0.40)
-    love.graphics.rectangle("fill", self.x + 2, self.y + 4, self.w - 4, 8, 2)
+    -- Draw sprite (uniform scale, anchored at bottom-center)
+    local spr = getSprite()
+    local sw, sh = spr:getDimensions()
+    local scale = math.min(self.w / sw, self.h / sh)
+    local drawX = self.x + (self.w - sw * scale) / 2
+    local drawY = self.y + self.h - sh * scale
+    if self.state == "dormant" then
+        love.graphics.setColor(1, 1, 1)
+    else
+        love.graphics.setColor(0.55, 0.55, 0.55)
+    end
+    love.graphics.draw(spr, drawX, drawY, 0, scale, scale)
 
     if self.state == "dormant" then
-        -- Glowing rune on pillar face
-        local runeAlpha = 0.5 + 0.4 * pulse
-        love.graphics.setColor(bc[1], bc[2], bc[3], runeAlpha)
-        -- Diamond rune shape
-        local rx, ry = cx, self.y + self.h / 2 - 2
-        love.graphics.polygon("fill",
-            rx, ry - 8,
-            rx + 5, ry,
-            rx, ry + 8,
-            rx - 5, ry
-        )
-        -- Outer glow
-        love.graphics.setColor(bc[1], bc[2], bc[3], 0.15 * pulse)
-        love.graphics.circle("fill", cx, self.y + self.h / 2, 18)
+        -- Soft blessing-colored glow underneath (not on the sprite itself)
+        love.graphics.setColor(bc[1], bc[2], bc[3], 0.18 * pulse)
+        love.graphics.circle("fill", cx, self.y + self.h * 0.65, 16)
 
         -- Interaction hint
         if showHint then
@@ -147,17 +142,6 @@ function Shrine:draw(showHint)
             })
         end
     else
-        -- Activated: show blessing name briefly, then buff icon
-        -- Faded rune (spent)
-        love.graphics.setColor(bc[1], bc[2], bc[3], 0.15)
-        local rx, ry = cx, self.y + self.h / 2 - 2
-        love.graphics.polygon("fill",
-            rx, ry - 8,
-            rx + 5, ry,
-            rx, ry + 8,
-            rx - 5, ry
-        )
-
         -- Blessing name float-up
         if self.iconShowTimer < 2.5 then
             local fadeIn = math.min(1, self.iconShowTimer * 3)

@@ -8,6 +8,16 @@ local Vision = require("src.data.vision")
 -- Must match Combat.lua PICKUP_COLLECT_RADIUS (used for label priority only; no combat require here).
 local WEAPON_INTERACT_RADIUS = 26
 
+-- Pickup sprites (lazy-loaded)
+local _healthSprite, _ammoSprite
+local function getHealthSprite()
+    if not _healthSprite then
+        _healthSprite = love.graphics.newImage("assets/sprites/props/health_pickup.png")
+        _healthSprite:setFilter("nearest", "nearest")
+    end
+    return _healthSprite
+end
+
 local function isClosestGroundedWeaponForPickup(pickups, player, self)
     if not pickups or not player then return false end
     local bestI, bestD = nil, math.huge
@@ -287,22 +297,15 @@ function Pickup:draw(player, camera, shakeX, shakeY, room, allPickups)
         local cx = self.x + self.w / 2
         local cy = self.y + self.h / 2 + dy
         local pulse = 1 + 0.14 * math.sin(self.bobTimer * 5)
-        local hw = 2.5 * pulse   -- cross arm half-width
-        local hl = 5.0 * pulse   -- cross arm half-length
+        local spr = getHealthSprite()
+        local sw, sh = spr:getDimensions()
+        local scale = (12 * pulse) / sw
         -- Soft outer glow
         love.graphics.setColor(1.0, 0.1, 0.1, 0.28 * airMul)
-        love.graphics.circle("fill", cx, cy, hl + 3)
-        -- White border so cross pops on any background
-        love.graphics.setColor(1, 1, 1, 0.55 * airMul)
-        love.graphics.rectangle("fill", cx - hw - 1, cy - hl - 1, (hw + 1) * 2, (hl + 1) * 2)
-        love.graphics.rectangle("fill", cx - hl - 1, cy - hw - 1, (hl + 1) * 2, (hw + 1) * 2)
-        -- Red cross
-        love.graphics.setColor(0.95, 0.18, 0.18, airMul)
-        love.graphics.rectangle("fill", cx - hw, cy - hl, hw * 2, hl * 2)
-        love.graphics.rectangle("fill", cx - hl, cy - hw, hl * 2, hw * 2)
-        -- Bright centre highlight
-        love.graphics.setColor(1, 0.6, 0.6, 0.7 * airMul)
-        love.graphics.circle("fill", cx, cy, hw * 0.75)
+        love.graphics.circle("fill", cx, cy, 8)
+        -- Health sprite
+        love.graphics.setColor(1, 1, 1, airMul)
+        love.graphics.draw(spr, cx, cy, 0, scale, scale, sw / 2, sh / 2)
     elseif self.pickupType == "weapon" and self.gunDef then
         local t = love.timer.getTime()
         local pulse = 0.7 + 0.3 * math.sin(t * 4)
