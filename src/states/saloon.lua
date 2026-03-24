@@ -31,6 +31,7 @@ local Mods = {
     GoldCoin = require("src.data.gold_coin"),
     ImpactFX = require("src.systems.impact_fx"),
     saloonRoom = require("src.data.saloon_room"),
+    saloonPixelinterior = require("src.data.saloon_pixelinterior"),
     WorldInteractLabelBatch = require("src.ui.world_interact_label_batch"),
 }
 
@@ -44,6 +45,7 @@ local DOOR_FRAME_SIZE = 48
 
 -- Bar decoration sprites (loaded once)
 local decor = {}
+local lrk = { imgs = {}, quads = {}, loaded = false }
 local rouletteTableQuad = nil
 local slotMachineQuad = nil
 
@@ -533,8 +535,6 @@ local function loadDecorations()
     -- Western props
     loadDecorSprite("wanted", "assets/wild_west_free_pack/wanted_pester.png")
     loadDecorSprite("fridge", "assets/Bar_by_Styl0o/individuals sprite/fridge.png")
-    loadDecorSprite("basin", "assets/wild_west_free_pack/basin.png")
-    loadDecorSprite("plant", "assets/wild_west_free_pack/plant_1.png")
 
     -- Better wooden floor tile
     loadDecorSprite("floor_wood", "assets/floor_wood.png")
@@ -550,6 +550,100 @@ local function loadDecorations()
         local sw, sh = decor.casino_sheet:getDimensions()
         -- Roulette table with betting grid and wheel from the tileset
         rouletteTableQuad = love.graphics.newQuad(292, 156, 108, 64, sw, sh)
+    end
+
+    if not lrk.loaded then
+        lrk.loaded = true
+        for key, path in pairs(Mods.saloonPixelinterior.sheets) do
+            local ok, img = pcall(love.graphics.newImage, path)
+            if ok and img then
+                img:setFilter("nearest", "nearest")
+                lrk.imgs[key] = img
+            end
+        end
+        for id, q in pairs(Mods.saloonPixelinterior.quads) do
+            local img = lrk.imgs[q.sheet]
+            if img then
+                local iw, ih = img:getDimensions()
+                lrk.quads[id] = love.graphics.newQuad(q.x, q.y, q.w, q.h, iw, ih)
+            end
+        end
+    end
+end
+
+---------------------------------------------------------------------------
+-- LRK interior (walls / floor accent / lamps) — phases split around floor draw order
+---------------------------------------------------------------------------
+local function drawSaloonLrkDecorWall(floorY, roomW, wallY)
+    local L = Mods.saloonRoom.decor
+    if not L then return end
+    local left, right = L.lrkLoungeLeft, L.lrkLoungeRight
+    if left >= right - 8 then return end
+
+    local dImg = lrk.imgs.doors
+    local winQ = lrk.quads.window
+    local bookQ = lrk.quads.bookshelf
+    local winSpec = Mods.saloonPixelinterior.quads.window
+    local bookSpec = Mods.saloonPixelinterior.quads.bookshelf
+
+    if dImg and winQ and winSpec then
+        local ws = 0.5
+        local dw, dh = winSpec.w * ws, winSpec.h * ws
+        local wx = left
+        while wx < right - 12 do
+            love.graphics.setColor(1, 1, 1, 0.82)
+            love.graphics.draw(dImg, winQ, wx, wallY + 10, 0, ws, ws)
+            wx = wx + dw * 0.88
+        end
+        love.graphics.setColor(1, 1, 1, 1)
+    end
+
+    if dImg and bookQ and bookSpec then
+        local bs = 0.48
+        local bw2, bh2 = bookSpec.w * bs, bookSpec.h * bs
+        local bx = left
+        while bx < right - 16 do
+            love.graphics.setColor(1, 1, 1, 0.88)
+            love.graphics.draw(dImg, bookQ, bx, floorY - bh2, 0, bs, bs)
+            bx = bx + bw2 * 0.9
+        end
+        love.graphics.setColor(1, 1, 1, 1)
+    end
+end
+
+local function drawSaloonLrkDecorFloorAndLamps(floorY, roomW)
+    local L = Mods.saloonRoom.decor
+    if not L then return end
+    local left, right = L.lrkLoungeLeft, L.lrkLoungeRight
+    if left >= right - 8 then return end
+
+    local fImg = lrk.imgs.floors
+    local fpQ = lrk.quads.floor_plank_warm
+    local fpSpec = Mods.saloonPixelinterior.quads.floor_plank_warm
+    if fImg and fpQ and fpSpec then
+        local fs = 0.55
+        local tw, th = fpSpec.w * fs, fpSpec.h * fs
+        love.graphics.setColor(1, 1, 1, 0.4)
+        for tx = left, right, tw * 0.92 do
+            love.graphics.draw(fImg, fpQ, tx, floorY + th * 0.2, 0, fs, fs)
+        end
+        love.graphics.setColor(1, 1, 1, 1)
+    end
+
+    local decImg = lrk.imgs.decor
+    local lampQ = lrk.quads.floor_lamp
+    local lampSpec = Mods.saloonPixelinterior.quads.floor_lamp
+    if decImg and lampQ and lampSpec then
+        local ls = 0.42
+        local lh = lampSpec.h * ls
+        local spans = { left + 40, left + (right - left) * 0.52, right - 56 }
+        love.graphics.setColor(1, 1, 1, 0.92)
+        for _, lx in ipairs(spans) do
+            if lx > left + 8 and lx < right - 8 then
+                love.graphics.draw(decImg, lampQ, lx - lampSpec.w * ls * 0.5, floorY - lh, 0, ls, ls)
+            end
+        end
+        love.graphics.setColor(1, 1, 1, 1)
     end
 end
 
@@ -825,7 +919,8 @@ function saloon:enter(_, _player, _roomManager)
     -- Monster Energy on the bar counter — reset each visit
     monster.drunk = false
     local _floorY = Mods.saloonRoom.platforms[1].y
-    monster.x = 368
+    local decorLayout = Mods.saloonRoom.decor
+    monster.x = (decorLayout and decorLayout.monsterX) or (Mods.saloonRoom.width - 112)
     monster.y = _floorY - 26
     local okM, imgM = pcall(love.graphics.newImage, "assets/monster.png")
     if okM and imgM then
@@ -1491,53 +1586,59 @@ function saloon:draw()
     end
 
     -- === LAYER 2: Back wall from bar pack (behind everything) ===
+    local wallY = floorY - 48
     if decor.wall_bar then
         love.graphics.setColor(1, 1, 1, 0.5)
         local ww, wh = decor.wall_bar:getDimensions()
         -- Tile it across the room width, positioned above the floor
         local wallScale = 0.5
         local scaledH = wh * wallScale
-        local wallY = floorY - scaledH
+        wallY = floorY - scaledH
         local scaledW = ww * wallScale
         for wx = 0, roomW, scaledW do
             love.graphics.draw(decor.wall_bar, wx, wallY, 0, wallScale, wallScale)
         end
+        love.graphics.setColor(1, 1, 1, 1)
     end
 
+    drawSaloonLrkDecorWall(floorY, roomW, wallY)
+
     -- === LAYER 3: Decorations on the back wall ===
-    -- Beam across ceiling area
-    drawSprite("beam", 0, floorY - 82, 2.0, 0.7)
+    local L = Mods.saloonRoom.decor
+    -- Beam across ceiling area (scales with room width)
+    drawSprite("beam", 0, floorY - 82, 2.0 * (roomW / 480), 0.7)
 
     -- Hanging lamps from ceiling
-    drawSprite("ampule", 80, floorY - 78, 0.8, 0.8)
-    drawSprite("ampule", 200, floorY - 78, 0.8, 0.8)
-    drawSprite("ampule", 340, floorY - 78, 0.8, 0.8)
-    drawSprite("ampule", 440, floorY - 78, 0.8, 0.8)
+    do
+        local lampCount = math.max(4, math.floor(roomW / 130))
+        for i = 1, lampCount do
+            local lx
+            if lampCount <= 1 then
+                lx = roomW * 0.5
+            else
+                lx = 60 + (i - 1) * ((roomW - 120) / (lampCount - 1))
+            end
+            drawSprite("ampule", lx, floorY - 78, 0.8, 0.8)
+        end
+    end
 
     -- Fridge to the left of the shelf
-    drawSpriteFromBottom("fridge", 298, floorY, 1.0, 1.0)
+    drawSpriteFromBottom("fridge", L.fridgeX, floorY, 1.0, 1.0)
     -- Shelf behind bar area (right side)
-    drawSprite("shelf", 330, floorY - 60, 0.6, 0.5)
+    drawSprite("shelf", L.shelfX, floorY - 60, 0.6, 0.5)
     -- Bottles on shelf
-    drawSprite("bottles", 338, floorY - 52, 0.7, 0.7)
-    drawSprite("jars", 360, floorY - 50, 0.7, 0.7)
+    drawSprite("bottles", L.bottlesX, floorY - 52, 0.7, 0.7)
+    drawSprite("jars", L.jarsX, floorY - 50, 0.7, 0.7)
     -- Greenboard (menu/specials)
-    drawSprite("greenboard", 220, floorY - 70, 0.6, 0.6)
+    drawSprite("greenboard", L.greenboardX, floorY - 70, 0.6, 0.6)
     -- Watch on wall
-    drawSprite("watch", 400, floorY - 65, 0.6, 0.6)
+    drawSprite("watch", L.watchX, floorY - 65, 0.6, 0.6)
     -- Wanted poster on left wall
-    drawSprite("wanted", 12, floorY - 55, 0.35, 0.35)
-    -- Vase decoration on dealer's table area
-    drawSprite("vase", 80, floorY - 30, 0.5, 0.5)
+    drawSprite("wanted", L.wantedX, floorY - 55, 0.35, 0.35)
     -- Boxes in the left corner
     drawSprite("boxes", 4, floorY - 16, 0.5, 0.5)
-    -- Umbrella/coat rack near entrance
-    drawSprite("umbrella", 420, floorY - 32, 0.6, 0.6)
-    -- Basin near the bar
-    drawSpriteFromBottom("basin", 290, floorY, 1.0, 1.0)
-    -- Desert plants
-    drawSpriteFromBottom("plant", 455, floorY, 0.9, 0.9)
-    drawSpriteFromBottom("plant", 45, floorY, 0.8, 0.8)
+    -- Umbrella/coat rack near exit door
+    drawSprite("umbrella", L.umbrellaX, floorY - 32, 0.6, 0.6)
 
     -- === LAYER 4: NPCs (behind furniture — they stand behind counter/table) ===
     for _, npc in ipairs(npcs) do
@@ -1561,7 +1662,7 @@ function saloon:draw()
         local tableScale = 0.4
         local tableW = 108 * tableScale  -- ~43px
         local tableH = 64 * tableScale   -- ~26px
-        local dealerX = 140  -- dealer's x position
+        local dealerX = Mods.saloonRoom.npcs[1].x
         local tableX = dealerX + 10 - tableW / 2  -- centered on dealer
         local woodH = 6                    -- wooden base height
         local woodTopY = floorY - woodH    -- wood panel top
@@ -1586,23 +1687,22 @@ function saloon:draw()
         -- Bar counter on right side, in front of bartender
         local bw, bh = decor.bar_counter:getDimensions()
         local barScale = 0.4
-        local barX = 320
+        local barX = L.barCounterX
         local barY = floorY - bh * barScale
         love.graphics.draw(decor.bar_counter, barX, barY, 0, barScale, barScale)
     end
 
     -- Stools in front of bar
     if decor.stool then
-        local sw, sh = decor.stool:getDimensions()
         local stoolScale = 0.5
         for i = 0, 2 do
-            drawSpriteFromBottom("stool", 325 + i * 22, floorY, stoolScale, stoolScale)
+            drawSpriteFromBottom("stool", L.stoolStartX + i * 22, floorY, stoolScale, stoolScale)
         end
     end
 
     -- Glass on bar counter
-    drawSprite("glass", 340, floorY - 22, 0.7, 0.7)
-    drawSprite("glass", 356, floorY - 22, 0.7, 0.7)
+    drawSprite("glass", L.glass1X, floorY - 22, 0.7, 0.7)
+    drawSprite("glass", L.glass2X, floorY - 22, 0.7, 0.7)
 
     -- Monster Energy on bar counter
     if not monster.drunk and monster.img then
@@ -1637,6 +1737,24 @@ function saloon:draw()
     else
         love.graphics.setColor(0.25, 0.15, 0.08)
         love.graphics.rectangle("fill", 0, floorY, roomW, 32)
+    end
+
+    drawSaloonLrkDecorFloorAndLamps(floorY, roomW)
+
+    -- Vase on roulette table surface (not mid-air on the wall)
+    if decor.vase then
+        local dealerX = Mods.saloonRoom.npcs[1].x
+        local tableScale = 0.4
+        local tableW = 108 * tableScale
+        local tableH = 64 * tableScale
+        local tableX = dealerX + 10 - tableW / 2
+        local woodH = 6
+        local woodTopY = floorY - woodH
+        local feltY = woodTopY - tableH + 8
+        local vaseS = 0.38
+        local vw = decor.vase:getWidth() * vaseS
+        local vh = decor.vase:getHeight() * vaseS
+        drawSprite("vase", tableX + tableW * 0.5 - vw * 0.5, feltY + tableH - vh - 1, vaseS, vaseS)
     end
 
     -- === LAYER 7: Exit door ===
