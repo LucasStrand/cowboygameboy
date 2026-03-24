@@ -209,8 +209,8 @@ local function spawnCheatGoldDrops(amount)
         local px = player.x + player.w / 2 - pw / 2 + spread + (Mods.game_rng.randomFloat("game.debug_gold.px", 0, 1) - 0.5) * 8
         local py = player.y - 6 - Mods.game_rng.randomFloat("game.debug_gold.py", 0, 16)
         local p = Mods.Pickup.new(px, py, sp.type, sp.value)
-        p.vy = -200 - Mods.game_rng.randomFloat("game.debug_gold.vy", 0, 160)
-        p.vx = (Mods.game_rng.randomFloat("game.debug_gold.vx", 0, 1) - 0.5) * 120
+        p.vy = -95 - Mods.game_rng.randomFloat("game.debug_gold.vy", 0, 70)
+        p.vx = (Mods.game_rng.randomFloat("game.debug_gold.vx", 0, 1) - 0.5) * 40
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end
@@ -812,9 +812,7 @@ local camTargetX, camTargetY = 400, 200
 local camCurrentX, camCurrentY = 400, 200
 
 local function getGameplayCameraScale()
-    local maxViewWidthAtBaseZoom = math.floor(GAME_HEIGHT * MAX_GAMEPLAY_ASPECT / CAM_ZOOM + 0.5)
-    local minScaleForAspect = GAME_WIDTH / math.max(1, maxViewWidthAtBaseZoom)
-    return math.max(CAM_ZOOM, minScaleForAspect)
+    return CAM_ZOOM
 end
 
 local function getGameplayViewSize()
@@ -1005,7 +1003,7 @@ local function wireRoomEntities(roomDef)
             for _, drop in ipairs(drops) do
                 local p = Mods.Pickup.new(spawnX - 5, spawnY, drop.type, drop.value)
                 p.vx = drop.vx or 0
-                p.vy = drop.vy or -280
+                p.vy = drop.vy or -130
                 world:add(p, p.x, p.y, p.w, p.h)
                 table.insert(pickups, p)
             end
@@ -1029,7 +1027,7 @@ local function wireRoomEntities(roomDef)
         attachChestCallbacks(chest)
     end
 
-    if roomDef and currentRoom and not roomDef.devArena then
+    if roomDef and currentRoom then
         local mapRoom = {
             platforms   = currentRoom.platforms,
             playerSpawn = roomDef.playerSpawn,
@@ -1037,10 +1035,19 @@ local function wireRoomEntities(roomDef)
             chests      = roomDef.chests,
             secretAreas = currentRoom.secretAreas,
         }
-        local activities = require("src.systems.map_activities").generate(mapRoom, roomManager.difficulty, roomManager.currentRoomIndex)
+        local MapActivities = require("src.systems.map_activities")
+        local activities
+        if roomDef.testRoom or roomDef.devArena then
+            activities = MapActivities.generateAll(mapRoom, roomManager.difficulty, roomManager.currentRoomIndex)
+        else
+            activities = MapActivities.generate(mapRoom, roomManager.difficulty, roomManager.currentRoomIndex)
+        end
         for _, shrine in ipairs(activities.shrines or {}) do
             shrine.onActivate = function(buffId)
-                if player then player:applyBuff(buffId) end
+                if player and player.statuses then
+                    local ShrineBuffs = require("src.systems.buffs")
+                    ShrineBuffs.apply(player.statuses, buffId)
+                end
             end
             shrines[#shrines + 1] = shrine
         end
@@ -2270,6 +2277,9 @@ function game:update(dt)
     end
     Mods.Combat.checkPlayerMelee(player, enemies)
     Mods.Combat.checkPlayerMeleeVegetation(player, currentRoom and currentRoom.decorProps)
+    if currentRoom then
+        Mods.RoomProps.updateCutVegetation(dt, currentRoom)
+    end
 
     -- Enemies update
     local enemyContext = {
@@ -2654,7 +2664,7 @@ function game:keypressed(key)
 end
 
 function game:mousemoved(x, y, dx, dy)
-    local gx, gy = windowToGame(x, y)
+    local gx, gy = x, y
     if devToolsEnabled() and devPanelState.open and devPanelState.rows then
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Mods.Font.new(16)
@@ -2726,7 +2736,7 @@ function game:mousemoved(x, y, dx, dy)
 end
 
 function game:mousepressed(x, y, button)
-    local gx, gy = windowToGame(x, y)
+    local gx, gy = x, y
     if devToolsEnabled() and devPanelState.open and devPanelState.rows then
         if not game.devPanelTitleFont then
             game.devPanelTitleFont = Mods.Font.new(16)

@@ -209,7 +209,7 @@ local function hitRect(mx, my, r)
 end
 
 function menu:mousemoved(x, y, dx, dy)
-    local gx, gy = windowToGame(x, y)
+    local gx, gy = x, y
     if view == "main" then
         hoverIndex = nil
         for i, r in ipairs(buttonLayout()) do
@@ -250,7 +250,7 @@ end
 
 function menu:mousepressed(x, y, button)
     if button ~= 1 then return end
-    local gx, gy = windowToGame(x, y)
+    local gx, gy = x, y
     if view == "main" then
         for i, r in ipairs(buttonLayout()) do
             if hitRect(gx, gy, r) then

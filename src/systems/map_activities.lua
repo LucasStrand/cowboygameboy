@@ -269,7 +269,7 @@ function MapActivities.generate(room, difficulty, roomIndex)
 
     -- Slot machine: dusty gambling cabinet found in the wild
     if math.random() < ACTIVITY_CHANCES.slot_machine then
-        local ax, ay = tryPlace(48, 72)
+        local ax, ay = tryPlace(48, SlotMachine.PLACEMENT_HEIGHT)
         if ax then
             local sm = SlotMachine.new(ax, ay)
             result.slotMachines[#result.slotMachines + 1] = sm
@@ -377,6 +377,241 @@ function MapActivities.generate(room, difficulty, roomIndex)
                 local se = SecretEntrance.new(e.x, e.y, e.w, e.h)
                 result.secretEntrances[#result.secretEntrances + 1] = se
             end
+        end
+    end
+
+    return result
+end
+
+---------------------------------------------------------------------------
+-- Test room: generate one of every activity (no RNG, no cap)
+---------------------------------------------------------------------------
+
+function MapActivities.generateAll(room, difficulty, roomIndex)
+    local result = {
+        shrines         = {},
+        merchants       = {},
+        weaponAltars    = {},
+        wildPickups     = {},
+        extraChests     = {},
+        pressurePlates  = {},
+        spikeTraps      = {},
+        secretEntrances = {},
+        slotMachines    = {},
+    }
+
+    local platforms = findSuitablePlatforms(room)
+    if #platforms == 0 then return result end
+
+    -- Place activities sequentially across platforms, no spacing/cap limits
+    local placed = {}
+    local function placeOnPlatform(objWidth, objHeight)
+        for attempt = 1, 30 do
+            local plat = platforms[math.random(#platforms)]
+            local ax = randomXOnPlatform(plat, objWidth)
+            local ay = plat.y - objHeight
+            local tooClose = false
+            for _, pos in ipairs(placed) do
+                if dist2(ax + objWidth / 2, ay, pos.x, pos.y) < 60 * 60 then
+                    tooClose = true
+                    break
+                end
+            end
+            if not tooClose then
+                placed[#placed + 1] = { x = ax + objWidth / 2, y = ay }
+                return ax, ay, plat
+            end
+        end
+        -- Fallback: just pick any platform without spacing check
+        local plat = platforms[math.random(#platforms)]
+        local ax = randomXOnPlatform(plat, objWidth)
+        local ay = plat.y - objHeight
+        placed[#placed + 1] = { x = ax + objWidth / 2, y = ay }
+        return ax, ay, plat
+    end
+
+    -- One shrine per blessing type (dev arena / editor “show everything” room)
+    do
+        local n = Shrine.BLESSING_COUNT
+        local shrineW, shrineH = 32, 48
+        local best = nil
+        for _, plat in ipairs(platforms) do
+            local need = n * shrineW + (n - 1) * 12 + 48
+            if plat.w >= need and (not best or plat.w > best.w) then
+                best = plat
+            end
+        end
+        if best then
+            local totalW = n * shrineW + (n - 1) * 12
+            local startX = best.x + (best.w - totalW) * 0.5
+            local ay = best.y - shrineH
+            for i = 1, n do
+                local ax = startX + (i - 1) * (shrineW + 12)
+                placed[#placed + 1] = { x = ax + shrineW / 2, y = ay }
+                result.shrines[#result.shrines + 1] = Shrine.new(ax, ay, { blessing = i })
+            end
+        else
+            for i = 1, n do
+                local ax, ay = placeOnPlatform(32, 48)
+                if ax then
+                    result.shrines[#result.shrines + 1] = Shrine.new(ax, ay, { blessing = i })
+                end
+            end
+        end
+    end
+
+    -- Merchant
+    do
+        local ax, ay = placeOnPlatform(24, 36)
+        if ax then
+            result.merchants[#result.merchants + 1] = Merchant.new(ax, ay, difficulty or 1)
+        end
+    end
+
+    -- Weapon altars: low luck vs higher luck (different gun pools / rarities)
+    do
+        local ax, ay = placeOnPlatform(112, 44)
+        if ax then
+            result.weaponAltars[#result.weaponAltars + 1] = WeaponAltar.new(ax, ay, 0)
+        end
+    end
+    do
+        local ax, ay = placeOnPlatform(112, 44)
+        if ax then
+            result.weaponAltars[#result.weaponAltars + 1] = WeaponAltar.new(ax, ay, 3)
+        end
+    end
+
+    -- Normal chest
+    do
+        local ax, ay, plat = placeOnPlatform(48, 32)
+        if ax and plat then
+            local snappedY = Chest.snapYToGround(room.platforms, ax, ay, 32)
+            result.extraChests[#result.extraChests + 1] = Chest.new(ax, snappedY, { tier = "normal", spriteRow = 0 })
+        end
+    end
+
+    -- Ambush chest (real)
+    do
+        local ax, ay, plat = placeOnPlatform(48, 32)
+        if ax and plat then
+            local snappedY = Chest.snapYToGround(room.platforms, ax, ay, 32)
+            local floorY = plat.y - 28
+            local bonePiles = {
+                { x = ax - 26, y = floorY, w = 18, h = 28 },
+                { x = ax + 52, y = floorY, w = 18, h = 28 },
+            }
+            result.extraChests[#result.extraChests + 1] = Chest.new(ax, snappedY, {
+                tier = "normal", spriteRow = 2,
+                bonePiles = bonePiles, fakeAmbush = false,
+            })
+        end
+    end
+
+    -- Fake ambush chest
+    do
+        local ax, ay, plat = placeOnPlatform(48, 32)
+        if ax and plat then
+            local snappedY = Chest.snapYToGround(room.platforms, ax, ay, 32)
+            local floorY = plat.y - 28
+            local bonePiles = {
+                { x = ax - 26, y = floorY, w = 18, h = 28, fake = true },
+                { x = ax + 52, y = floorY, w = 18, h = 28, fake = true },
+            }
+            result.extraChests[#result.extraChests + 1] = Chest.new(ax, snappedY, {
+                tier = "normal", spriteRow = 2,
+                bonePiles = bonePiles, fakeAmbush = true,
+            })
+        end
+    end
+
+    -- Cursed chest (damage on open + curse loot table)
+    do
+        local ax, ay, plat = placeOnPlatform(48, 32)
+        if ax and plat then
+            local snappedY = Chest.snapYToGround(room.platforms, ax, ay, 32)
+            result.extraChests[#result.extraChests + 1] = Chest.new(ax, snappedY, { tier = "cursed" })
+        end
+    end
+
+    -- Trapped chest
+    do
+        local ax, ay, plat = placeOnPlatform(120, 32)
+        if ax and plat then
+            local chestX = ax + 36
+            local snappedY = Chest.snapYToGround(room.platforms, chestX, ay, 32)
+            result.extraChests[#result.extraChests + 1] = Chest.new(chestX, snappedY, { tier = "rich" })
+            local trapY = plat.y - 4
+            local trap1 = SpikeTrap.new(ax, trapY, 28)
+            local trap2 = SpikeTrap.new(ax + 92, trapY, 28)
+            local plateY = plat.y - 5
+            result.pressurePlates[#result.pressurePlates + 1] = PressurePlate.new(ax, plateY, { trap1, trap2 })
+            result.pressurePlates[#result.pressurePlates + 1] = PressurePlate.new(ax + 92, plateY, { trap1, trap2 })
+            result.spikeTraps[#result.spikeTraps + 1] = trap1
+            result.spikeTraps[#result.spikeTraps + 1] = trap2
+        end
+    end
+
+    -- Slot machine
+    do
+        local ax, ay = placeOnPlatform(48, SlotMachine.PLACEMENT_HEIGHT)
+        if ax then
+            result.slotMachines[#result.slotMachines + 1] = SlotMachine.new(ax, ay)
+        end
+    end
+
+    -- Wild pickups (one of each type + silver coin sample)
+    do
+        if #platforms > 0 then
+            local plat = platforms[math.random(#platforms)]
+            local py = plat.y - 12
+            local px = randomXOnPlatform(plat, 10, 8)
+            local pickup = Pickup.new(px, py, "silver", 1)
+            pickup.grounded = true
+            result.wildPickups[#result.wildPickups + 1] = pickup
+        end
+    end
+    for _, pickType in ipairs({"health", "gold", "xp"}) do
+        if #platforms > 0 then
+            local plat = platforms[math.random(#platforms)]
+            local py = plat.y - 12
+            local px = randomXOnPlatform(plat, 10, 8)
+            local pickValue
+            if pickType == "health" then pickValue = 20
+            elseif pickType == "gold" then pickValue = 10
+            elseif pickType == "xp" then pickValue = 20
+            end
+            if pickType == "gold" then
+                local specs = GoldCoin.pickupSpecsForTotal(pickValue, nil)
+                for c = 1, #specs do
+                    local sp = specs[c]
+                    local pickup = Pickup.new(px + (c - 1) * 8, py, sp.type, sp.value)
+                    pickup.grounded = true
+                    result.wildPickups[#result.wildPickups + 1] = pickup
+                end
+            else
+                local pickup = Pickup.new(px, py, pickType, pickValue)
+                pickup.grounded = true
+                if pickType == "xp" then
+                    pickup.xpMagnetDelay = nil
+                    pickup.attracted = true
+                    pickup.attractSpeed = 260
+                end
+                result.wildPickups[#result.wildPickups + 1] = pickup
+            end
+        end
+    end
+
+    -- Weapon pickup
+    do
+        local gun = Guns.rollDrop(0)
+        if gun and #platforms > 0 then
+            local plat = platforms[math.random(#platforms)]
+            local px = randomXOnPlatform(plat, 10, 8)
+            local py = plat.y - 12
+            local pickup = Pickup.new(px, py, "weapon", gun)
+            pickup.grounded = true
+            result.wildPickups[#result.wildPickups + 1] = pickup
         end
     end
 

@@ -21,6 +21,9 @@ local BLESSINGS = {
     { buffId = "exp_boost",     name = "Wisdom",        color = {0.6, 0.3, 0.9} },
 }
 
+--- Number of distinct blessing types (for dev / map placement)
+Shrine.BLESSING_COUNT = #BLESSINGS
+
 --- opts:
 ---   blessing   index into BLESSINGS (random if nil)
 function Shrine.new(x, y, opts)

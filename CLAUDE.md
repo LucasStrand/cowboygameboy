@@ -88,6 +88,6 @@ game -> gameover -> run_recap
 
 ## Rendering Notes
 
-- The game renders to a canvas matching the window size (`GAME_WIDTH`/`GAME_HEIGHT` globals, default 1280×720).
-- Larger windows show more world; HUD uses fixed pixel sizes and does not scale.
+- The game renders at a fixed pixel density (base height 720). Width adapts to the window aspect ratio so there are no black bars.
+- Nearest-neighbor filtering preserves crisp pixel art at any window size.
 - The project uses both authored pixel-art assets and procedural drawing.

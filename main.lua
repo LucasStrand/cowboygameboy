@@ -9,8 +9,10 @@ local gameover = require("src.states.gameover")
 local levelup = require("src.states.levelup")
 local saloon = require("src.states.saloon")
 
--- Logical render size = drawable window size (see syncGameDimensions). Larger window ⇒ more world visible;
--- HUD uses fixed pixel sizes in this space (does not scale up with resolution).
+-- Base logical resolution — pixel density stays consistent across window sizes.
+-- The canvas is at least this size; wider/taller windows see more world.
+local BASE_WIDTH = 1280
+local BASE_HEIGHT = 720
 GAME_WIDTH = 1280
 GAME_HEIGHT = 720
 DEBUG = false
@@ -38,39 +40,27 @@ local canvasOffsetY = 0
 
 local function syncGameDimensions()
     local winW, winH = love.graphics.getDimensions()
-    local w = math.max(640, math.floor(winW))
-    local h = math.max(360, math.floor(winH))
-    if w == GAME_WIDTH and h == GAME_HEIGHT and gameCanvas then
-        return
-    end
+    -- Scale to fill window while keeping canvas at least BASE_WIDTH x BASE_HEIGHT
+    -- Uses the smaller ratio so neither dimension shrinks below the base
+    canvasScale = math.max(1, math.min(winW / BASE_WIDTH, winH / BASE_HEIGHT))
+    local w = math.max(640, math.ceil(winW / canvasScale))
+    local h = math.max(360, math.ceil(winH / canvasScale))
+    canvasOffsetX = 0
+    canvasOffsetY = 0
+    if w == GAME_WIDTH and h == GAME_HEIGHT and gameCanvas then return end
     GAME_WIDTH = w
     GAME_HEIGHT = h
-    if gameCanvas then
-        gameCanvas:release()
-        gameCanvas = nil
-    end
+    if gameCanvas then gameCanvas:release(); gameCanvas = nil end
     gameCanvas = love.graphics.newCanvas(GAME_WIDTH, GAME_HEIGHT)
-    gameCanvas:setFilter("linear", "linear")
-
-    local ok, BlurBG = pcall(require, "src.ui.blur_bg")
-    if ok and BlurBG and BlurBG.invalidate then
-        BlurBG.invalidate()
-    end
-    local okWL, WorldLighting = pcall(require, "src.systems.world_lighting")
-    if okWL and WorldLighting and WorldLighting.invalidate then
-        WorldLighting.invalidate()
-    end
+    gameCanvas:setFilter("nearest", "nearest")
 end
 
 local function updateCanvasScale()
-    -- 1:1 blit: canvas fills the window; mouse coords match canvas pixels
-    canvasScale = 1
-    canvasOffsetX = 0
-    canvasOffsetY = 0
+    -- Scale is computed in syncGameDimensions; nothing extra needed
 end
 
 function love.load()
-    love.graphics.setDefaultFilter("linear", "linear")
+    love.graphics.setDefaultFilter("nearest", "nearest")
     math.randomseed(os.time())
 
     Settings.load()
@@ -116,6 +106,18 @@ function love.load()
         callbacks[#callbacks+1] = k
     end
     Gamestate.registerEvents(callbacks)
+
+    -- Wrap mouse events to transform window coords → game coords
+    for _, evName in ipairs({"mousepressed", "mousereleased", "mousemoved"}) do
+        local orig = love[evName]
+        if orig then
+            love[evName] = function(x, y, ...)
+                local gx, gy = windowToGame(x, y)
+                return orig(gx, gy, ...)
+            end
+        end
+    end
+
     if CLI_DEV_BOOT then
         Gamestate.switch(game, {
             devArena = true,
@@ -138,7 +140,7 @@ function love.draw()
     if not gameCanvas then
         return
     end
-    -- Render to a canvas matching the window; larger window ⇒ larger canvas ⇒ more world (see camera view).
+    -- Render at fixed resolution, then scale up to fill window with letterboxing.
     -- Table form: temporary stencil buffer for love.graphics.stencil (roulette wheel clip); LOVE 11+.
     love.graphics.setCanvas({ gameCanvas, stencil = true })
     love.graphics.clear(0, 0, 0, 1)

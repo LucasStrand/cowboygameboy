@@ -55,6 +55,7 @@ local npcs = {}
 local platforms = {}
 local walls = {}
 local exitDoor = nil
+local testDoor = nil
 local difficulty = 1
 
 local mode = "walking"  -- walking | blackjack | roulette | slots | casino_menu | shop | perk_selection
@@ -265,8 +266,8 @@ local function spawnSaloonGoldDrops(amount)
         local py = player.y - 5 - Mods.GameRng.randomFloat("saloon.payout.py", 0, 10)
         local p = Mods.Pickup.new(px, py, sp.type, sp.value)
         p.casinoPayout = true
-        p.vy = -140 - Mods.GameRng.randomFloat("saloon.payout.vy", 0, 120)
-        p.vx = (Mods.GameRng.randomFloat("saloon.payout.vx", 0, 1) - 0.5) * 95
+        p.vy = -70 - Mods.GameRng.randomFloat("saloon.payout.vy", 0, 55)
+        p.vx = (Mods.GameRng.randomFloat("saloon.payout.vx", 0, 1) - 0.5) * 36
         world:add(p, p.x, p.y, p.w, p.h)
         table.insert(pickups, p)
     end
@@ -575,6 +576,17 @@ local function continueGame()
     Mods.Gamestate.pop()
 end
 
+local function enterTestRoom()
+    if roomManager then
+        roomManager:injectTestRoom()
+        roomManager.needsNewRooms = true
+    end
+    if world and player then
+        pcall(function() world:remove(player) end)
+    end
+    Mods.Gamestate.pop()
+end
+
 local function findNearbyNPC()
     for _, npc in ipairs(npcs) do
         if npc:canInteract(player.x, player.y, player.w, player.h) then
@@ -637,6 +649,17 @@ local function trySaloonWalkingInteract(key)
     end
     local pcx = player.x + player.w / 2
     local pcy = player.y + player.h / 2
+    -- Test room door
+    if testDoor then
+        local tcx = testDoor.x + testDoor.w / 2
+        local tcy = testDoor.y + testDoor.h / 2
+        local tdx = pcx - tcx
+        local tdy = pcy - tcy
+        if tdx * tdx + tdy * tdy < 50 * 50 then
+            enterTestRoom()
+            return true
+        end
+    end
     local dcx = exitDoor.x + exitDoor.w / 2
     local dcy = exitDoor.y + exitDoor.h / 2
     local dx = pcx - dcx
@@ -713,6 +736,13 @@ function saloon:enter(_, _player, _roomManager)
     local d = Mods.saloonRoom.exitDoor
     exitDoor = { x = d.x, y = d.y, w = d.w, h = d.h, isDoor = true }
     world:add(exitDoor, exitDoor.x, exitDoor.y, exitDoor.w, exitDoor.h)
+
+    -- Add test room door (collision zone, passthrough)
+    local td = Mods.saloonRoom.testDoor
+    if td then
+        testDoor = { x = td.x, y = td.y, w = td.w, h = td.h, isDoor = true }
+        world:add(testDoor, testDoor.x, testDoor.y, testDoor.w, testDoor.h)
+    end
 
     -- Spawn NPCs — NO collision bodies, player walks freely in front of them
     npcs = {}
@@ -912,7 +942,7 @@ function saloon:update(dt)
         end
 
         -- Dead Cells-style smooth camera with look-ahead
-        local screenW, screenH = love.graphics.getDimensions()
+        local screenW, screenH = GAME_WIDTH, GAME_HEIGHT
         local viewW = screenW / CAM_ZOOM
         local viewH = screenH / CAM_ZOOM
         local px = player.x + player.w / 2
@@ -1194,7 +1224,7 @@ function saloon:keypressed(key)
 end
 
 function saloon:mousemoved(x, y, dx, dy)
-    local gx, gy = windowToGame(x, y)
+    local gx, gy = x, y
     if devToolsEnabled() and devPanelOpen and devPanelRows then
         if not saloon.devPanelTitleFont then
             saloon.devPanelTitleFont = Mods.Font.new(16)
@@ -1255,7 +1285,7 @@ function saloon:mousemoved(x, y, dx, dy)
 end
 
 function saloon:mousepressed(x, y, button)
-    local gx, gy = windowToGame(x, y)
+    local gx, gy = x, y
     if devToolsEnabled() and devPanelOpen and devPanelRows then
         if not saloon.devPanelTitleFont then
             saloon.devPanelTitleFont = Mods.Font.new(16)
@@ -1638,6 +1668,41 @@ function saloon:draw()
                 love.graphics.print(label, math.floor(dcx - tw / 2) + 1, math.floor(exitDoor.y - 14) + 1)
                 love.graphics.setColor(1, 0.9, 0.5)
                 love.graphics.print(label, math.floor(dcx - tw / 2), math.floor(exitDoor.y - 14))
+            end
+        end
+    end
+
+    -- === LAYER 7b: Test room door ===
+    if testDoor then
+        if doorSheet and #doorQuads > 0 then
+            love.graphics.setColor(1, 1, 1)
+            local scale = testDoor.h / DOOR_FRAME_SIZE
+            local drawX = testDoor.x + testDoor.w / 2 - (DOOR_FRAME_SIZE * scale) / 2
+            local drawY = testDoor.y + testDoor.h - DOOR_FRAME_SIZE * scale
+            love.graphics.draw(doorSheet, doorQuads[8], drawX, drawY, 0, scale, scale)
+        else
+            love.graphics.setColor(0.4, 0.25, 0.1)
+            love.graphics.rectangle("fill", testDoor.x, testDoor.y, testDoor.w, testDoor.h)
+            love.graphics.setColor(0.7, 0.5, 0.2)
+            love.graphics.rectangle("line", testDoor.x, testDoor.y, testDoor.w, testDoor.h)
+        end
+
+        -- Test room prompt
+        if mode == "walking" and player then
+            local pcx = player.x + player.w / 2
+            local pcy = player.y + player.h / 2
+            local tcx = testDoor.x + testDoor.w / 2
+            local tcy = testDoor.y + testDoor.h / 2
+            local tdx = pcx - tcx
+            local tdy = pcy - tcy
+            if tdx * tdx + tdy * tdy < 50 * 50 then
+                love.graphics.setFont(fonts.default)
+                local label = "[E] Test Room"
+                local tw = fonts.default:getWidth(label)
+                love.graphics.setColor(0, 0, 0, 0.7)
+                love.graphics.print(label, math.floor(tcx - tw / 2) + 1, math.floor(testDoor.y - 14) + 1)
+                love.graphics.setColor(0.5, 1.0, 0.5)
+                love.graphics.print(label, math.floor(tcx - tw / 2), math.floor(testDoor.y - 14))
             end
         end
     end

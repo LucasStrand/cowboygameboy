@@ -357,8 +357,8 @@ function Combat.onEnemyKilled(enemy, player)
         dropIdx = dropIdx + 1
         local ch = "combat.enemy_drop." .. kind .. "." .. dropIdx
         if kind == "gold" or kind == "silver" then
-            t.vx = GameRng.randomFloat(ch .. ".vx", -115, 115)
-            t.vy = GameRng.randomFloat(ch .. ".vy", -480, -280)
+            t.vx = GameRng.randomFloat(ch .. ".vx", -32, 32)
+            t.vy = GameRng.randomFloat(ch .. ".vy", -175, -95)
         elseif kind == "xp" then
             t.vx = GameRng.randomFloat(ch .. ".vx", -190, 190)
             t.vy = GameRng.randomFloat(ch .. ".vy", -380, -220)
@@ -657,8 +657,13 @@ function Combat.checkPlayerMeleeVegetation(player, decorProps)
                 prop.cut = true
                 local sc = prop.scale or 1
                 local sign = (prop.flip and -1 or 1)
-                prop.cutFallDx = sign * (26 + math.random() * 22) * sc
-                prop.cutFallAngle = (0.2 + math.random() * 0.45) * (prop.cutFallDx >= 0 and 1 or -1)
+                prop.cutFallVx = sign * (26 + math.random() * 22) * sc
+                prop.cutFallVy = -(160 + math.random() * 120) * sc
+                prop.cutFallOx = 0
+                prop.cutFallOy = 0
+                prop.cutFallAngle = (0.2 + math.random() * 0.45) * sign
+                prop.cutFallAngVel = (math.random() - 0.5) * 4
+                prop.cutFallStopped = false
                 player.meleeHitDecor[prop] = true
                 player.meleeHitFlashTimer = 0.12
                 Sfx.play("melee_hit", { volume = 0.22 })

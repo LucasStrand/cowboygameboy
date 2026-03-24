@@ -218,12 +218,12 @@ function Pickup:draw(player, camera, shakeX, shakeY, room)
         local t = love.timer.getTime() + (self.coinPhase or 0)
         love.graphics.setColor(1, 1, 1, airMul)
         if self.grounded then
-            if not GoldCoin.drawIdleFaceCentered(cx, cy, 14, {
+            if not GoldCoin.drawIdleFaceCentered(cx, cy, 10, {
                 alpha = airMul,
                 variant = "gold",
             }) then
                 love.graphics.setColor(1.0, 0.85, 0.2, airMul)
-                love.graphics.circle("fill", cx, cy, 5)
+                love.graphics.circle("fill", cx, cy, 3.5)
             end
         elseif not GoldCoin.drawAnimatedCentered(cx, cy, 14, t, { fps = 9, alpha = airMul }) then
             love.graphics.setColor(1.0, 0.85, 0.2, airMul)
@@ -235,18 +235,18 @@ function Pickup:draw(player, camera, shakeX, shakeY, room)
         local t = love.timer.getTime() + (self.coinPhase or 0)
         love.graphics.setColor(1, 1, 1, airMul)
         if self.grounded then
-            if not GoldCoin.drawIdleFaceCentered(cx, cy, 12, {
+            if not GoldCoin.drawIdleFaceCentered(cx, cy, 9, {
                 alpha = airMul,
                 variant = "silver",
             }) then
                 local pulse = 0.85 + 0.15 * math.sin(t * 5)
                 love.graphics.setColor(0.55, 0.62, 0.72, 0.35 * airMul * pulse)
-                love.graphics.circle("fill", cx, cy, 6)
-                love.graphics.setColor(0.78, 0.82, 0.9, airMul * pulse)
                 love.graphics.circle("fill", cx, cy, 4.5)
+                love.graphics.setColor(0.78, 0.82, 0.9, airMul * pulse)
+                love.graphics.circle("fill", cx, cy, 3.5)
                 love.graphics.setColor(0.95, 0.97, 1.0, 0.5 * airMul)
                 love.graphics.setLineWidth(1)
-                love.graphics.circle("line", cx, cy, 4.5)
+                love.graphics.circle("line", cx, cy, 3.5)
                 love.graphics.setLineWidth(1)
             end
         elseif not GoldCoin.drawAnimatedCentered(cx, cy, 12, t, { fps = 9, variant = "silver", alpha = airMul }) then

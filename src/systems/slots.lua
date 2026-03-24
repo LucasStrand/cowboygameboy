@@ -182,7 +182,7 @@ function Slots:finishSpin()
         Sfx.play("pickup_gold", { volume = 0.9 })
         CasinoFx.startShake(8, 0.6)
         -- Big win coin explosion — coins shoot out from the machine
-        local sw, sh = love.graphics.getDimensions()
+        local sw, sh = GAME_WIDTH, GAME_HEIGHT
         local cx, cy = sw * 0.5, sh * 0.4
         local coinCount = math.min(200, 60 + win * 2)
         CasinoFx.spawnGoldRain(cx, cy, {
@@ -204,7 +204,7 @@ function Slots:finishSpin()
         self.resultMessage = string.format("TWO %sS! +$%d", SYMBOL_NAMES[matchSym], win)
         Sfx.play("pickup_gold", { volume = 0.6 })
         -- Smaller coin shower for two-of-a-kind
-        local sw, sh = love.graphics.getDimensions()
+        local sw, sh = GAME_WIDTH, GAME_HEIGHT
         CasinoFx.spawnGoldRain(sw * 0.5, sh * 0.35, {
             count = 25 + win * 2,
             spreadX = sw * 0.5,

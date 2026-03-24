@@ -100,7 +100,7 @@ local function getDecorThumb(path)
 end
 
 local function formBounds()
-    local w = love.graphics.getWidth()
+    local w = GAME_WIDTH
     local fw = math.min(w - 40, FORM_MAX_W)
     return math.floor((w - fw) / 2), fw
 end
@@ -354,7 +354,7 @@ local function buildRows()
     end
 
     y = y + ROW_H  -- bottom padding
-    maxScroll = math.max(0, y + NAV_H + BOTTOM_BAR_H - love.graphics.getHeight())
+    maxScroll = math.max(0, y + NAV_H + BOTTOM_BAR_H - GAME_HEIGHT)
 end
 
 -- ─── Widget Drawing ────────────────────────────────────────────────
@@ -680,7 +680,7 @@ end
 
 -- ─── Nav Bar ───────────────────────────────────────────────────────
 local function drawNav()
-    local w = love.graphics.getWidth()
+    local w = GAME_WIDTH
     local a = accent()
 
     love.graphics.setColor(a[1]*0.3, a[2]*0.3, a[3]*0.3)
@@ -723,15 +723,15 @@ local BUTTONS = {
 }
 
 local function buttonBounds()
-    local w = love.graphics.getWidth()
+    local w = GAME_WIDTH
     local totalW = #BUTTONS * BTN_W + (#BUTTONS - 1) * 16
     local bx = math.floor((w - totalW) / 2)
-    local by = love.graphics.getHeight() - BTN_H - 12
+    local by = GAME_HEIGHT - BTN_H - 12
     return bx, by, totalW
 end
 
 local function drawButtons()
-    local w = love.graphics.getWidth()
+    local w = GAME_WIDTH
     local bx, by = buttonBounds()
     local a = accent()
 
@@ -810,7 +810,7 @@ function editor:update(dt)
     if statusTimer > 0 then statusTimer = statusTimer - dt end
 
     if dragging then
-        local mx = love.mouse.getX()
+        local mx = (windowToGame(love.mouse.getPosition()))
         local fx, fw = formBounds()
         local sx = fx + LABEL_W
         local sw = sliderW(fw)
@@ -838,8 +838,8 @@ function editor:draw()
     local fx, fw = formBounds()
 
     -- clip content area
-    local winH = love.graphics.getHeight()
-    love.graphics.setScissor(0, NAV_H, love.graphics.getWidth(), winH - NAV_H - BOTTOM_BAR_H)
+    local winH = GAME_HEIGHT
+    love.graphics.setScissor(0, NAV_H, GAME_WIDTH, winH - NAV_H - BOTTOM_BAR_H)
     for _, row in ipairs(rows) do
         local sy = row.y - scrollY + NAV_H
         if sy + row.h > NAV_H and sy < winH then
@@ -867,7 +867,7 @@ function editor:draw()
     if statusTimer > 0 and statusMsg ~= "" then
         love.graphics.setFont(fonts.sm)
         local tw = fonts.sm:getWidth(statusMsg)
-        local w = love.graphics.getWidth()
+        local w = GAME_WIDTH
         love.graphics.setColor(0, 0, 0, 0.75)
         love.graphics.rectangle("fill", (w - tw)/2 - 12, NAV_H + 6, tw + 24, 24, 4, 4)
         love.graphics.setColor(1, 1, 0.7)
@@ -878,7 +878,7 @@ end
 -- ─── Mouse ─────────────────────────────────────────────────────────
 function editor:mousepressed(mx, my, button)
     if button ~= 1 then return end
-    local w = love.graphics.getWidth()
+    local w = GAME_WIDTH
     local fx, fw = formBounds()
 
     -- nav arrows

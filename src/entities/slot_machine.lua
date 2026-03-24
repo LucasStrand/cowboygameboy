@@ -22,6 +22,8 @@ local COST        = 15
 local DRAW_SCALE  = 0.195
 local W           = math.floor(86  * DRAW_SCALE + 0.5)   -- ~17
 local H           = math.floor(229 * DRAW_SCALE + 0.5)   -- ~45
+--- Must match W/H: map_activities uses this for ay so the sprite base sits on the platform
+SlotMachine.PLACEMENT_HEIGHT = H
 local SPIN_SPEED  = 14          -- symbol indices / second
 local STOP_T      = { 0.80, 1.25, 1.70 }
 local RESULT_TIME = 2.5
