@@ -72,8 +72,5 @@ return {
         -- Second back-bar shelf: horizontal offset from first shelf (pixels, same scale)
         shelfSecondOffsetX = 66,
         -- Beer mug X positions come from total bar width in saloon:draw (fractions of counter)
-        -- LRK “lounge” band between casino left and bar cluster
-        lrkLoungeLeft = 268,
-        lrkLoungeRight = BAR_X - 40,
     },
 }

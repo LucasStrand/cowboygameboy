@@ -31,7 +31,6 @@ local Mods = {
     GoldCoin = require("src.data.gold_coin"),
     ImpactFX = require("src.systems.impact_fx"),
     saloonRoom = require("src.data.saloon_room"),
-    saloonPixelinterior = require("src.data.saloon_pixelinterior"),
     WorldInteractLabelBatch = require("src.ui.world_interact_label_batch"),
 }
 
@@ -45,7 +44,6 @@ local DOOR_FRAME_SIZE = 48
 
 -- Bar decoration sprites (loaded once)
 local decor = {}
-local lrk = { imgs = {}, quads = {}, loaded = false }
 local rouletteTableQuad = nil
 local slotMachineQuad = nil
 
@@ -572,81 +570,6 @@ local function loadDecorations()
         rouletteTableQuad = love.graphics.newQuad(292, 156, 108, 64, sw, sh)
     end
 
-    if not lrk.loaded then
-        lrk.loaded = true
-        for key, path in pairs(Mods.saloonPixelinterior.sheets) do
-            local ok, img = pcall(love.graphics.newImage, path)
-            if ok and img then
-                img:setFilter("nearest", "nearest")
-                lrk.imgs[key] = img
-            end
-        end
-        for id, q in pairs(Mods.saloonPixelinterior.quads) do
-            local img = lrk.imgs[q.sheet]
-            if img then
-                local iw, ih = img:getDimensions()
-                lrk.quads[id] = love.graphics.newQuad(q.x, q.y, q.w, q.h, iw, ih)
-            end
-        end
-    end
-end
-
----------------------------------------------------------------------------
--- LRK interior (walls / floor accent / lamps) — phases split around floor draw order
----------------------------------------------------------------------------
-local function drawSaloonLrkDecorWall(floorY, roomW, wallY)
-    local L = Mods.saloonRoom.decor
-    if not L then return end
-    local left, right = L.lrkLoungeLeft, L.lrkLoungeRight
-    if left >= right - 8 then return end
-
-    local dImg = lrk.imgs.doors
-    local winQ = lrk.quads.window
-    local bookQ = lrk.quads.bookshelf
-    local winSpec = Mods.saloonPixelinterior.quads.window
-    local bookSpec = Mods.saloonPixelinterior.quads.bookshelf
-
-    -- Sheet layout: window then bookshelf sit side-by-side (not 92px grid; old coords were stair tiles).
-    if not (dImg and winQ and bookQ and winSpec and bookSpec) then return end
-
-    local ws, bs = 0.55, 0.55
-    local winDrawW = winSpec.w * ws
-    local bookDrawW = bookSpec.w * bs
-    local gap = 6
-    local moduleW = winDrawW + gap + bookDrawW + 10
-    local wy = wallY + 8
-
-    local wx = left
-    while wx + moduleW < right + 4 do
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(dImg, winQ, wx, wy, 0, ws, ws)
-        love.graphics.draw(dImg, bookQ, wx + winDrawW + gap, wy, 0, bs, bs)
-        love.graphics.setColor(1, 1, 1, 1)
-        wx = wx + moduleW
-    end
-end
-
-local function drawSaloonLrkDecorFloorAndLamps(floorY, roomW)
-    local L = Mods.saloonRoom.decor
-    if not L then return end
-    local left, right = L.lrkLoungeLeft, L.lrkLoungeRight
-    if left >= right - 8 then return end
-
-    local decImg = lrk.imgs.decor
-    local lampQ = lrk.quads.floor_lamp
-    local lampSpec = Mods.saloonPixelinterior.quads.floor_lamp
-    if decImg and lampQ and lampSpec then
-        local ls = 0.42
-        local lh = lampSpec.h * ls
-        local spans = { left + 40, left + (right - left) * 0.52, right - 56 }
-        love.graphics.setColor(1, 1, 1, 1)
-        for _, lx in ipairs(spans) do
-            if lx > left + 8 and lx < right - 8 then
-                love.graphics.draw(decImg, lampQ, lx - lampSpec.w * ls * 0.5, floorY - lh, 0, ls, ls)
-            end
-        end
-        love.graphics.setColor(1, 1, 1, 1)
-    end
 end
 
 ---------------------------------------------------------------------------
@@ -1603,11 +1526,6 @@ function saloon:draw()
         love.graphics.draw(bgImage, camX - (bw * scale) / 2, camY - (bh * scale) / 2, 0, scale, scale)
     end
 
-    -- LRK window/bookshelf row height (no wall_bar sprite layer — it was painting a flat brown band over the photo)
-    local wallY = floorY - 48
-
-    drawSaloonLrkDecorWall(floorY, roomW, wallY)
-
     -- === LAYER 3: Decorations on the back wall ===
     local L = Mods.saloonRoom.decor
     -- Beam across ceiling area (scales with room width)
@@ -1672,8 +1590,6 @@ function saloon:draw()
         love.graphics.setColor(0.25, 0.15, 0.08)
         love.graphics.rectangle("fill", 0, floorY, roomW, 32)
     end
-
-    drawSaloonLrkDecorFloorAndLamps(floorY, roomW)
 
     -- Coat rack / umbrella — on the floor in the left lounge (after floor so feet sit on planks)
     if decor.umbrella then
