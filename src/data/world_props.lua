@@ -5,6 +5,21 @@
 local Worlds = require("src.data.worlds")
 local WorldProps = {}
 
+--- True if path/filename suggests plants (used when `vegetation` not set on a decor entry).
+function WorldProps.pathLooksVegetation(path)
+    if type(path) ~= "string" or path == "" then return false end
+    local l = path:lower()
+    local keys = {
+        "plant", "bush", "grass", "cactus", "cacti", "tree", "weed", "fern",
+        "flower", "palm", "vine", "leaf", "crop", "reeds", "reed", "moss",
+        "vegetation", "shrub", "sapling", "hay", "wheat", "cornstalk",
+    }
+    for i = 1, #keys do
+        if l:find(keys[i], 1, true) then return true end
+    end
+    return false
+end
+
 --- Spawn tuning per world (density, spacing — editor can override later).
 WorldProps.spawn = {
     desert = {
@@ -34,6 +49,12 @@ function WorldProps.getDecorDefinitions(worldId)
     for _, entry in ipairs(def.decorPropPaths) do
         local path = type(entry) == "string" and entry or (entry and entry.path)
         if type(path) == "string" and path ~= "" then
+            local veg
+            if type(entry) == "table" and entry.vegetation ~= nil then
+                veg = entry.vegetation
+            else
+                veg = WorldProps.pathLooksVegetation(path)
+            end
             out[#out + 1] = {
                 id = path,
                 path = path,
@@ -41,6 +62,7 @@ function WorldProps.getDecorDefinitions(worldId)
                 scale = 1,
                 minPlatformW = 32,
                 sink = 0,
+                vegetation = veg,
             }
         end
     end

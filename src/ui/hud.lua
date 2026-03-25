@@ -23,54 +23,64 @@ local SPRITE_RECTS = {
     heart    = {280, 508, 64, 64},
     star     = {480, 508, 64, 64},
     banner   = {40, 608, 1280, 140},
-    cornerTL = {80, 840, 64, 64},
-    cornerTR = {180, 840, 64, 64},
-    cornerBL = {280, 840, 64, 64},
-    cornerBR = {380, 840, 64, 64},
 }
 
 -- Display scales
 local BAR_SCALE    = 0.35   -- 1024×0.35 ≈ 358,  64×0.35 ≈ 22
 local ICON_SCALE   = 0.25   -- 64×0.25 = 16
-local CORNER_SCALE = 0.30   -- 64×0.30 ≈ 19
 
--- Slot layout: large frames in a triangle, NO overlap
+-- Slot layout: one horizontal row (gun → melee → shield), ult to the right — compact, bottom-anchored
 local SLOT_SCALE   = 0.40   -- 256×0.40 = 102,  208×0.40 = 83
 local SLOT_W       = math.floor(256 * SLOT_SCALE)  -- 102
 local SLOT_H       = math.floor(208 * SLOT_SCALE)  -- 83
 local SLOT_BASE_X  = 8
 local SLOT_GAP     = 6      -- gap between slots
 
--- Triangle arrangement: gun top-left, melee top-right, shield bottom-centre
--- No overlap: melee starts after gun + gap, shield centred below
 local SLOT_OFFSETS = {
-    {dx = 0,                    dy = 0},                    -- gun (top-left)
-    {dx = SLOT_W + SLOT_GAP,    dy = 0},                    -- melee (top-right)
-    {dx = (SLOT_W + SLOT_GAP) / 2, dy = SLOT_H + SLOT_GAP}, -- shield (bottom-centre)
+    {dx = 0,                 dy = 0},
+    {dx = SLOT_W + SLOT_GAP, dy = 0},
+    {dx = 2 * (SLOT_W + SLOT_GAP), dy = 0},
 }
 
 -- Precomputed display sizes
 local BAR_W    = math.floor(1024 * BAR_SCALE)
 local BAR_H    = math.floor(64 * BAR_SCALE)
 local ICON_SZ  = math.floor(64 * ICON_SCALE)
-local CORNER_SZ = math.floor(64 * CORNER_SCALE)
+local HUD_RIGHT_PAD = 18
 
 -- Inner fill insets at original sprite scale (measured from pixel data)
 local HP_INSET  = {l = 24, t = 16, r = 24, b = 16}
 local XP_INSET  = {l = 24, t = 20, r = 24, b = 20}
 
--- Cluster bounding box
-local CLUSTER_W = SLOT_OFFSETS[2].dx + SLOT_W             -- rightmost edge
-local CLUSTER_H = SLOT_OFFSETS[3].dy + SLOT_H             -- bottommost edge
+-- Cluster bounding box (three core slots; ult is drawn to the right of CLUSTER_W)
+local CLUSTER_W = SLOT_OFFSETS[3].dx + SLOT_W
+local CLUSTER_H = SLOT_H
 
-local function slotBaseY(screenH)
-    return screenH - CLUSTER_H - 20
+--- Vertical space from screen bottom to top of HP label (loadout + ammo sit above; bars drawn after).
+--- Matches HUD.draw hpTextY / bar stack: ~2px gap above "HP: …" line.
+--- Uses Font directly (not ensureFonts) so this is safe before HUD.draw runs / before ensureFonts exists.
+local function hudBottomReserve()
+    local lineH = (HUD._lineH) or Font.hudPrimary():getHeight()
+    local rowGap = 4
+    return 2 * BAR_H + rowGap + lineH
 end
 
--- ── Hit test (matches staggered draw positions) ──
+local function slotBaseY(screenH)
+    return screenH - CLUSTER_H - hudBottomReserve()
+end
+
+-- Ammo is anchored to `slotBaseY`; the hotbar row is drawn lower so it sits nearer the bottom bars
+-- without moving the cylinder / magazine (HP+XP still draw after and cover any overlap).
+local SLOT_ROW_DOWN = math.floor(SLOT_H * 0.48)
+
+local function slotRowY(screenH)
+    return slotBaseY(screenH) + SLOT_ROW_DOWN
+end
+
+-- ── Hit test (matches row draw positions) ──
 -- Check back-to-front so topmost (last-drawn) slot wins on overlap
 function HUD.hitLoadout(mx, my, screenH)
-    local baseY = slotBaseY(screenH)
+    local baseY = slotRowY(screenH)
     local order = { "gun", "melee", "shield" }
     for i = #order, 1, -1 do
         local s = SLOT_OFFSETS[i]
@@ -117,6 +127,12 @@ local function drawSprite(name, x, y, scale, r, g, b, a)
     if not HUD._sheet then return end
     love.graphics.setColor(r or 1, g or 1, b or 1, a or 1)
     love.graphics.draw(HUD._sheet, HUD._quads[name], math.floor(x), math.floor(y), 0, scale, scale)
+end
+
+local function drawSpriteStretched(name, x, y, scaleX, scaleY, r, g, b, a)
+    if not HUD._sheet then return end
+    love.graphics.setColor(r or 1, g or 1, b or 1, a or 1)
+    love.graphics.draw(HUD._sheet, HUD._quads[name], math.floor(x), math.floor(y), 0, scaleX, scaleY)
 end
 
 -- ════════════════════════════════════════════════════════
@@ -416,6 +432,61 @@ local function drawSpriteBar(spriteName, inset, bx, by, ratio, fr, fg, fb, hr, h
     end
 end
 
+--- XP bar stretched to full usable width (non-uniform scale); frame height matches `BAR_SCALE`.
+local function drawXpBarFullWidth(bx, by, ratio, scaleX, scaleY, inset, fr, fg, fb, hr, hg, hb, ha)
+    drawSpriteStretched("xpBar", bx, by, scaleX, scaleY)
+    local fillX = bx + inset.l * scaleX
+    local fillY = by + inset.t * scaleY
+    local fillW = (1024 - inset.l - inset.r) * scaleX
+    local fillH = (64 - inset.t - inset.b) * scaleY
+    if ratio > 0 then
+        love.graphics.setColor(fr, fg, fb)
+        love.graphics.rectangle("fill", fillX, fillY, fillW * ratio, fillH)
+        love.graphics.setColor(hr, hg, hb, ha)
+        love.graphics.rectangle("fill", fillX, fillY, fillW * ratio, math.min(2, fillH))
+    end
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+-- ════════════════════════════════════════════════════════
+-- XP pickup popups (screen space; matches bottom-centre XP label layout)
+-- ════════════════════════════════════════════════════════
+
+--- Returns centre X, baseline Y for floating text above the full-width XP bar, and usable width.
+function HUD.getXpBarPopupAnchor()
+    ensureFonts()
+    local screenW = GAME_WIDTH
+    local screenH = GAME_HEIGHT
+    local xpBarY = screenH - BAR_H
+    local popupY = xpBarY - 6
+    return screenW * 0.5, popupY, screenW
+end
+
+-- ════════════════════════════════════════════════════════
+-- Gold pickup popups (screen space; matches top-right $ counter)
+-- ════════════════════════════════════════════════════════
+
+--- Returns centre X, baseline Y above the coin + $ text, and block width (uses current wallet for layout).
+function HUD.getGoldCounterPopupAnchor(player)
+    ensureFonts()
+    local screenW = GAME_WIDTH
+    if not player then
+        return screenW - 120, 6, 100
+    end
+    local coinScale = 0.58
+    local coinSz = math.floor(64 * coinScale)
+    local prevFont = love.graphics.getFont()
+    love.graphics.setFont(HUD._fontGold)
+    local goldText = string.format("$%d", player.gold)
+    local textW = HUD._fontGold:getWidth(goldText)
+    if prevFont then love.graphics.setFont(prevFont) end
+    local totalW = coinSz + 8 + textW
+    local gx = screenW - totalW - HUD_RIGHT_PAD
+    local gy = 10
+    local popupY = gy - 4
+    return gx + totalW * 0.5, popupY, totalW
+end
+
 -- ════════════════════════════════════════════════════════
 -- MAIN DRAW
 -- ════════════════════════════════════════════════════════
@@ -433,60 +504,22 @@ function HUD.draw(player)
     local effectiveStats = player:getEffectiveStats()
     local prevFont = love.graphics.getFont()
 
-    -- ── Corner decorations (all four corners) ──
-    if HUD._sheet then
-        local pad = 4
-        drawSprite("cornerTL", pad, pad, CORNER_SCALE)
-        drawSprite("cornerTR", screenW - CORNER_SZ - pad, pad, CORNER_SCALE)
-        drawSprite("cornerBL", pad, screenH - CORNER_SZ - pad, CORNER_SCALE)
-        drawSprite("cornerBR", screenW - CORNER_SZ - pad, screenH - CORNER_SZ - pad, CORNER_SCALE)
-    end
+    -- Bottom HUD layout (XP flush with screen bottom, full width; HP above — drawn after loadout so bars sit on top)
+    local lineH = HUD._lineH
+    local rowGap = 4
+    local xpBarY = screenH - BAR_H
+    local xpBarX = 0
+    local xpScaleX = screenW / 1024
+    local xpScaleY = BAR_SCALE
+    local hpBarY = xpBarY - rowGap - BAR_H
+    local hpTextY = hpBarY - lineH + 2
+    local xpLabelY = xpBarY + math.max(0, (BAR_H - lineH) * 0.5)
+    local iconGap = 6
+    local hpTotalW = ICON_SZ + iconGap + BAR_W
+    local hpBarX = math.floor((screenW - hpTotalW) / 2) + ICON_SZ + iconGap
+    local hpIconX = hpBarX - iconGap - ICON_SZ
 
-    -- ── HP + XP bars (bottom centre) ──
-    do
-        local hpRatio = math.max(0, math.min(1, player.hp / math.max(1, effectiveStats.maxHP)))
-        local xpRatio = math.max(0, math.min(1, player.xp / player.xpToNext))
-
-        local lineH = HUD._lineH
-        local rowGap = 4
-
-        local iconGap = 6
-        local totalW = ICON_SZ + iconGap + BAR_W
-        local barX = math.floor((screenW - totalW) / 2) + ICON_SZ + iconGap
-        local iconX = barX - iconGap - ICON_SZ
-
-        local bottomPad = 24
-        local xpBarY  = screenH - bottomPad - BAR_H
-        local xpTextY = xpBarY - lineH + 2
-        local hpBarY  = xpTextY - rowGap - BAR_H
-        local hpTextY = hpBarY - lineH + 2
-
-        -- HP
-        love.graphics.setFont(HUD._fontHud)
-        shadowPrintf(
-            string.format("HP: %d / %d", player.hp, effectiveStats.maxHP),
-            barX, hpTextY, BAR_W, "center",
-            0.95, 0.85, 0.75, 1
-        )
-        drawSpriteBar("hpBar", HP_INSET, barX, hpBarY, hpRatio,
-            0.9, 0.26, 0.2,
-            1, 0.55, 0.45, 0.4)
-        drawSprite("heart", iconX, hpBarY + (BAR_H - ICON_SZ) / 2, ICON_SCALE)
-
-        -- XP
-        love.graphics.setFont(HUD._fontHud)
-        shadowPrintf(
-            string.format("LV %d  ·  XP %d / %d", player.level, player.xp, player.xpToNext),
-            barX, xpTextY, BAR_W, "center",
-            0.78, 0.88, 0.98, 0.95
-        )
-        drawSpriteBar("xpBar", XP_INSET, barX, xpBarY, xpRatio,
-            0.25, 0.48, 0.9,
-            0.65, 0.88, 1, 0.35)
-        drawSprite("star", iconX, xpBarY + (BAR_H - ICON_SZ) / 2, ICON_SCALE)
-    end
-
-    -- ── Gold (top right, coin icon + text, clear of corner decoration) ──
+    -- ── Gold (top right, coin icon + text) ──
     do
         local coinScale = 0.58  -- 64×0.58 ≈ 37px; matches larger gold digits
         local coinSz = math.floor(64 * coinScale)
@@ -495,7 +528,7 @@ function HUD.draw(player)
         local goldLineH = HUD._fontGold:getHeight()
         local textW = HUD._fontGold:getWidth(goldText)
         local totalW = coinSz + 8 + textW
-        local gx = screenW - totalW - CORNER_SZ - 18  -- clear of corner ornament
+        local gx = screenW - totalW - HUD_RIGHT_PAD
         local gy = 10
 
         local coinY = gy + (goldLineH - coinSz) / 2
@@ -529,11 +562,11 @@ function HUD.draw(player)
         end
     end
 
-    -- ── Ammo display (above weapon cluster) ──
+    -- ── Ammo display (tight above weapon row) ──
     do
         local baseY = slotBaseY(screenH)
         local ammoColX = SLOT_BASE_X
-        local yCursor = baseY - 8
+        local yCursor = baseY - 1
 
         if player.blocking then
             love.graphics.setFont(HUD._fontHud)
@@ -563,9 +596,9 @@ function HUD.draw(player)
 
             local r1 = ammoR(gun1)
             local r2 = ammoR(gun2)
-            local agap = 8
 
-            local cx1 = ammoColX + r1
+            local cx1 = ammoColX + SLOT_W / 2
+            local cx2 = ammoColX + (SLOT_W + SLOT_GAP) + SLOT_W / 2
             local cy1 = yCursor - math.max(r1, r2)
             if gun1 then
                 local ammo1 = player.activeWeaponSlot == 1 and player.ammo or slot1.ammo
@@ -573,7 +606,6 @@ function HUD.draw(player)
                 drawAmmoForGun(cx1, cy1, gun1, gunCapacity(gun1, player, 1), ammo1, reloading1)
             end
 
-            local cx2 = cx1 + r1 + agap + r2
             if gun2 then
                 local ammo2 = player.activeWeaponSlot == 2 and player.ammo or slot2.ammo
                 local reloading2 = player.activeWeaponSlot == 2 and player.reloading or slot2.reloading
@@ -590,15 +622,15 @@ function HUD.draw(player)
                 displayR = 30
             end
 
-            local displayCx = ammoColX + CLUSTER_W / 2
+            local displayCx = ammoColX + SLOT_W / 2
             local displayCy = yCursor - displayR
             drawAmmoDisplay(displayCx, displayCy, player, effectiveStats)
         end
     end
 
-    -- ── Weapon slots (bottom-left, staggered triangle cluster) ──
+    -- ── Weapon slots (bottom-left, single row + ult; lower than ammo anchor) ──
     do
-        local baseY = slotBaseY(screenH)
+        local baseY = slotRowY(screenH)
         local shieldAutoCapable = player:shieldAllowsAutoBlock()
 
         local gun1 = player.weapons[1] and player.weapons[1].gun
@@ -697,10 +729,10 @@ function HUD.draw(player)
             end
         end
 
-        -- ── Q Ultimate slot (right of cluster, vertically centred) ──
+        -- ── Q Ultimate slot (right of the three-slot row) ──
         do
             local ultX = SLOT_BASE_X + CLUSTER_W + SLOT_GAP + 4
-            local ultY = baseY + (CLUSTER_H - SLOT_H) / 2
+            local ultY = baseY
             local charge = player.ultCharge or 0
             local isReady = charge >= 1
             local isActive = player.ultActive
@@ -780,24 +812,40 @@ function HUD.draw(player)
         end
     end
 
+    -- ── HP + full-width XP (after loadout so bottom bars draw on top of weapon slots) ──
+    do
+        local hpRatio = math.max(0, math.min(1, player.hp / math.max(1, effectiveStats.maxHP)))
+        local xpRatio = math.max(0, math.min(1, player.xp / player.xpToNext))
+
+        love.graphics.setFont(HUD._fontHud)
+        shadowPrintf(
+            string.format("HP: %d / %d", player.hp, effectiveStats.maxHP),
+            hpBarX, hpTextY, BAR_W, "center",
+            0.95, 0.85, 0.75, 1
+        )
+        drawSpriteBar("hpBar", HP_INSET, hpBarX, hpBarY, hpRatio,
+            0.9, 0.26, 0.2,
+            1, 0.55, 0.45, 0.4)
+        drawSprite("heart", hpIconX, hpBarY + (BAR_H - ICON_SZ) / 2, ICON_SCALE)
+
+        drawXpBarFullWidth(xpBarX, xpBarY, xpRatio, xpScaleX, xpScaleY, XP_INSET,
+            0.25, 0.48, 0.9,
+            0.65, 0.88, 1, 0.35)
+        love.graphics.setFont(HUD._fontHud)
+        shadowPrintf(
+            string.format("LV %d  ·  XP %d / %d", player.level, player.xp, player.xpToNext),
+            xpBarX, xpLabelY, screenW, "center",
+            0.78, 0.88, 0.98, 0.95
+        )
+    end
+
     -- ── Active buff/debuff icons (just above HP label, aligned with bar column) ──
     local statusTracker = player.statuses or player.buffs
     if statusTracker then
-        local lineH = HUD._lineH
-        local rowGap = 4
-        local bottomPad = 24
-        local iconGap = 6
-        local totalW = ICON_SZ + iconGap + BAR_W
-        local barX = math.floor((screenW - totalW) / 2) + ICON_SZ + iconGap
-        local iconX = barX - iconGap - ICON_SZ
-        local xpBarY = screenH - bottomPad - BAR_H
-        local xpTextY = xpBarY - lineH + 2
-        local hpBarY = xpTextY - rowGap - BAR_H
-        local hpTextY = hpBarY - lineH + 2
         local buffScale = 2
         local buffRowH = 16 * buffScale + 3
         local buffY = hpTextY - 8 - buffRowH
-        local buffX = math.max(6, iconX - 2)
+        local buffX = math.max(6, hpIconX - 2)
         Buffs.drawIcons(statusTracker, buffX, buffY, buffScale, 0.88)
     end
 

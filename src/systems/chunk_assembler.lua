@@ -260,8 +260,10 @@ end
 -- Branch generation
 ---------------------------------------------------------------------------
 
-local function generateBranches(path, cols, rows, chunksByType, branchChance)
+local function generateBranches(path, cols, rows, chunksByType, branchChance, branchVertical)
     branchChance = branchChance or DEFAULT_BRANCH_CHANCE
+    -- When false, only branch into adjacent columns (no cells stacked above/below the path).
+    if branchVertical == nil then branchVertical = true end
     local branches = {}
     local occupied = {}
     for _, cell in ipairs(path) do
@@ -273,11 +275,14 @@ local function generateBranches(path, cols, rows, chunksByType, branchChance)
         if not cell.chunk then goto continue end
 
         local chunk = cell.chunk
-        local dirMap = {
+        local dirMap = branchVertical and {
             {side = "left",   dc = -1, dr = 0},
             {side = "right",  dc = 1,  dr = 0},
             {side = "top",    dc = 0,  dr = -1},
             {side = "bottom", dc = 0,  dr = 1},
+        } or {
+            {side = "left",   dc = -1, dr = 0},
+            {side = "right",  dc = 1,  dr = 0},
         }
 
         -- Find unused open edges that point to an empty cell
@@ -452,6 +457,7 @@ local function flattenToRoom(cells, cols, rows)
     local allPlatforms = {}
     local playerSpawn = nil
     local exitDoor = nil
+    local secretAreas = {}
 
     for _, cell in ipairs(cells) do
         local chunk = cell.chunk
@@ -473,6 +479,24 @@ local function flattenToRoom(cells, cols, rows)
                 y = chunk.exitDoor.y + oy,
                 w = chunk.exitDoor.w or 32,
                 h = chunk.exitDoor.h or 32,
+            }
+        end
+
+        -- Record secret areas so map_activities can spawn guaranteed rewards
+        if chunk.chunkType == "secret" then
+            local entrance = nil
+            local leftH  = hEdgeHeight(chunk, "left")
+            local rightH = hEdgeHeight(chunk, "right")
+            if leftH then
+                -- Accessible from left: entrance wall on the left edge of this cell
+                entrance = { x = ox, y = leftH + oy - 70, w = 14, h = 80 }
+            elseif rightH then
+                -- Accessible from right: entrance wall on the right edge of this cell
+                entrance = { x = ox + CELL_W - 14, y = rightH + oy - 70, w = 14, h = 80 }
+            end
+            secretAreas[#secretAreas + 1] = {
+                x = ox, y = oy, w = CELL_W, h = CELL_H,
+                entrance = entrance,
             }
         end
     end
@@ -498,6 +522,7 @@ local function flattenToRoom(cells, cols, rows)
         },
         spawns = {},
         generated = true,
+        secretAreas = #secretAreas > 0 and secretAreas or nil,
     }
 end
 
@@ -643,7 +668,9 @@ function ChunkAssembler.generate(worldId, difficulty, opts)
             recordOutHeight(cell, path, i)
         end
 
-        local branches = generateBranches(path, cols, rows, chunksByType, branchChance)
+        local branchVertical = gen.branchVertical
+        if branchVertical == nil then branchVertical = true end
+        local branches = generateBranches(path, cols, rows, chunksByType, branchChance, branchVertical)
 
         local allCells = {}
         for _, cell in ipairs(path) do allCells[#allCells + 1] = cell end

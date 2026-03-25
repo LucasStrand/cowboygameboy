@@ -13,6 +13,11 @@ SfxData.paths = {
     hit_enemy = "Impact/impactMetal_light_002.ogg",
     hit_wall = "Impact/impactGeneric_light_001.ogg",
     ricochet = "Impact/impactMetal_light_001.ogg",
+    --- Revolver ricochet variants (random pick per bounce in bullet.lua)
+    ricochet_revolver_1 = "SoundPack/Weapons/ricochet-1.mp3",
+    ricochet_revolver_2 = "SoundPack/Weapons/ricochet-2.mp3",
+    ricochet_revolver_3 = "SoundPack/Weapons/ricochet.mp3",
+    yeehaw = "SoundPack/Human/yeehaww.mp3",
     explosion = "SoundPack/Retro/explosion_small.wav",
     hurt = "SoundPack/Retro/hurt.wav",
     --- Low-HP heartbeat (MusicDirector; soft one-shot, timed)

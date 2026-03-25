@@ -127,7 +127,7 @@ function RoomProps.buildForRoom(worldId, rawRoom, loadedRoom, opts)
     local instances = {}
 
     for _, plat in ipairs(loadedRoom.platforms) do
-        if plat.w and plat.w >= marginX * 2 + 16 and plat.y then
+        if not plat.isGapBridge and plat.w and plat.w >= marginX * 2 + 16 and plat.y then
             local innerL = plat.x + marginX
             local innerR = plat.x + plat.w - marginX
             if innerR > innerL then
@@ -166,6 +166,7 @@ function RoomProps.buildForRoom(worldId, rawRoom, loadedRoom, opts)
                                     sink = sink,
                                     scale = sc,
                                     flip = rng() < 0.5,
+                                    vegetation = def.vegetation == true,
                                 }
                                 placed[#placed + 1] = { x = x, footY = footY }
                             end
@@ -177,6 +178,64 @@ function RoomProps.buildForRoom(worldId, rawRoom, loadedRoom, opts)
     end
 
     return instances
+end
+
+--- World AABB for a decor instance (for melee vs vegetation). Returns left, top, width, height or nil.
+function RoomProps.getDecorBounds(p)
+    local img = getImage(p.path)
+    if not img then return nil end
+    local iw, ih = img:getDimensions()
+    local sc = p.scale or 1
+    local w = iw * sc
+    local h = ih * sc
+    local sink = p.sink or 0
+    local left = p.x - w * 0.5
+    local top = p.footY + sink - h
+    return left, top, w, h
+end
+
+local CUT_GRAVITY = 880
+
+--- Integrate cut vegetation top-half physics (gravity, tumble, rest on ground).
+function RoomProps.updateCutVegetation(dt, loadedRoom)
+    if not loadedRoom or not loadedRoom.decorProps or dt <= 0 then return end
+    for _, p in ipairs(loadedRoom.decorProps) do
+        if p.cut and not p.cutFallStopped then
+            local img = getImage(p.path)
+            if img then
+                local _, ih = img:getDimensions()
+                local sc = p.scale or 1
+                local sink = p.sink or 0
+                -- Migrate old one-frame offsets (no fall)
+                if p.cutFallVx == nil then
+                    p.cutFallVx = p.cutFallDx or 0
+                    p.cutFallVy = -180
+                    p.cutFallOx = 0
+                    p.cutFallOy = 0
+                    p.cutFallAngVel = p.cutFallAngVel or 0
+                    p.cutFallDx = nil
+                end
+                p.cutFallVy = (p.cutFallVy or 0) + CUT_GRAVITY * dt
+                p.cutFallOx = (p.cutFallOx or 0) + (p.cutFallVx or 0) * dt
+                p.cutFallOy = (p.cutFallOy or 0) + p.cutFallVy * dt
+                p.cutFallAngle = (p.cutFallAngle or 0) + (p.cutFallAngVel or 0) * dt
+                p.cutFallAngVel = (p.cutFallAngVel or 0) * (1 - math.min(1, dt * 1.2))
+
+                -- Max Oy: cut seam (bottom of top half) aligns with platform top (footY)
+                local maxOy = sc * (ih / 2) - sink
+                if maxOy < 0 then maxOy = 0 end
+                if p.cutFallOy > maxOy then
+                    p.cutFallOy = maxOy
+                    if (p.cutFallVy or 0) > 0 then
+                        p.cutFallVy = 0
+                        p.cutFallVx = (p.cutFallVx or 0) * 0.35
+                        p.cutFallAngVel = (p.cutFallAngVel or 0) * 0.25
+                        p.cutFallStopped = true
+                    end
+                end
+            end
+        end
+    end
 end
 
 --- Draw props (world space). Call after platforms, before door if sprites should sit on geometry.
@@ -191,7 +250,23 @@ function RoomProps.drawDecor(loadedRoom)
             local sx = sc * (p.flip and -1 or 1)
             love.graphics.setColor(1, 1, 1)
             local sink = p.sink or 0
-            love.graphics.draw(img, p.x, p.footY + sink, 0, sx, sc, iw * 0.5, ih)
+            if p.cut then
+                if not p._quadBot then
+                    p._quadBot = love.graphics.newQuad(0, ih / 2, iw, ih / 2, iw, ih)
+                    p._quadTop = love.graphics.newQuad(0, 0, iw, ih / 2, iw, ih)
+                end
+                love.graphics.draw(img, p._quadBot, p.x, p.footY + sink, 0, sx, sc, iw * 0.5, ih / 2)
+                local ox = p.cutFallOx or 0
+                local oy = p.cutFallOy or 0
+                local ang = p.cutFallAngle or 0.35
+                love.graphics.draw(
+                    img, p._quadTop,
+                    p.x + ox, p.footY + sink - sc * (ih / 2) + oy, ang,
+                    sx, sc, iw * 0.5, ih / 2
+                )
+            else
+                love.graphics.draw(img, p.x, p.footY + sink, 0, sx, sc, iw * 0.5, ih)
+            end
         end
     end
 end

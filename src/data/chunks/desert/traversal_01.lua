@@ -11,10 +11,9 @@ return {
         bottom = false,
     },
     platforms = {
-        -- Canyon crossing — no continuous floor
+        -- Canyon crossing — single bridge flush with floor (no floating steps)
         {x = 0, y = 360, w = 80, h = 40},
-        {x = 150, y = 330, w = 60, h = 16},
-        {x = 270, y = 300, w = 60, h = 16},
+        {x = 80, y = 360, w = 240, h = 16, oneWay = true},
         {x = 320, y = 360, w = 80, h = 40},
     },
 }

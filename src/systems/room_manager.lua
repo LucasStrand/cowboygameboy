@@ -6,6 +6,7 @@ local ChunkAssembler = require("src.systems.chunk_assembler")
 local Worlds = require("src.data.worlds")
 local RoomProps = require("src.systems.room_props")
 local Enemy = require("src.entities.enemy")
+local Chest = require("src.entities.chest")
 local bump = require("lib.bump")
 local GameRng = require("src.systems.game_rng")
 
@@ -91,8 +92,39 @@ function RoomManager:nextRoom()
     return self.roomSequence[self.currentRoomIndex]
 end
 
-local MAX_FLOOR_GAP_FILL = 300
+--- Inject a single wide test room (all map activities) and reset sequence.
+function RoomManager:injectTestRoom()
+    local testRoom = {
+        id = "test_room",
+        width = 1200,
+        height = 400,
+        testRoom = true,
+        platforms = {
+            -- Wide main floor
+            { x = 0, y = 360, w = 1200, h = 40 },
+            -- Elevated platforms for more activity placement variety
+            { x = 100, y = 280, w = 200, h = 16 },
+            { x = 400, y = 280, w = 200, h = 16 },
+            { x = 700, y = 280, w = 200, h = 16 },
+            { x = 250, y = 200, w = 200, h = 16 },
+            { x = 600, y = 200, w = 200, h = 16 },
+        },
+        playerSpawn = { x = 60, y = 328 },
+        exitDoor = { x = 1150, y = 328, w = 32, h = 32 },
+        enemyCount = 0,
+    }
+    self.roomSequence = { testRoom }
+    self.currentRoomIndex = 0
+    self.roomsCleared = 0
+    self.checkpointReached = false
+end
+
+local MAX_FLOOR_GAP_FILL = 1200
 local MIN_FLOOR_GAP_FILL = 14
+-- Platforms within this Y tolerance count as the same "floor tier" for merging and gap-fill.
+-- Without this, a mid-level ledge + ground chunk merge into one span and produce bogus gaps,
+-- floating bridges, and vertical water slices between unrelated tiers.
+local SAME_FLOOR_TOP_TOL = 20
 
 local function mergeFloorSegments(segs)
     table.sort(segs, function(a, b) return a.x1 < b.x1 end)
@@ -102,7 +134,8 @@ local function mergeFloorSegments(segs)
             merged[1] = {x1 = s.x1, x2 = s.x2, top = s.top}
         else
             local m = merged[#merged]
-            if s.x1 <= m.x2 + 4 then
+            local sameTier = math.abs(s.top - m.top) <= SAME_FLOOR_TOP_TOL
+            if sameTier and s.x1 <= m.x2 + 4 then
                 m.x2 = math.max(m.x2, s.x2)
                 m.top = math.min(m.top, s.top)
             else
@@ -211,17 +244,29 @@ function RoomManager:loadRoom(room, world, player, opts)
         table.insert(platforms, p)
     end
 
+    -- Mark thin platforms sitting above/near the water surface as bridges (plank rendering)
+    local waterStripH = self.worldDef and self.worldDef.theme and self.worldDef.theme._waterStripH or 0
+    if waterStripH > 0 then
+        local waterY = room.height - waterStripH
+        for _, plat in ipairs(platforms) do
+            if not plat.isGapBridge and plat.oneWay and plat.h <= 28
+                and plat.y + plat.h >= waterY - 8 then
+                plat.isGapBridge = true
+            end
+        end
+    end
+
     local floorBand = room.height - 110
     local segs = {}
-    -- Collect platform x ranges that must not be auto-bridged (train car gaps etc.)
-    local noFillEdges = {}  -- set of x2 values where bridging should be skipped
+    local waterGapRects = {}
+    local floorExtentX, floorExtentW
+    local themeWantsWaterGaps = self.worldDef and self.worldDef.theme and self.worldDef.theme._waterTexture
+    local noFillEdges = {}
     for _, plat in ipairs(room.platforms) do
         if plat.h >= 36 and plat.y + plat.h >= floorBand - 24 then
             if not plat.noFill then
                 table.insert(segs, {x1 = plat.x, x2 = plat.x + plat.w, top = plat.y})
             else
-                -- Still record extent so jump-chain doesn't over-generate,
-                -- but mark the right edge as a no-fill boundary
                 table.insert(segs, {x1 = plat.x, x2 = plat.x + plat.w, top = plat.y, noFill = true})
                 noFillEdges[plat.x + plat.w] = true
             end
@@ -229,25 +274,41 @@ function RoomManager:loadRoom(room, world, player, opts)
     end
     if #segs > 0 then
         local merged = mergeFloorSegments(segs)
+
+        floorExtentX = merged[1].x1
+        floorExtentW = merged[#merged].x2 - merged[1].x1
+
         for i = 1, #merged - 1 do
             local left, right = merged[i], merged[i + 1]
             local gw = right.x1 - left.x2
-            -- Skip bridging if the left segment ends at a noFill boundary
-            if noFillEdges[left.x2] then goto skipBridge end
-            if gw >= MIN_FLOOR_GAP_FILL and gw <= MAX_FLOOR_GAP_FILL then
+            local sameTier = math.abs(left.top - right.top) <= SAME_FLOOR_TOP_TOL
+            if sameTier and gw >= MIN_FLOOR_GAP_FILL and gw <= MAX_FLOOR_GAP_FILL and not noFillEdges[left.x2] then
                 local topY = math.min(left.top, right.top)
-                local bridge = {
-                    x = left.x2,
-                    y = topY,
-                    w = gw,
-                    h = 28,
-                    isPlatform = true,
-                    oneWay = true,
-                }
-                world:add(bridge, bridge.x, bridge.y, bridge.w, bridge.h)
-                table.insert(platforms, bridge)
+                -- Don't place a bridge if one already exists in this gap (avoids bridge-on-bridge)
+                local alreadyBridged = false
+                for _, existing in ipairs(platforms) do
+                    if existing.x < left.x2 + gw and existing.x + existing.w > left.x2
+                        and existing.y < topY + 36 and existing.y + existing.h > topY - 20 then
+                        alreadyBridged = true
+                        -- Mark the existing platform as a gap bridge so it renders as planks
+                        if existing.oneWay then existing.isGapBridge = true end
+                        break
+                    end
+                end
+                if themeWantsWaterGaps and gw >= 8 then
+                    waterGapRects[#waterGapRects + 1] = {
+                        x = left.x2, y = topY, w = gw, h = room.height - topY,
+                    }
+                end
+                if not alreadyBridged then
+                    local bridge = {
+                        x = left.x2, y = topY, w = gw, h = 28,
+                        isPlatform = true, oneWay = true, isGapBridge = true,
+                    }
+                    world:add(bridge, bridge.x, bridge.y, bridge.w, bridge.h)
+                    table.insert(platforms, bridge)
+                end
             end
-            ::skipBridge::
         end
     end
 
@@ -267,7 +328,7 @@ function RoomManager:loadRoom(room, world, player, opts)
 
     local enemies = {}
     local pendingEnemySpawns = {}
-    if not (opts and opts.skipEnemies) and not room.devArena then
+    if not (opts and opts.skipEnemies) and not room.devArena and not room.testRoom then
         local roster = self.worldDef and self.worldDef.enemyRoster
         local plan = RoomData.buildSpawnPlan(room, self.difficulty, player.level or 1, roster)
         for _, spawn in ipairs(plan.immediate) do
@@ -317,11 +378,25 @@ function RoomManager:loadRoom(room, world, player, opts)
         nightMode = room.night == true
     end
 
+    local chests = {}
+    if not room.devArena and room.chests then
+        for _, cd in ipairs(room.chests) do
+            local chest = Chest.new(cd.x, cd.y, {
+                tier        = cd.tier,
+                spriteRow   = cd.spriteRow,
+                bonePiles   = cd.bonePiles or {},
+                fakeAmbush  = cd.fakeAmbush or false,
+            })
+            table.insert(chests, chest)
+        end
+    end
+
     local out = {
         platforms = platforms,
         walls = walls,
         enemies = enemies,
         pendingEnemySpawns = pendingEnemySpawns,
+        chests = chests,
         door = door,
         width = room.width,
         height = room.height,
@@ -335,6 +410,10 @@ function RoomManager:loadRoom(room, world, player, opts)
         --- Map-placed point lights (lanterns, etc.); see `WorldLighting.computeStaticLightPack`.
         staticLights = room.staticLights or {},
         devArena = room.devArena == true,
+        waterGapRects = (#waterGapRects > 0) and waterGapRects or nil,
+        waterStripX = floorExtentX,
+        waterStripW = floorExtentW,
+        secretAreas = room.secretAreas,
     }
     if nightMode then
         local fog = Vision.initFogForRoom(room)

@@ -6,6 +6,16 @@ local PerkCard = {}
 
 local CARD_W = 200
 local CARD_H = 250
+
+-- Card sprite (lazy-loaded)
+local _cardSprite
+local function getCardSprite()
+    if not _cardSprite then
+        _cardSprite = love.graphics.newImage("assets/sprites/props/perk_card.png")
+        _cardSprite:setFilter("nearest", "nearest")
+    end
+    return _cardSprite
+end
 local CARD_SPACING = 40
 
 function PerkCard.draw(perks, selectedIndex, hoveredIndex)
@@ -36,17 +46,21 @@ function PerkCard.draw(perks, selectedIndex, hoveredIndex)
         local isHovered = (i == hoveredIndex)
         local isSelected = (i == selectedIndex)
 
-        -- Card background
+        -- Card background sprite
+        local cardSpr = getCardSprite()
+        local csw, csh = cardSpr:getDimensions()
+        local cardScaleX = CARD_W / csw
+        local cardScaleY = CARD_H / csh
         if isSelected then
-            love.graphics.setColor(rarityColor[1], rarityColor[2], rarityColor[3], 0.4)
+            love.graphics.setColor(rarityColor[1], rarityColor[2], rarityColor[3], 0.8)
         elseif isHovered then
-            love.graphics.setColor(0.3, 0.3, 0.3, 0.9)
+            love.graphics.setColor(0.7, 0.7, 0.7, 0.9)
         else
-            love.graphics.setColor(0.15, 0.15, 0.15, 0.9)
+            love.graphics.setColor(0.5, 0.5, 0.5, 0.9)
         end
-        love.graphics.rectangle("fill", x, y, CARD_W, CARD_H, 8, 8)
+        love.graphics.draw(cardSpr, x, y, 0, cardScaleX, cardScaleY)
 
-        -- Border
+        -- Rarity border
         love.graphics.setColor(rarityColor[1], rarityColor[2], rarityColor[3])
         love.graphics.setLineWidth(isHovered and 3 or 2)
         love.graphics.rectangle("line", x, y, CARD_W, CARD_H, 8, 8)

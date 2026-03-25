@@ -35,6 +35,32 @@ local function loadBanditSprite()
     end
 end
 
+-- Skeleton (chest ambush): 288×96 sheet, row 0 = 6 east-facing walk frames @ 48×48
+local SKELETON_FRAME_W = 48
+local SKELETON_FRAME_H = 48
+local SKELETON_WALK_FRAMES = 6
+local SKELETON_WALK_FPS = 10
+local SKELETON_SPRITE_SCALE = 0.85
+local _skeletonSheet = nil
+local _skeletonQuads = nil
+
+local function loadSkeletonSprite()
+    if _skeletonSheet then return end
+    local ok, img = pcall(love.graphics.newImage, "assets/sprites/skeleton/sheet.png")
+    if not ok or not img then return end
+    img:setFilter("nearest", "nearest")
+    _skeletonSheet = img
+    local sw, sh = img:getDimensions()
+    _skeletonQuads = {}
+    for i = 0, SKELETON_WALK_FRAMES - 1 do
+        _skeletonQuads[i + 1] = love.graphics.newQuad(
+            i * SKELETON_FRAME_W, 0,
+            SKELETON_FRAME_W, SKELETON_FRAME_H,
+            sw, sh
+        )
+    end
+end
+
 -- Buzzard sprite constants (Pirots asset: 1536×192, 8 frames of 192×192)
 local BUZZARD_FRAME_SIZE = 192
 local BUZZARD_SPRITE_SCALE = 0.22  -- 192 * 0.22 ≈ 42px drawn (fits 22×16 hitbox)
@@ -321,6 +347,11 @@ function Enemy.new(typeId, x, y, difficulty, opts)
         self.spriteFrame = 1
         self.spriteTimer = 0
         self.attackAnimTimer = 0
+    elseif typeId == "skeleton" then
+        loadSkeletonSprite()
+        self.spriteFrame = 1
+        self.spriteTimer = 0
+        self.attackAnimTimer = 0
     elseif typeId == "buzzard" then
         loadBuzzardSprite()
         self.spriteFrame = 1
@@ -436,6 +467,18 @@ function Enemy:update(dt, world, context)
             if self.spriteTimer >= interval then
                 self.spriteTimer = self.spriteTimer - interval
                 self.spriteFrame = (self.spriteFrame % BANDIT_WALK_FRAMES) + 1
+            end
+        else
+            self.spriteFrame = 1
+            self.spriteTimer = 0
+        end
+    elseif self.typeId == "skeleton" and self.spriteTimer then
+        if math.abs(self.vx) > 10 then
+            self.spriteTimer = self.spriteTimer + dt
+            local interval = 1 / SKELETON_WALK_FPS
+            if self.spriteTimer >= interval then
+                self.spriteTimer = self.spriteTimer - interval
+                self.spriteFrame = (self.spriteFrame % SKELETON_WALK_FRAMES) + 1
             end
         else
             self.spriteFrame = 1
@@ -857,6 +900,7 @@ function Enemy:draw(player, camera, shakeX, shakeY, room)
     local c = self.color
 
     if self.elite and self.typeId ~= "bandit" and self.typeId ~= "buzzard" and self.typeId ~= "gunslinger"
+        and self.typeId ~= "skeleton"
         and self.typeId ~= "necromancer" and self.typeId ~= "nightborne"
         and self.typeId ~= "blackkid" and self.typeId ~= "ogreboss" then
         love.graphics.setColor(0.92, 0.72, 0.15)
@@ -957,6 +1001,32 @@ function Enemy:draw(player, camera, shakeX, shakeY, room)
                 love.graphics.arc("line", "open", arcCx, arcCy, radius, startAngle, startAngle + sweep * dir, 8)
                 love.graphics.setLineWidth(1)
             end
+        end
+
+    elseif self.typeId == "skeleton" and _skeletonSheet then
+        local quad = _skeletonQuads[self.spriteFrame]
+        if quad then
+            if self.hurtTimer > 0 then
+                love.graphics.setColor(1, 0.4, 0.4)
+            else
+                love.graphics.setColor(1, 1, 1)
+            end
+            local scaledW = SKELETON_FRAME_W * SKELETON_SPRITE_SCALE
+            local scaledH = SKELETON_FRAME_H * SKELETON_SPRITE_SCALE
+            local cx = self.x + self.w / 2
+            local footY = self.y + self.h
+            local attacking = self.attackAnimTimer and self.attackAnimTimer > 0
+            local lungeOffset = 0
+            if attacking then
+                local t = self.attackAnimTimer / 0.3
+                lungeOffset = math.sin(t * math.pi) * 5
+                if not self.facingRight then lungeOffset = -lungeOffset end
+            end
+            local drawX = cx - scaledW / 2 + lungeOffset
+            local drawY = footY - scaledH
+            local sx = self.facingRight and SKELETON_SPRITE_SCALE or -SKELETON_SPRITE_SCALE
+            local flipShift = self.facingRight and 0 or scaledW
+            love.graphics.draw(_skeletonSheet, quad, drawX + flipShift, drawY, 0, sx, SKELETON_SPRITE_SCALE)
         end
 
     -- Gunslinger: draw sprite (walk or shoot)

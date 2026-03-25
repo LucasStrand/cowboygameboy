@@ -56,13 +56,22 @@ Worlds.definitions = {
         id = "desert",
         name = "Western Desert",
         background = "assets/backgrounds/stage1vertical.jpg",
-        tileAtlas = nil,  -- no tile atlas; uses solid-fill rock/sand rendering
+        tileAtlas = nil,  -- uses seamless wild-west tiles (theme._groundTexture)
         theme = {
-            -- Colors sampled from Western/Background1.png canyon terrain
-            _solidFill = true,
-            _topColor  = {0.87, 0.74, 0.50},  -- sandy top surface
-            _faceColor = {0.72, 0.49, 0.30},  -- sandstone rock face
-            _baseColor = {0.50, 0.32, 0.18},  -- dark shadow base
+            _textureFill = true,
+            _groundTexture = "assets/wild_west_free_pack/tile3.png",
+            _waterTexture = "assets/wild_west_free_pack/river1.png",
+            _bridgeAtlasPath = "assets/Tiles/Tiles/Assets/Assets.png",
+            _bridgeTint = {0.82, 0.66, 0.46},
+            _waterStripH = 40,
+            _waterTint = {1, 1, 1, 0.88},
+            -- Tiled platforms: ridge light, edge shade, height haze (see TileRenderer)
+            _terrainDepthHills = true,
+            -- Layered rock tones + jagged bands: mass below ledges & cliffs (see TileRenderer)
+            _mountainMassSupport = true,
+            _mountainSilhouette = true,
+            _mountainBandH = 18,
+            _mountainRockTones = {0.78, 0.58, 0.68, 0.52, 0.72, 0.48, 0.64, 0.55},
         },
         skyColor = {0.85, 0.65, 0.35},
         parallaxSpeed = 0.3,
@@ -72,13 +81,14 @@ Worlds.definitions = {
             gunslinger = 25,
             buzzard = 15,
         },
-        -- Chunk generation config: World 1 is flat desert, wide and horizontal
+        -- Chunk generation: stay horizontal — vertical stacks + cliffs read as towers, not hills
         chunkGen = {
             cols = 10,          -- wide grid
-            rows = 2,           -- short (horizontal layout)
-            rightWeight = 5,    -- strongly prefer moving right
-            verticalWeight = 1, -- rarely go up/down
-            branchChance = 0.3, -- fewer branches in early world
+            rows = 1,           -- one horizontal band — no empty upper half when path never goes vertical
+            rightWeight = 6,    -- move right along the desert floor
+            verticalWeight = 0, -- no up/down on the critical path (mountain feel via chunks, not stacking)
+            branchChance = 0.15,
+            branchVertical = false, -- branches only left/right — no stacked cells above the path
         },
         --- Procedural decor (see World Editor / world_props); versioned with the repo.
         decorPropPaths = {

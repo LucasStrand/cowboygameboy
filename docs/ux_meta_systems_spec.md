@@ -144,7 +144,7 @@ Use smart weighting, not pure RNG. Everything can stay in the pool, but weight u
 
 Meta should **widen** the game more than it inflates raw power.
 
-Good unlocks: new weapon families, new events, new relics/perks, new merchants or room types, new risk/reward or curse loops.
+Good unlocks: new weapon families, new events, new relics/perks, new croupiers or room types, new risk/reward or curse loops.
 
 Avoid as the default track: permanent `+10%` damage, flat max HP, always-better loot. Some raw power for onboarding is fine; it should not be the main spine.
 

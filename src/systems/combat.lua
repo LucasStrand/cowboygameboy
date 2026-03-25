@@ -1,9 +1,11 @@
 local Bullet = require("src.entities.bullet")
 local Pickup = require("src.entities.pickup")
 local Guns   = require("src.data.guns")
+local GoldCoin = require("src.data.gold_coin")
 local Vision = require("src.data.vision")
 local DamageNumbers = require("src.ui.damage_numbers")
 local ImpactFX = require("src.systems.impact_fx")
+local RoomProps = require("src.systems.room_props")
 local Sfx = require("src.systems.sfx")
 local DamagePacket = require("src.systems.damage_packet")
 local DamageResolver = require("src.systems.damage_resolver")
@@ -36,6 +38,115 @@ end
 
 -- Must be this close to the player (after attraction) to collect
 local PICKUP_COLLECT_RADIUS = 26
+
+-- Enemy kill XP: many small blobs; total XP per kill unchanged.
+local ENEMY_XP_MAX_PER_BLOB = 4
+
+local function splitEnemyXPIntoValues(total)
+    total = math.floor(tonumber(total) or 0)
+    if total <= 0 then return {} end
+    local maxPer = math.max(1, ENEMY_XP_MAX_PER_BLOB)
+    local n = math.ceil(total / maxPer)
+    local base = math.floor(total / n)
+    local rem = total % n
+    local vals = {}
+    for i = 1, n do
+        vals[i] = base + (i <= rem and 1 or 0)
+    end
+    return vals
+end
+
+-- Weapon floor pickups: tap interact to equip, hold interact to sell for scrap gold.
+local WEAPON_SELL_HOLD = 0.45
+local WEAPON_TAP_MAX = 0.32
+
+Combat.WEAPON_SELL_HOLD = WEAPON_SELL_HOLD
+Combat.WEAPON_TAP_MAX = WEAPON_TAP_MAX
+
+--- Exposed for UI (weapon pickup label priority).
+function Combat.findClosestGroundedWeaponIndex(pickups, player)
+    local bestI, bestD = nil, math.huge
+    local px = player.x + player.w / 2
+    local py = player.y + player.h / 2
+    for i, p in ipairs(pickups) do
+        if p.pickupType == "weapon" and p.gunDef and p.alive and p.grounded then
+            local dx = (p.x + p.w / 2) - px
+            local dy = (p.y + p.h / 2) - py
+            local dist = math.sqrt(dx * dx + dy * dy)
+            if dist < PICKUP_COLLECT_RADIUS and dist < bestD then
+                bestD = dist
+                bestI = i
+            end
+        end
+    end
+    return bestI
+end
+
+--- Equip the nearest grounded weapon pickup in range (call from interact tap).
+--- @return boolean true if a weapon was picked up
+function Combat.tryEquipWeaponPickup(pickups, player, world)
+    local i = Combat.findClosestGroundedWeaponIndex(pickups, player)
+    if not i then return false end
+    local p = pickups[i]
+    player:equipWeapon(p.gunDef, player.activeWeaponSlot)
+    local cx = p.x + p.w / 2
+    local cy = p.y + p.h / 2
+    DamageNumbers.spawnPickup(cx, cy, p.gunDef.name, "weapon")
+    Sfx.play("reload", { volume = 0.55 })
+    p.alive = false
+    if world and world:hasItem(p) then
+        world:remove(p)
+    end
+    table.remove(pickups, i)
+    return true
+end
+
+--- Sell the nearest grounded weapon pickup for scrap gold (call when hold threshold reached).
+--- @return boolean true if a weapon was sold
+function Combat.trySellWeaponPickup(pickups, player, world)
+    local i = Combat.findClosestGroundedWeaponIndex(pickups, player)
+    if not i then return false end
+    local p = pickups[i]
+    local amount = Guns.getSellValue(p.gunDef)
+    player:addGold(amount, "weapon_pickup_sell")
+    local cx = p.x + p.w / 2
+    local cy = p.y + p.h / 2
+    DamageNumbers.spawnPickup(cx, cy, amount, "gold")
+    Sfx.play("pickup_gold")
+    p.alive = false
+    if world and world:hasItem(p) then
+        world:remove(p)
+    end
+    table.remove(pickups, i)
+    return true
+end
+
+--- Per-frame weapon pickup input: hold to sell, short release to equip.
+--- `state` is a table you keep across frames: { downPrev, held, sellDone }.
+--- @param worldInteractConsumed boolean if true, skip equip on this release (another system handled interact keypress).
+function Combat.advanceWeaponPickupInteraction(dt, pickups, player, world, state, worldInteractConsumed)
+    state = state or {}
+    local Keybinds = require("src.systems.keybinds")
+    local down = Keybinds.isDown("interact")
+    if down then
+        state.held = (state.held or 0) + dt
+        if state.held >= WEAPON_SELL_HOLD and not state.sellDone then
+            if Combat.trySellWeaponPickup(pickups, player, world) then
+                state.sellDone = true
+            end
+        end
+    else
+        if state.downPrev and (state.held or 0) > 0 and (state.held or 0) < WEAPON_TAP_MAX and not state.sellDone then
+            if not worldInteractConsumed then
+                Combat.tryEquipWeaponPickup(pickups, player, world)
+            end
+        end
+        state.held = 0
+        state.sellDone = false
+    end
+    state.downPrev = down
+    return state
+end
 
 local function statusApplyChannel(packet, result, status_id)
     return table.concat({
@@ -259,29 +370,84 @@ function Combat.onEnemyKilled(enemy, player)
     local baseX = enemy.x + enemy.w / 2 - pw / 2
     local baseY = enemy.y + enemy.h - pw
 
-    table.insert(drops, {
-        x = baseX,
-        y = baseY,
-        type = "xp",
-        value = enemy.xpValue,
-    })
+    local dropIdx = 0
+    local function burst(kind, t)
+        dropIdx = dropIdx + 1
+        local ch = "combat.enemy_drop." .. kind .. "." .. dropIdx
+        if kind == "gold" or kind == "silver" then
+            t.vx = GameRng.randomFloat(ch .. ".vx", -32, 32)
+            t.vy = GameRng.randomFloat(ch .. ".vy", -175, -95)
+        elseif kind == "xp" then
+            t.vx = GameRng.randomFloat(ch .. ".vx", -190, 190)
+            t.vy = GameRng.randomFloat(ch .. ".vy", -380, -220)
+        elseif kind == "health" then
+            t.vx = GameRng.randomFloat(ch .. ".vx", -150, 150)
+            t.vy = GameRng.randomFloat(ch .. ".vy", -340, -200)
+        elseif kind == "weapon" then
+            t.vx = GameRng.randomFloat(ch .. ".vx", -120, 120)
+            t.vy = GameRng.randomFloat(ch .. ".vy", -400, -250)
+        end
+    end
+
+    do
+        local xpVals = splitEnemyXPIntoValues(enemy.xpValue)
+        local n = #xpVals
+        local laneSpacing = 9
+        for vi = 1, n do
+            local lane = 0
+            if n > 1 then
+                lane = ((vi - 1) - (n - 1) * 0.5) * laneSpacing
+            end
+            local t = {
+                x = baseX + (vi - 1) * 2 - math.floor(n * 0.5),
+                y = baseY,
+                type = "xp",
+                value = xpVals[vi],
+                xpLaneOffset = lane,
+                xpMagnetStagger = (vi - 1) * 0.055,
+            }
+            burst("xp", t)
+            table.insert(drops, t)
+        end
+    end
 
     if enemy.goldValue > 0 and GameRng.randomChance("combat.enemy_drop.gold", 0.7) then
-        table.insert(drops, {
-            x = baseX + 12,
-            y = baseY,
-            type = "gold",
-            value = enemy.goldValue,
-        })
+        local g = math.floor(enemy.goldValue + 0.5)
+        local n5, n1 = GoldCoin.splitExact(g)
+        local slot = 0
+        for i = 1, n5 do
+            slot = slot + 1
+            local t = {
+                x = baseX + 12 + (slot - 1) * 5 - math.floor((n5 + n1) / 2) * 2,
+                y = baseY,
+                type = "gold",
+                value = GoldCoin.GOLD_VALUE,
+            }
+            burst("gold", t)
+            table.insert(drops, t)
+        end
+        for i = 1, n1 do
+            slot = slot + 1
+            local t = {
+                x = baseX + 12 + (slot - 1) * 5 - math.floor((n5 + n1) / 2) * 2,
+                y = baseY,
+                type = "silver",
+                value = GoldCoin.SILVER_VALUE,
+            }
+            burst("silver", t)
+            table.insert(drops, t)
+        end
     end
 
     if GameRng.randomChance("combat.enemy_drop.health", 0.1) then
-        table.insert(drops, {
+        local t = {
             x = baseX - 12,
             y = baseY,
             type = "health",
             value = 15,
-        })
+        }
+        burst("health", t)
+        table.insert(drops, t)
     end
 
     -- Weapon drop (rare)
@@ -290,12 +456,14 @@ function Combat.onEnemyKilled(enemy, player)
     if GameRng.randomChance("combat.enemy_drop.weapon", weaponDropChance) then
         local gunDef = Guns.rollDrop(luck)
         if gunDef then
-            table.insert(drops, {
+            local t = {
                 x = baseX,
                 y = baseY - 8,
                 type = "weapon",
                 value = gunDef,
-            })
+            }
+            burst("weapon", t)
+            table.insert(drops, t)
         end
     end
 
@@ -505,6 +673,37 @@ function Combat.checkPlayerMelee(player, enemies)
     end
 end
 
+--- Melee cuts vegetation decor (see `WorldProps.pathLooksVegetation` / `vegetation` on decor entries).
+function Combat.checkPlayerMeleeVegetation(player, decorProps)
+    if not decorProps or player.meleeSwingTimer <= 0 then return end
+
+    local hx, hy, hw, hh = player:getMeleeHitbox()
+
+    for _, prop in ipairs(decorProps) do
+        if prop.vegetation and not prop.cut and not player.meleeHitDecor[prop] then
+            local left, top, w, h = RoomProps.getDecorBounds(prop)
+            if left and hx < left + w and hx + hw > left and hy < top + h and hy + hh > top then
+                prop.cut = true
+                local sc = prop.scale or 1
+                local sign = (prop.flip and -1 or 1)
+                prop.cutFallVx = sign * (26 + math.random() * 22) * sc
+                prop.cutFallVy = -(160 + math.random() * 120) * sc
+                prop.cutFallOx = 0
+                prop.cutFallOy = 0
+                prop.cutFallAngle = (0.2 + math.random() * 0.45) * sign
+                prop.cutFallAngVel = (math.random() - 0.5) * 4
+                prop.cutFallStopped = false
+                player.meleeHitDecor[prop] = true
+                player.meleeHitFlashTimer = 0.12
+                Sfx.play("melee_hit", { volume = 0.22 })
+                local cx = prop.x
+                local cy = (prop.footY or 0) + (prop.sink or 0) - 40 * sc
+                ImpactFX.spawn(cx, cy, "melee", nil, player.meleeAimAngle)
+            end
+        end
+    end
+end
+
 function Combat.checkPickups(pickups, player, world)
     local leveledUp = false
     local baseAttractR = pickupAttractRadius(player)
@@ -519,38 +718,47 @@ function Combat.checkPickups(pickups, player, world)
 
         local attractR = p.casinoPayout and math.min(baseAttractR, 46) or baseAttractR
 
-        -- Weapon pickups are NOT attracted — must walk over deliberately
-        if dist < attractR and p.pickupType ~= "weapon" then
-            p.attracted = true
+        -- XP: after its short pop-out (Pickup.xpMagnetDelay), it self-attracks from any range.
+        -- Other loot: magnet only when grounded and in pickup radius.
+        -- Weapons use interact tap/hold (see advanceWeaponPickupInteraction), not proximity.
+        -- Health: only magnet when HP is not full (otherwise leave pack on the ground).
+        if p.pickupType ~= "xp" and dist < attractR and p.pickupType ~= "weapon" and p.grounded then
+            if p.pickupType == "health" then
+                if player.hp < player:getEffectiveStats().maxHP then
+                    p.attracted = true
+                else
+                    p.attracted = false
+                end
+            else
+                p.attracted = true
+            end
         end
 
         local collected = false
         if p.pickupType == "weapon" and p.gunDef then
-            -- Weapon: close contact only (no attraction)
-            if dist < PICKUP_COLLECT_RADIUS then
-                player:equipWeapon(p.gunDef, player.activeWeaponSlot)
-                local cx = p.x + p.w / 2
-                local cy = p.y + p.h / 2
-                DamageNumbers.spawnPickup(cx, cy, p.gunDef.name, "weapon")
-                collected = true
-            end
-        elseif p.attracted and dist < PICKUP_COLLECT_RADIUS then
+            -- Equip/sell handled by advanceWeaponPickupInteraction
+        elseif p.attracted and dist < PICKUP_COLLECT_RADIUS and (p.pickupType == "xp" or p.grounded) then
             local cx = p.x + p.w / 2
             local cy = p.y + p.h / 2
             if p.pickupType == "xp" then
                 leveledUp = player:addXP(p.value) or leveledUp
                 DamageNumbers.spawnPickup(cx, cy, p.value, "xp")
                 Sfx.play("pickup_xp")
-            elseif p.pickupType == "gold" then
+            elseif p.pickupType == "gold" or p.pickupType == "silver" then
                 player:addGold(p.value, p.casinoPayout and "casino_payout_pickup" or "combat_gold_pickup")
-                DamageNumbers.spawnPickup(cx, cy, p.value, "gold")
+                DamageNumbers.spawnPickup(cx, cy, p.value, p.pickupType == "silver" and "silver" or "gold")
                 Sfx.play("pickup_gold")
             elseif p.pickupType == "health" then
-                player:heal(p.value)
-                DamageNumbers.spawnPickup(cx, cy, p.value, "health")
-                Sfx.play("pickup_health")
+                if player.hp < player:getEffectiveStats().maxHP then
+                    player:heal(p.value)
+                    DamageNumbers.spawnPickup(cx, cy, p.value, "health")
+                    Sfx.play("pickup_health")
+                    collected = true
+                end
             end
-            collected = true
+            if p.pickupType == "xp" or p.pickupType == "gold" or p.pickupType == "silver" then
+                collected = true
+            end
         end
 
         if collected then

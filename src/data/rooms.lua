@@ -36,9 +36,9 @@ RoomData.devArena = {
     devArena = true,
     width = 1600,
     height = 800,
+    -- Single ground strip so every spawned prop is reachable on foot (no gap jump)
     platforms = {
-        { x = 0,    y = 736, w = 700,  h = 64 },
-        { x = 800,  y = 736, w = 800,  h = 64 },
+        { x = 0,    y = 736, w = 1600, h = 64 },
         { x = 180,  y = 580, w = 200, h = 16 },
         { x = 480,  y = 500, w = 160, h = 16 },
         { x = 780,  y = 540, w = 220, h = 16 },

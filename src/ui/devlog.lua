@@ -16,8 +16,13 @@ local CAT = {
     progress = { tag = "PRG",  r = 0.4, g = 1.0, b = 0.55 },
 }
 
-local entries = {}   -- { t, cat, msg }
+local entries = {}   -- { t, cat, msg, noOverlay? } — noOverlay: omit from bottom-right overlay (still in F1 console)
 local sessionStart = 0
+
+-- Bottom-right overlay: brief toast after each overlay-visible line; hidden until the next one.
+local overlayVisibleUntil = nil -- wall-clock seconds; draw while love.timer.getTime() < this
+local OVERLAY_DURATION_SEC = 4.5
+local OVERLAY_FADE_SEC = 0.45
 local consoleState = {
     follow = true,
     topIndex = 1,
@@ -72,13 +77,24 @@ end
 function DevLog.init()
     entries = {}
     sessionStart = love.timer.getTime()
+    overlayVisibleUntil = nil
     consoleState.follow = true
     consoleState.topIndex = 1
 end
 
-function DevLog.push(category, msg)
+--- opts.noOverlay: if true, line is stored but does not open/refresh the bottom-right overlay.
+function DevLog.push(category, msg, opts)
+    opts = opts or {}
     local t = love.timer.getTime() - sessionStart
-    table.insert(entries, { t = t, cat = category or "sys", msg = tostring(msg) })
+    table.insert(entries, {
+        t = t,
+        cat = category or "sys",
+        msg = tostring(msg),
+        noOverlay = opts.noOverlay and true or nil,
+    })
+    if not opts.noOverlay then
+        overlayVisibleUntil = love.timer.getTime() + OVERLAY_DURATION_SEC
+    end
     if #entries > MAX_ENTRIES then
         table.remove(entries, 1)
         if not consoleState.follow then
@@ -209,20 +225,38 @@ function DevLog.followConsole()
     consoleState.follow = true
 end
 
--- Always-visible overlay: last N entries, anchored to bottom-right of the screen.
+-- Transient overlay: last N entries, bottom-right; only for a few seconds after each overlay-visible line.
 -- Call every frame from game:draw() without needing F1.
 local OVERLAY_LINES = 8
 local OVERLAY_W     = 420
 
 function DevLog.drawOverlay(screenW, screenH)
-    if #entries == 0 then return end
+    local now = love.timer.getTime()
+    if not overlayVisibleUntil or now >= overlayVisibleUntil then
+        return
+    end
+
+    local fadeMul = 1
+    local left = overlayVisibleUntil - now
+    if left < OVERLAY_FADE_SEC and OVERLAY_FADE_SEC > 0 then
+        fadeMul = math.max(0, left / OVERLAY_FADE_SEC)
+    end
+
+    local visible = {}
+    for i = 1, #entries do
+        local e = entries[i]
+        if not e.noOverlay then
+            visible[#visible + 1] = e
+        end
+    end
+    if #visible == 0 then return end
 
     if not DevLog._overlayFont then
         DevLog._overlayFont = Font.new(10)
     end
 
     local lineH  = 13
-    local count  = math.min(OVERLAY_LINES, #entries)
+    local count  = math.min(OVERLAY_LINES, #visible)
     local panelH = count * lineH + 6
     local x      = screenW - OVERLAY_W - 6
     local y      = screenH - panelH - 100   -- sit above the loadout row
@@ -231,16 +265,16 @@ function DevLog.drawOverlay(screenW, screenH)
     love.graphics.setFont(DevLog._overlayFont)
 
     -- Background
-    love.graphics.setColor(0, 0, 0, 0.52)
+    love.graphics.setColor(0, 0, 0, 0.52 * fadeMul)
     love.graphics.rectangle("fill", x - 4, y - 2, OVERLAY_W + 8, panelH)
 
-    -- Last N entries, newest at bottom
-    local start = #entries - count + 1
-    for i = start, #entries do
-        local e   = entries[i]
+    -- Last N overlay-visible entries, newest at bottom
+    local start = #visible - count + 1
+    for i = start, #visible do
+        local e   = visible[i]
         local cfg = CAT[e.cat] or CAT.sys
-        local age = #entries - i   -- 0 = newest
-        local alpha = math.max(0.3, 1 - age * 0.1)
+        local age = #visible - i   -- 0 = newest
+        local alpha = math.max(0.3, 1 - age * 0.1) * fadeMul
 
         love.graphics.setColor(0.5, 0.5, 0.55, alpha * 0.75)
         love.graphics.print(string.format("[%.1fs]", e.t), x, y)

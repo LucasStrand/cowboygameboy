@@ -171,7 +171,6 @@ function Player.new(x, y)
     self.dashTimer = 0
     self.dashCooldown = 0
     self.dashDir = 1
-    self.combatDisabled = false
 
     self.stats = {
         maxHP = 100,
@@ -250,6 +249,7 @@ function Player.new(x, y)
     self.meleeCooldown    = 0        -- time until next swing is allowed
     self.meleeSwingTimer  = 0        -- > 0 while the hit-window is active
     self.meleeHitEnemies  = {}       -- enemies already hit in the current swing
+    self.meleeHitDecor    = {}       -- decor props already hit in the current swing
     self.meleeHitFlashTimer = 0      -- HUD / strike feedback after a connecting hit
     self.meleeAimAngle = 0           -- radians, set when a swing starts (same basis as :shoot)
 
@@ -481,6 +481,7 @@ function Player:update(dt, world, enemies)
         self.meleeSwingTimer = math.max(0, self.meleeSwingTimer - dt)
         if self.meleeSwingTimer <= 0 then
             self.meleeHitEnemies = {}
+            self.meleeHitDecor = {}
         end
     end
 
@@ -694,7 +695,6 @@ function Player:tryDropThrough()
 end
 
 function Player:tryDash()
-    if self.combatDisabled then return end
     if Buffs.getControlState(self.statuses).stunned then return end
     local s = self:getEffectiveStats()
     if self.blocking and s.blockMobility <= 0 then
@@ -714,12 +714,13 @@ function Player:tryDash()
     self.iframes = math.max(self.iframes, 0.2)
     Sfx.play("dash")
 
-    -- Dash strike: active melee hitbox for the full dash, aimed in dash direction
+    -- Dash strike: active melee hitbox for the full dash
     if s.meleeDamage > 0 then
         self.meleeAimAngle  = dir == 1 and 0 or math.pi
         self.meleeSwingTimer = DASH_MELEE_SWING_DURATION
         self.meleeCooldown   = 0           -- dash resets cooldown so it always fires
         self.meleeHitEnemies = {}
+        self.meleeHitDecor = {}
         local cx = self.x + self.w * 0.5
         local cy = self.y + self.h * 0.5
         local a = self.meleeAimAngle
@@ -759,7 +760,6 @@ function Player:shootFromSlot(slotIndex, mx, my)
 end
 
 function Player:shoot(mx, my)
-    if self.combatDisabled then return nil end
     if self:isAkimbo() then
         local allBullets = {}
         local any = false
@@ -852,7 +852,6 @@ function Player:spinHolster()
 end
 
 function Player:meleeAttack(aimX, aimY)
-    if self.combatDisabled then return false end
     if Buffs.getControlState(self.statuses).stunned then return false end
     local s = self:getEffectiveStats()
     if self.meleeCooldown > 0 or s.meleeDamage <= 0 then return false end
@@ -866,6 +865,7 @@ function Player:meleeAttack(aimX, aimY)
     self.meleeCooldown   = s.meleeCooldown
     self.meleeSwingTimer = MELEE_SWING_DURATION
     self.meleeHitEnemies = {}
+    self.meleeHitDecor = {}
     self.anim:play("melee", true)
     Sfx.play("melee_swing")
 -- Row 1 of RetroImpactEffectPack1A (see impact_fx.lua ANIM.melee)
