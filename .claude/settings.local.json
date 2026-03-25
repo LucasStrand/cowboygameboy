@@ -121,7 +121,10 @@
       "Bash(echo \"EXIT:$?\")",
       "Bash(find /c/Users/lucas/Documents/GitHub/cowboygameboy -name *test* -o -name *spec*)",
       "Bash(find /c/Users/lucas/Documents/GitHub/cowboygameboy -maxdepth 2 -name README* -o -name readme*)",
-      "Bash(claude mcp:*)"
+      "Bash(claude mcp:*)",
+      "Bash(find \"C:\\\\github\\\\cowboygameboy\\\\assets\\\\sprites\\\\Cowboy-AssetPack \\(3\\)\" -type f)",
+      "Bash(mkdir -p assets/sprites/cowboy_old)",
+      "Bash(cp assets/sprites/cowboy/*.png assets/sprites/cowboy_old/)"
     ]
   }
 }

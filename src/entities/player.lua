@@ -647,10 +647,8 @@ function Player:update(dt, world, enemies)
     -- Animation state machine (priority: one-shots > air > ground movement)
     local anim = self.anim
     anim:update(dt)
-    -- Chain: shoot → holster before returning to idle
-    if anim.current == "shoot" and anim.done then
-        anim:play("holster", true)
-    end
+    -- Chain: shoot → idle (holster strip is missing from current asset pack)
+    -- When a proper holster animation is added, restore the chain here.
     local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee"
                             or anim.current == "holster" or anim.current == "holster_spin") and not anim.done
     if not oneShotPlaying then
