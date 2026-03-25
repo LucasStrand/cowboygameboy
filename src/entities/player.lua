@@ -45,8 +45,8 @@ local MONSTER_SPEECH_LINES = {
 local Player = {}
 Player.__index = Player
 
--- Seconds of collapse animation before game over
-Player.DEATH_DURATION = 0.95
+-- Seconds before game over after death. Death strip (~0.95s) plus long hold on the last frame.
+Player.DEATH_DURATION = 2.35
 
 local GRAVITY = 900
 
@@ -318,7 +318,11 @@ function Player:beginDeath()
     self.vy = 0
     self.blocking = false
     self.meleeSwingTimer = 0
-    self.anim:play("fall", true)
+    if self.anim.quads.death then
+        self.anim:play("death", true)
+    else
+        self.anim:play("fall", true)
+    end
 end
 
 --- True only when the equipped shield explicitly enables auto-block (never on default gear).
@@ -1247,16 +1251,20 @@ function Player:draw()
     local footY = self.y + self.h
     if self.dying then
         local u = math.min(1, self.deathTimer / Player.DEATH_DURATION)
-        local ease = 1 - math.cos(u * math.pi * 0.5)
-        local ang = (self.facingRight and -1 or 1) * math.rad(82) * ease
-        local sink = 3 * ease
         local alpha = 1 - u * 0.35
-        love.graphics.push()
-        love.graphics.translate(cx, footY + sink)
-        love.graphics.rotate(ang)
-        love.graphics.translate(-cx, -(footY + sink))
-        self.anim:drawCentered(cx, footY, self.facingRight, 0, alpha)
-        love.graphics.pop()
+        if self.anim.quads.death then
+            self.anim:drawCentered(cx, footY, self.facingRight, 0, alpha)
+        else
+            local ease = 1 - math.cos(u * math.pi * 0.5)
+            local ang = (self.facingRight and -1 or 1) * math.rad(82) * ease
+            local sink = 3 * ease
+            love.graphics.push()
+            love.graphics.translate(cx, footY + sink)
+            love.graphics.rotate(ang)
+            love.graphics.translate(-cx, -(footY + sink))
+            self.anim:drawCentered(cx, footY, self.facingRight, 0, alpha)
+            love.graphics.pop()
+        end
     else
         local jx, jy = 0, 0
         if (self.monsterJitteryTimer or 0) > 0 then

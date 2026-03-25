@@ -33,11 +33,14 @@ SKIN_ANIMS["cowboy_v2"] = {
     idle         = { file = "idle.png",         frames = 8,  fps = 6,  loop = true,  footYOffset = 5 },
     smoking      = { file = "smoking.png",       frames = 8,  fps = 5,  loop = true,  footYOffset = 5 },
     run          = { file = "run.png",           frames = 8,  fps = 10, loop = true,  footYOffset = 5 },
-    jump         = { file = "draw.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 1, footYOffset = 5 },
-    fall         = { file = "draw.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 5, footYOffset = 5 },
+    -- v2 has no draw.png; single-frame air poses use idle until dedicated jump/fall strips exist.
+    jump         = { file = "idle.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 1, footYOffset = 5 },
+    fall         = { file = "idle.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 5, footYOffset = 5 },
     dash         = { file = "dash.png",          frames = 6,  fps = 16, loop = true,  footYOffset = 5 },
     shoot        = { file = "shoot.png",         frames = 6,  fps = 14, loop = false, footYOffset = 5 },
     melee        = { file = "quickdraw.png",     frames = 6,  fps = 14, loop = false, startFrame = 1, footYOffset = 5 },
+    -- 7 frames in ~0.95s; Player.DEATH_DURATION is longer so the last pose holds before game over.
+    death        = { file = "death.png",         frames = 7,  fps = 7 / 0.95, loop = false, footYOffset = 5 },
 }
 
 local ANIMS = assert(SKIN_ANIMS[SKIN], "Unknown skin: " .. SKIN)
