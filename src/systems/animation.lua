@@ -1,27 +1,46 @@
 -- Sprite animator — loads individual horizontal sprite-strip PNGs from
--- assets/sprites/cowboy/.  Each strip is a single row of equal-width frames
+-- assets/sprites/<SKIN>/.  Each strip is a single row of equal-width frames
 -- at 48 px tall.  Frame width is derived from image width / frame count.
+--
+-- To switch skins change SKIN below (see docs/character_skin_template.md).
 
-local FRAME_H     = 48
-local SPRITE_SCALE = 0.85   -- 48 * 0.85 ≈ 41 px drawn height (close to 28 px AABB + headroom)
+local FRAME_H      = 48
+-- World scale for player sprite (was 0.85; ~48px tall at 1.0 reads closer to NPC scale)
+local SPRITE_SCALE = 1.0
 
-local STRIP_DIR = "assets/sprites/cowboy/"
+local SKIN      = "cowboy_v2"   -- "cowboy" = original hand-authored, "cowboy_v2" = PixelLab generated
+local STRIP_DIR = "assets/sprites/" .. SKIN .. "/"
 
--- Animation definitions: file, frame count, fps, loop, and optional sub-range.
--- "file" is the strip PNG basename (without directory).
--- For jump/fall/dash/melee we re-use existing strips with startFrame / frames subset.
-local ANIMS = {
-    idle    = { file = "idle.png",      frames = 7,  fps = 6,  loop = true  },
-    smoking = { file = "smoking.png",   frames = 9,  fps = 5,  loop = true  },
-    run     = { file = "run.png",       frames = 8,  fps = 10, loop = true  },
-    jump    = { file = "draw.png",      frames = 1,  fps = 1,  loop = true, startFrame = 1 },
-    fall    = { file = "draw.png",      frames = 1,  fps = 1,  loop = true, startFrame = 2 },
-    shoot   = { file = "shoot.png",     frames = 5,  fps = 14, loop = false },
-    holster      = { file = "holster.png",      frames = 8,  fps = 12, loop = false },
-    holster_spin = { file = "holster_spin.png", frames = 14, fps = 14, loop = false },
-    dash    = { file = "draw.png",      frames = 3,  fps = 16, loop = true, startFrame = 1 },
-    melee   = { file = "quickdraw.png", frames = 6,  fps = 14, loop = false, startFrame = 1 },
+-- Per-skin animation definitions.  Frame counts must match the actual strip widths.
+local SKIN_ANIMS = {}
+
+-- cowboy (original hand-authored strips)
+SKIN_ANIMS["cowboy"] = {
+    idle         = { file = "idle.png",         frames = 7,  fps = 6,  loop = true  },
+    smoking      = { file = "smoking.png",       frames = 9,  fps = 5,  loop = true  },
+    run          = { file = "run.png",           frames = 8,  fps = 10, loop = true  },
+    jump         = { file = "draw.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 1 },
+    fall         = { file = "draw.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 2 },
+    dash         = { file = "draw.png",          frames = 3,  fps = 16, loop = true,  startFrame = 1 },
+    shoot        = { file = "shoot.png",         frames = 5,  fps = 14, loop = false },
+    melee        = { file = "quickdraw.png",     frames = 6,  fps = 14, loop = false, startFrame = 1 },
 }
+
+-- cowboy_v2 (PixelLab-generated, character_id: e4dda30e-08d1-4fbe-b4fe-97bb2b46a52e)
+-- footYOffset: world pixels to push the strip down so feet (not the 48² cell bottom) sit on ground.
+-- Smoking reads correct at 0; other strips have more empty padding below the feet in-frame.
+SKIN_ANIMS["cowboy_v2"] = {
+    idle         = { file = "idle.png",         frames = 8,  fps = 6,  loop = true,  footYOffset = 8 },
+    smoking      = { file = "smoking.png",       frames = 8,  fps = 5,  loop = true,  footYOffset = 0 },
+    run          = { file = "run.png",           frames = 8,  fps = 10, loop = true,  footYOffset = 8 },
+    jump         = { file = "draw.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 1, footYOffset = 8 },
+    fall         = { file = "draw.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 5, footYOffset = 8 },
+    dash         = { file = "dash.png",          frames = 6,  fps = 16, loop = true,  footYOffset = 8 },
+    shoot        = { file = "shoot.png",         frames = 6,  fps = 14, loop = false, footYOffset = 8 },
+    melee        = { file = "quickdraw.png",     frames = 6,  fps = 14, loop = false, startFrame = 1, footYOffset = 8 },
+}
+
+local ANIMS = assert(SKIN_ANIMS[SKIN], "Unknown skin: " .. SKIN)
 
 local Animator = {}
 Animator.__index = Animator
@@ -100,12 +119,15 @@ function Animator:drawCentered(cx, footY, facingRight, yOffset, alpha)
     local quad = quads[self.frame]
     if not quad then return end
 
+    local def = ANIMS[self.current]
+    local footDy = (def and def.footYOffset) or 0
+
     local sheet   = self.sheets[self.current]
     local scaledW = FRAME_H * SPRITE_SCALE
     local scaledH = FRAME_H * SPRITE_SCALE
 
     local drawX   = cx - scaledW / 2
-    local drawY   = footY - scaledH + (yOffset or 0)
+    local drawY   = footY - scaledH + (yOffset or 0) + footDy
 
     local sx        = facingRight and SPRITE_SCALE or -SPRITE_SCALE
     local flipShift = facingRight and 0 or scaledW

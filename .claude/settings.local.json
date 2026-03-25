@@ -121,7 +121,14 @@
       "Bash(echo \"EXIT:$?\")",
       "Bash(find /c/Users/lucas/Documents/GitHub/cowboygameboy -name *test* -o -name *spec*)",
       "Bash(find /c/Users/lucas/Documents/GitHub/cowboygameboy -maxdepth 2 -name README* -o -name readme*)",
-      "Bash(claude mcp:*)"
+      "Bash(claude mcp:*)",
+      "Bash(du -sh C:githubcowboygameboyassetsspritescowboy*)",
+      "Bash(identify -ping \"C:\\\\github\\\\cowboygameboy\\\\assets\\\\sprites\\\\cowboy\\\\idle.png\")",
+      "Bash(unzip -o cowboy_v2.zip)",
+      "Bash(magick --version)",
+      "Bash(convert --version)",
+      "Bash(xargs -I{} basename {})",
+      "Bash(unzip -o cowboy_v2_updated.zip -d cowboy_v2_extracted/)"
     ]
   }
 }

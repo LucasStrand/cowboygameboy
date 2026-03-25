@@ -647,12 +647,7 @@ function Player:update(dt, world, enemies)
     -- Animation state machine (priority: one-shots > air > ground movement)
     local anim = self.anim
     anim:update(dt)
-    -- Chain: shoot → holster before returning to idle
-    if anim.current == "shoot" and anim.done then
-        anim:play("holster", true)
-    end
-    local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee"
-                            or anim.current == "holster" or anim.current == "holster_spin") and not anim.done
+    local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee") and not anim.done
     if not oneShotPlaying then
         if self.dashTimer > 0 then
             anim:play("dash")
@@ -843,12 +838,7 @@ function Player:getMeleeHitboxAABB(angle)
 end
 
 function Player:spinHolster()
-    local anim = self.anim
-    -- Only play if no one-shot animation is active
-    local busy = (anim.current == "shoot" or anim.current == "melee"
-                  or anim.current == "holster" or anim.current == "holster_spin") and not anim.done
-    if busy then return end
-    anim:play("holster_spin", true)
+    -- Holster spin animation disabled for now (saloon / weapon prompts still call this hook)
 end
 
 function Player:meleeAttack(aimX, aimY)
@@ -903,7 +893,6 @@ function Player:startReloadSlot(slotIndex)
         if slotIndex == self.activeWeaponSlot then
             self:syncLegacyWeaponViews()
         end
-        self.anim:play("holster_spin", true)
     end
 end
 
@@ -1137,7 +1126,6 @@ function Player:switchWeapon()
     end
     WeaponRuntime.switchActiveSlot(self)
     self:syncLegacyWeaponViews()
-    self.anim:play("holster", true)
 end
 
 --- Equip a gun definition into a weapon slot (1 or 2). Resets ammo to full.
