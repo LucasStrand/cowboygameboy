@@ -46,9 +46,10 @@ SKIN_ANIMS["cowboy_v2"] = {
     pickup       = { file = "quickdraw.png",    frames = 6,  fps = 14, loop = false, footYOffset = 5 },
     smoking      = { file = "smoking.png",       frames = 8,  fps = 5,  loop = true,  footYOffset = 5 },
     run          = { file = "run.png",           frames = 8,  fps = 10, loop = true,  footYOffset = 5 },
-    -- Air: PixelLab `jumping-1` pack (per-frame east); same strip for fall so descent isn’t a static idle frame.
-    jump         = { stripFromDir = "animations/jumping-1/east", frames = 9, fps = 12, loop = true,  footYOffset = 5 },
-    fall         = { stripFromDir = "animations/jumping-1/east", frames = 9, fps = 12, loop = true,  footYOffset = 5 },
+    -- Air: same idea as original v2 `draw.png` — one pose rising, one pose falling (not a looping jump cycle).
+    -- draw.png was removed; `jumping-1` per-frame pack is stitched to a strip; columns match frame_000.. order.
+    jump         = { stripFromDir = "animations/jumping-1/east", frames = 1, fps = 1,  loop = true,  startFrame = 1, footYOffset = 5 },
+    fall         = { stripFromDir = "animations/jumping-1/east", frames = 1, fps = 1,  loop = true,  startFrame = 5, footYOffset = 5 },
     dash         = { file = "dash.png",          frames = 6,  fps = 16, loop = true,  footYOffset = 5 },
     shoot        = { file = "shoot.png",         frames = 6,  fps = 14, loop = false, footYOffset = 5 },
     jab          = COWBOY_V2_JAB,
@@ -135,7 +136,10 @@ function Animator.new()
     for name, def in pairs(ANIMS) do
         local sheet
         if def.stripFromDir then
-            sheet = loadSheetFromDir(def.stripFromDir, def.frames)
+            -- Load enough source tiles so startFrame + span fits (e.g. fall uses frame 5 of jumping-1).
+            local spanEnd = (def.startFrame or 1) + (def.frames or 1) - 1
+            local stripTileCount = math.max(def.frames, spanEnd)
+            sheet = loadSheetFromDir(def.stripFromDir, stripTileCount)
         else
             sheet = loadSheet(def.file)
         end
