@@ -34,6 +34,7 @@ SfxData.paths = {
     ult_explosion = "SoundPack/Retro/explosion_large.wav",
     ult_ready = "SoundPack/Musical Effects/brass_chime_positive.wav",
     -- Saloon / shop (optional hooks)
+    drink_slurp = "SoundPack/Other/drink_slurp.wav",
     casino_shuffle = "Casino/card-shuffle.ogg",
     shop_buy = "Casino/chip-lay-1.ogg",
     -- Card sounds

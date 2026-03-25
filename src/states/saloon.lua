@@ -648,7 +648,6 @@ local function trySaloonWalkingInteract(key)
             player:consumeMonsterEnergy()
             message = "Full heal!"
             messageTimer = 2.5
-            Mods.Sfx.play("pickup_gold")
             return true
         end
     end
@@ -784,6 +783,9 @@ function saloon:enter(_, _player, _roomManager)
             npcConfig.promptLabel = npcDef.promptLabel or "[E] Gamble"
             -- Shuffle clips are 128² vs 80² idle; same character art is smaller in-frame after idle-based scaling
             local DEALER_ACTION_DRAW_SCALE = 128 / 80
+            npcConfig.animCycleMin = 2.0
+            npcConfig.animCycleMax = 5.8
+            -- Drinking: same dealer pack as idle/shuffle (south / 80²) — not the player cowboy strip.
             npcConfig.anims = {
                 {
                     name = "shuffle",
@@ -792,12 +794,21 @@ function saloon:enter(_, _player, _roomManager)
                     drawScale = DEALER_ACTION_DRAW_SCALE,
                 },
                 { name = "idle", path = "assets/sprites/blackjack_dealer/animations/breathing-idle/south/", speed = 0.3 },
+                { name = "drinking", path = "assets/sprites/blackjack_dealer/animations/drinking/south/", speed = 0.22 },
             }
         elseif npcDef.type == "bartender" then
             npcConfig.promptLabel = npcDef.promptLabel or "[E] Buy Supplies"
+            npcConfig.animCycleMin = 2.2
+            npcConfig.animCycleMax = 6.0
+            -- Prefer bartender’s own drinking (south) if exported; else player strip as last resort.
+            local btDrink = "assets/sprites/bartender/animations/drinking/south/"
+            if not love.filesystem.getInfo(btDrink .. "frame_000.png") then
+                btDrink = "assets/sprites/cowboy_v2/animations/drinking/east/"
+            end
             npcConfig.anims = {
                 { name = "shaking", path = "assets/sprites/bartender/animations/shaking/south/", speed = 0.2 },
                 { name = "idle", path = "assets/sprites/bartender/animations/breathing-idle/south/", speed = 0.3 },
+                { name = "drinking", path = btDrink, speed = 0.22 },
             }
             npcConfig.spritePath = "assets/sprites/bartender/rotations/south.png"
         end

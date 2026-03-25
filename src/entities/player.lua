@@ -675,7 +675,8 @@ function Player:update(dt, world, enemies)
     -- Animation state machine (priority: one-shots > air > ground movement)
     local anim = self.anim
     anim:update(dt)
-    local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee") and not anim.done
+    local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee" or anim.current == "drinking")
+        and not anim.done
     if not oneShotPlaying then
         if self.dashTimer > 0 then
             anim:play("dash")
@@ -1061,6 +1062,10 @@ end
 
 --- Saloon Monster Energy: full heal, stacking move speed (diminishing per drink), roll for jitter (visual only) + maybe a voice line.
 function Player:consumeMonsterEnergy()
+    Sfx.play("drink_slurp", { volume = 0.85 })
+    if self.anim.quads.drinking then
+        self.anim:play("drinking", true)
+    end
     self.monsterDrinks = (self.monsterDrinks or 0) + 1
     local n = self.monsterDrinks
     local increment = MONSTER_MOVE_FIRST * (MONSTER_MOVE_DECAY ^ (n - 1))

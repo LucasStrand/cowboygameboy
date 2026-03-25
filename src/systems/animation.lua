@@ -41,6 +41,8 @@ SKIN_ANIMS["cowboy_v2"] = {
     melee        = { file = "quickdraw.png",     frames = 6,  fps = 14, loop = false, startFrame = 1, footYOffset = 5 },
     -- 7 frames in ~0.95s; Player.DEATH_DURATION is longer so the last pose holds before game over.
     death        = { file = "death.png",         frames = 7,  fps = 7 / 0.95, loop = false, footYOffset = 5 },
+    -- Built from per-frame PNGs (see stripFromDir); saloon Monster drink + matches bartender/dealer art.
+    drinking     = { stripFromDir = "animations/drinking/east", frames = 6, fps = 10, loop = false, footYOffset = 5 },
 }
 
 local ANIMS = assert(SKIN_ANIMS[SKIN], "Unknown skin: " .. SKIN)
@@ -60,13 +62,44 @@ local function loadSheet(filename)
     return _sheetCache[filename]
 end
 
+--- Horizontal strip from frame_000.png … under STRIP_DIR .. dirRel (e.g. animations/drinking/east).
+local function loadSheetFromDir(dirRel, frameCount)
+    local cacheKey = "dir:" .. dirRel .. ":" .. tostring(frameCount)
+    if _sheetCache[cacheKey] then
+        return _sheetCache[cacheKey]
+    end
+    local base = STRIP_DIR .. dirRel
+    if base:sub(-1) ~= "/" then
+        base = base .. "/"
+    end
+    local w, h = frameCount * FRAME_H, FRAME_H
+    local sheet = love.image.newImageData(w, h)
+    for i = 0, frameCount - 1 do
+        local path = string.format("%sframe_%03d.png", base, i)
+        local ok, tile = pcall(love.image.newImageData, path)
+        if not ok or not tile then
+            error("Animator: missing frame " .. path)
+        end
+        sheet:paste(tile, i * FRAME_H, 0, 0, 0, FRAME_H, FRAME_H)
+    end
+    local img = love.graphics.newImage(sheet)
+    img:setFilter("nearest", "nearest")
+    _sheetCache[cacheKey] = img
+    return img
+end
+
 function Animator.new()
     local self = setmetatable({}, Animator)
     self.sheets = {}  -- sheet per animation name
     self.quads  = {}  -- quads[animName][frameIndex]
 
     for name, def in pairs(ANIMS) do
-        local sheet = loadSheet(def.file)
+        local sheet
+        if def.stripFromDir then
+            sheet = loadSheetFromDir(def.stripFromDir, def.frames)
+        else
+            sheet = loadSheet(def.file)
+        end
         self.sheets[name] = sheet
         local sw, sh = sheet:getDimensions()
         -- Derive total columns in this strip from image width / frame height (square frames)
