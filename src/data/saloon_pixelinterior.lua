@@ -1,6 +1,7 @@
 -- Pixel Interior LRK v1.1 — quads for saloon decoration.
 -- Sheet-relative pixel rects; tweak here if a crop looks off.
--- doorswindowsstairs_LRK.png 736×256 — 8 columns × 92px; rows ~85px + 85px + 86px
+-- doorswindowsstairs_LRK.png 736×256 — rows ~85+85+86; columns are NOT uniform 92px:
+-- after the four door variants come window → book stacks → stair tiles (see sheet).
 -- floorswalls_LRK.png 224×256 — warm wood plank sample from top panel grid
 -- decorations_LRK.png 192×160 — floor lamp in the left strip
 
@@ -15,9 +16,9 @@ return {
 
     --- @type table<string, { sheet: string, x: number, y: number, w: number, h: number }>
     quads = {
-        -- Middle wood tone row (y=85..169): stacked window, then bookshelves
-        window = { sheet = "doors", x = 368, y = 85, w = 92, h = 85 },
-        bookshelf = { sheet = "doors", x = 460, y = 85, w = 92, h = 85 },
+        -- Top row (y=0): warm wood — double-height window stack + both book columns (272–415).
+        window = { sheet = "doors", x = 208, y = 0, w = 48, h = 85 },
+        bookshelf = { sheet = "doors", x = 272, y = 0, w = 144, h = 85 },
         -- Warm panel: bottom-row center plank (tilable floor accent)
         floor_plank_warm = { sheet = "floors", x = 76, y = 84, w = 72, h = 36 },
         -- First column: tallest floor lamp

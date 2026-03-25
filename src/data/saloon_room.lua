@@ -50,6 +50,15 @@ return {
 
     --- Prop anchors (world pixels). Used by `saloon.lua` draw + enter.
     decor = {
+        -- bar.png 127×47 — balance visibility vs height (0.68 read too tall vs stools).
+        barCounterScale = 0.52,
+        -- Tile bar.png this many times side-by-side for a longer counter
+        barCounterSegments = 2,
+        -- Nudge can toward the right (pixels, after centering on full counter width)
+        monsterCanOffsetX = 32,
+        -- Stools: count + gap between stools (pixels between inner edges); X is computed in draw from bar width
+        stoolCount = 6,
+        stoolGapBetween = 8,
         barCounterX = BAR_X,
         fridgeX = BAR_X - 22,
         shelfX = BAR_X + 10,
@@ -58,11 +67,11 @@ return {
         greenboardX = math.floor(ROOM_WIDTH * 0.31),
         watchX = BAR_X + 80,
         wantedX = 12,
-        umbrellaX = ROOM_WIDTH - 60,
-        stoolStartX = BAR_X + 5,
-        glass1X = BAR_X + 20,
-        glass2X = BAR_X + 36,
-        monsterX = BAR_X + 48,
+        -- Coat rack: left lounge (not behind the bar cluster)
+        umbrellaX = 96,
+        -- Second back-bar shelf: horizontal offset from first shelf (pixels, same scale)
+        shelfSecondOffsetX = 66,
+        -- Beer mug X positions come from total bar width in saloon:draw (fractions of counter)
         -- LRK “lounge” band between casino left and bar cluster
         lrkLoungeLeft = 268,
         lrkLoungeRight = BAR_X - 40,

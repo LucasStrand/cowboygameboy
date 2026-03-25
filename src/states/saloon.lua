@@ -86,6 +86,27 @@ local cam = {
 -- Monster Energy on the bar counter
 local monster = { img = nil, drunk = false, x = 0, y = 0 }
 
+-- bar.png native size; scale lives in `saloon_room.decor.barCounterScale`
+local BAR_COUNTER_IMG_W, BAR_COUNTER_IMG_H = 127, 47
+local MONSTER_CAN_SCALE = 0.4
+
+local function saloonBarGeometry(floorY)
+    local L = Mods.saloonRoom.decor
+    local scale = (L and L.barCounterScale) or 0.52
+    local segments = (L and L.barCounterSegments) or 2
+    if segments < 1 then segments = 1 end
+    local barW = BAR_COUNTER_IMG_W * scale
+    local barH = BAR_COUNTER_IMG_H * scale
+    local barY = floorY - barH
+    local totalBarW = barW * segments
+    return scale, barW, barH, barY, totalBarW, segments
+end
+
+-- bar.png: light countertop is rows 0–2; mug bases sit on the surface at ~row 3 (see bar asset)
+local function saloonBarCounterSurfaceY(barY, barScale)
+    return barY + 3 * barScale
+end
+
 local nearbyNPC = nil  -- NPC currently in interact range
 local pickups = {}
 local bullets = {}
@@ -518,7 +539,6 @@ local function loadDecorations()
     loadDecorSprite("shelf", "assets/Bar_by_Styl0o/individuals sprite/shelf.png")
     loadDecorSprite("stool", "assets/Bar_by_Styl0o/individuals sprite/stool.png")
     loadDecorSprite("bottles", "assets/Bar_by_Styl0o/individuals sprite/bottles.png")
-    loadDecorSprite("wall_bar", "assets/Bar_by_Styl0o/individuals sprite/wall_bar.png")
     loadDecorSprite("floor_bar", "assets/Bar_by_Styl0o/individuals sprite/floor_bar.png")
     loadDecorSprite("greenboard", "assets/Bar_by_Styl0o/individuals sprite/Greenboard_weird_writing.png")
     loadDecorSprite("watch", "assets/Bar_by_Styl0o/individuals sprite/watch.png")
@@ -586,28 +606,23 @@ local function drawSaloonLrkDecorWall(floorY, roomW, wallY)
     local winSpec = Mods.saloonPixelinterior.quads.window
     local bookSpec = Mods.saloonPixelinterior.quads.bookshelf
 
-    if dImg and winQ and winSpec then
-        local ws = 0.5
-        local dw, dh = winSpec.w * ws, winSpec.h * ws
-        local wx = left
-        while wx < right - 12 do
-            love.graphics.setColor(1, 1, 1, 0.82)
-            love.graphics.draw(dImg, winQ, wx, wallY + 10, 0, ws, ws)
-            wx = wx + dw * 0.88
-        end
-        love.graphics.setColor(1, 1, 1, 1)
-    end
+    -- Sheet layout: window then bookshelf sit side-by-side (not 92px grid; old coords were stair tiles).
+    if not (dImg and winQ and bookQ and winSpec and bookSpec) then return end
 
-    if dImg and bookQ and bookSpec then
-        local bs = 0.48
-        local bw2, bh2 = bookSpec.w * bs, bookSpec.h * bs
-        local bx = left
-        while bx < right - 16 do
-            love.graphics.setColor(1, 1, 1, 0.88)
-            love.graphics.draw(dImg, bookQ, bx, floorY - bh2, 0, bs, bs)
-            bx = bx + bw2 * 0.9
-        end
+    local ws, bs = 0.55, 0.55
+    local winDrawW = winSpec.w * ws
+    local bookDrawW = bookSpec.w * bs
+    local gap = 6
+    local moduleW = winDrawW + gap + bookDrawW + 10
+    local wy = wallY + 8
+
+    local wx = left
+    while wx + moduleW < right + 4 do
         love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(dImg, winQ, wx, wy, 0, ws, ws)
+        love.graphics.draw(dImg, bookQ, wx + winDrawW + gap, wy, 0, bs, bs)
+        love.graphics.setColor(1, 1, 1, 1)
+        wx = wx + moduleW
     end
 end
 
@@ -617,19 +632,6 @@ local function drawSaloonLrkDecorFloorAndLamps(floorY, roomW)
     local left, right = L.lrkLoungeLeft, L.lrkLoungeRight
     if left >= right - 8 then return end
 
-    local fImg = lrk.imgs.floors
-    local fpQ = lrk.quads.floor_plank_warm
-    local fpSpec = Mods.saloonPixelinterior.quads.floor_plank_warm
-    if fImg and fpQ and fpSpec then
-        local fs = 0.55
-        local tw, th = fpSpec.w * fs, fpSpec.h * fs
-        love.graphics.setColor(1, 1, 1, 0.4)
-        for tx = left, right, tw * 0.92 do
-            love.graphics.draw(fImg, fpQ, tx, floorY + th * 0.2, 0, fs, fs)
-        end
-        love.graphics.setColor(1, 1, 1, 1)
-    end
-
     local decImg = lrk.imgs.decor
     local lampQ = lrk.quads.floor_lamp
     local lampSpec = Mods.saloonPixelinterior.quads.floor_lamp
@@ -637,7 +639,7 @@ local function drawSaloonLrkDecorFloorAndLamps(floorY, roomW)
         local ls = 0.42
         local lh = lampSpec.h * ls
         local spans = { left + 40, left + (right - left) * 0.52, right - 56 }
-        love.graphics.setColor(1, 1, 1, 0.92)
+        love.graphics.setColor(1, 1, 1, 1)
         for _, lx in ipairs(spans) do
             if lx > left + 8 and lx < right - 8 then
                 love.graphics.draw(decImg, lampQ, lx - lampSpec.w * ls * 0.5, floorY - lh, 0, ls, ls)
@@ -713,8 +715,9 @@ local function trySaloonWalkingInteract(key)
     if not monster.drunk and monster.img then
         local pcx = player.x + player.w / 2
         local pcy = player.y + player.h / 2
-        local mcx = monster.x + 6
-        local mcy = monster.y + 8
+        local mw, mh = monster.img:getDimensions()
+        local mcx = monster.x + mw * MONSTER_CAN_SCALE * 0.5
+        local mcy = monster.y + mh * MONSTER_CAN_SCALE * 0.5
         local mdx = pcx - mcx
         local mdy = pcy - mcy
         if (mdx * mdx + mdy * mdy) <= 35 * 35 then
@@ -916,16 +919,31 @@ function saloon:enter(_, _player, _roomManager)
     saloonWalkInteractConsumed = false
     Mods.DamageNumbers.clear()
 
-    -- Monster Energy on the bar counter — reset each visit
+    -- Monster Energy on the bar counter — reset each visit (top of can on countertop)
     monster.drunk = false
     local _floorY = Mods.saloonRoom.platforms[1].y
     local decorLayout = Mods.saloonRoom.decor
-    monster.x = (decorLayout and decorLayout.monsterX) or (Mods.saloonRoom.width - 112)
-    monster.y = _floorY - 26
     local okM, imgM = pcall(love.graphics.newImage, "assets/monster.png")
     if okM and imgM then
         imgM:setFilter("nearest", "nearest")
         monster.img = imgM
+    end
+    do
+        local scale = (decorLayout and decorLayout.barCounterScale) or 0.52
+        local segments = (decorLayout and decorLayout.barCounterSegments) or 2
+        if segments < 1 then segments = 1 end
+        local barH = BAR_COUNTER_IMG_H * scale
+        local barY = _floorY - barH
+        local mw, mh = 32, 48
+        if monster.img then
+            mw, mh = monster.img:getDimensions()
+        end
+        local surfaceY = saloonBarCounterSurfaceY(barY, scale)
+        monster.y = math.floor(surfaceY - mh * MONSTER_CAN_SCALE + 0.5)
+        local totalBarW = BAR_COUNTER_IMG_W * scale * segments
+        local bx = (decorLayout and decorLayout.barCounterX) or (Mods.saloonRoom.width - 178)
+        local mOffX = (decorLayout and decorLayout.monsterCanOffsetX) or 0
+        monster.x = math.floor(bx + totalBarW * 0.5 - mw * MONSTER_CAN_SCALE * 0.5 + 0.5 + mOffX)
     end
 
     mode = "walking"
@@ -1581,25 +1599,12 @@ function saloon:draw()
         local bw, bh = bgImage:getDimensions()
         local scale = math.max(viewW / bw, viewH / bh)
         local camX, camY = camera:position()
-        love.graphics.setColor(1, 1, 1, 0.7)
+        love.graphics.setColor(1, 1, 1, 1)
         love.graphics.draw(bgImage, camX - (bw * scale) / 2, camY - (bh * scale) / 2, 0, scale, scale)
     end
 
-    -- === LAYER 2: Back wall from bar pack (behind everything) ===
+    -- LRK window/bookshelf row height (no wall_bar sprite layer — it was painting a flat brown band over the photo)
     local wallY = floorY - 48
-    if decor.wall_bar then
-        love.graphics.setColor(1, 1, 1, 0.5)
-        local ww, wh = decor.wall_bar:getDimensions()
-        -- Tile it across the room width, positioned above the floor
-        local wallScale = 0.5
-        local scaledH = wh * wallScale
-        wallY = floorY - scaledH
-        local scaledW = ww * wallScale
-        for wx = 0, roomW, scaledW do
-            love.graphics.draw(decor.wall_bar, wx, wallY, 0, wallScale, wallScale)
-        end
-        love.graphics.setColor(1, 1, 1, 1)
-    end
 
     drawSaloonLrkDecorWall(floorY, roomW, wallY)
 
@@ -1624,11 +1629,20 @@ function saloon:draw()
 
     -- Fridge to the left of the shelf
     drawSpriteFromBottom("fridge", L.fridgeX, floorY, 1.0, 1.0)
-    -- Shelf behind bar area (right side)
-    drawSprite("shelf", L.shelfX, floorY - 60, 0.6, 0.5)
-    -- Bottles on shelf
-    drawSprite("bottles", L.bottlesX, floorY - 52, 0.7, 0.7)
-    drawSprite("jars", L.jarsX, floorY - 50, 0.7, 0.7)
+    -- Back bar shelving (two units — same asset tiled right with small overlap)
+    local shelfSX, shelfSY = 0.6, 0.5
+    if decor.shelf then
+        local shelf2Off = (L.shelfSecondOffsetX) or math.floor(decor.shelf:getWidth() * shelfSX - 2)
+        drawSprite("shelf", L.shelfX, floorY - 60, shelfSX, shelfSY)
+        drawSprite("shelf", L.shelfX + shelf2Off, floorY - 60, shelfSX, shelfSY)
+        drawSprite("bottles", L.bottlesX, floorY - 52, 0.7, 0.7)
+        drawSprite("bottles", L.bottlesX + shelf2Off, floorY - 52, 0.7, 0.7)
+        drawSprite("jars", L.jarsX, floorY - 50, 0.7, 0.7)
+        drawSprite("jars", L.jarsX + shelf2Off, floorY - 50, 0.7, 0.7)
+    else
+        drawSprite("bottles", L.bottlesX, floorY - 52, 0.7, 0.7)
+        drawSprite("jars", L.jarsX, floorY - 50, 0.7, 0.7)
+    end
     -- Greenboard (menu/specials)
     drawSprite("greenboard", L.greenboardX, floorY - 70, 0.6, 0.6)
     -- Watch on wall
@@ -1637,8 +1651,35 @@ function saloon:draw()
     drawSprite("wanted", L.wantedX, floorY - 55, 0.35, 0.35)
     -- Boxes in the left corner
     drawSprite("boxes", 4, floorY - 16, 0.5, 0.5)
-    -- Umbrella/coat rack near exit door
-    drawSprite("umbrella", L.umbrellaX, floorY - 32, 0.6, 0.6)
+
+    -- Floor before NPCs and bar so planks never cover the counter or props
+    if decor.floor_wood then
+        love.graphics.setColor(1, 1, 1)
+        local fw, fh = decor.floor_wood:getDimensions()
+        local tileScale = 1.0
+        local tw = fw * tileScale
+        local th = fh * tileScale
+        for tx = 0, roomW, tw do
+            love.graphics.draw(decor.floor_wood, tx, floorY, 0, tileScale, tileScale)
+            love.graphics.draw(decor.floor_wood, tx, floorY + th, 0, tileScale, tileScale)
+        end
+    elseif decor.floor_bar then
+        love.graphics.setColor(1, 1, 1)
+        local fw, fh = decor.floor_bar:getDimensions()
+        local floorScale = roomW / fw
+        love.graphics.draw(decor.floor_bar, 0, floorY, 0, floorScale, floorScale)
+    else
+        love.graphics.setColor(0.25, 0.15, 0.08)
+        love.graphics.rectangle("fill", 0, floorY, roomW, 32)
+    end
+
+    drawSaloonLrkDecorFloorAndLamps(floorY, roomW)
+
+    -- Coat rack / umbrella — on the floor in the left lounge (after floor so feet sit on planks)
+    if decor.umbrella then
+        local uS = 0.55
+        drawSpriteFromBottom("umbrella", L.umbrellaX, floorY, uS, uS)
+    end
 
     -- === LAYER 4: NPCs (behind furniture — they stand behind counter/table) ===
     for _, npc in ipairs(npcs) do
@@ -1681,80 +1722,54 @@ function saloon:draw()
         love.graphics.rectangle("fill", tableX, woodTopY, tableW, 1)
     end
 
-    -- === LAYER 5b: Bar counter (foreground furniture) ===
+    -- === LAYER 5b: Bar counter (foreground furniture) — tile bar.png for length
+    local barScale, barW, _, barY, totalBarW, barSegments = saloonBarGeometry(floorY)
     if decor.bar_counter then
         love.graphics.setColor(1, 1, 1)
-        -- Bar counter on right side, in front of bartender
-        local bw, bh = decor.bar_counter:getDimensions()
-        local barScale = 0.4
         local barX = L.barCounterX
-        local barY = floorY - bh * barScale
-        love.graphics.draw(decor.bar_counter, barX, barY, 0, barScale, barScale)
-    end
-
-    -- Stools in front of bar
-    if decor.stool then
-        local stoolScale = 0.5
-        for i = 0, 2 do
-            drawSpriteFromBottom("stool", L.stoolStartX + i * 22, floorY, stoolScale, stoolScale)
+        local seam = 1
+        for seg = 0, barSegments - 1 do
+            local sx = barX + seg * (barW - seam)
+            love.graphics.draw(decor.bar_counter, sx, barY, 0, barScale, barScale)
         end
     end
 
-    -- Glass on bar counter
-    drawSprite("glass", L.glass1X, floorY - 22, 0.7, 0.7)
-    drawSprite("glass", L.glass2X, floorY - 22, 0.7, 0.7)
+    -- Stools in front of bar (centered under full counter width)
+    if decor.stool then
+        local stoolScale = 0.5
+        local nStools = (L.stoolCount) or 6
+        if nStools < 1 then nStools = 1 end
+        local sw = decor.stool:getWidth() * stoolScale
+        local gapB = (L.stoolGapBetween) or 8
+        local rowW = nStools * sw + (nStools - 1) * gapB
+        local stoolStartX = L.barCounterX + math.floor((totalBarW - rowW) / 2 + 0.5)
+        for i = 0, nStools - 1 do
+            drawSpriteFromBottom("stool", stoolStartX + i * (sw + gapB), floorY, stoolScale, stoolScale)
+        end
+    end
+
+    -- Beer mugs: bottom edge on countertop (drawSprite top-anchored was leaving bases at stool height)
+    local glassFootY = saloonBarCounterSurfaceY(barY, barScale)
+    local glassS = 0.7
+    local bx0 = L.barCounterX
+    local g1x = bx0 + math.floor(totalBarW * 0.16)
+    local g2x = bx0 + math.floor(totalBarW * 0.30)
+    drawSpriteFromBottom("glass", g1x, glassFootY, glassS, glassS)
+    drawSpriteFromBottom("glass", g2x, glassFootY, glassS, glassS)
+
+    -- Vase on bar counter (right segment; was on roulette table)
+    if decor.vase then
+        local vaseS = 0.42
+        local vw = decor.vase:getWidth() * vaseS
+        -- Slightly left of center so it clears the Monster can on the right
+        local vaseX = bx0 + math.floor(totalBarW * 0.56) - math.floor(vw * 0.5)
+        drawSpriteFromBottom("vase", vaseX, glassFootY, vaseS, vaseS)
+    end
 
     -- Monster Energy on bar counter
     if not monster.drunk and monster.img then
         love.graphics.setColor(1, 1, 1)
-        local mw, mh = monster.img:getDimensions()
-        local mScale = 0.4
-        love.graphics.draw(monster.img, monster.x, monster.y, 0, mScale, mScale)
-    end
-
-    -- === LAYER 6: Floor (tiled wooden planks) ===
-    if decor.floor_wood then
-        love.graphics.setColor(1, 1, 1)
-        local fw, fh = decor.floor_wood:getDimensions()
-        local tileScale = 1.0
-        local tw = fw * tileScale
-        local th = fh * tileScale
-        -- Tile across room width, stacking 2 rows
-        for tx = 0, roomW, tw do
-            love.graphics.draw(decor.floor_wood, tx, floorY, 0, tileScale, tileScale)
-            love.graphics.draw(decor.floor_wood, tx, floorY + th, 0, tileScale, tileScale)
-        end
-        -- Dark fill below the tiles
-        love.graphics.setColor(0.1, 0.06, 0.03)
-        love.graphics.rectangle("fill", 0, floorY + th * 2, roomW, 50)
-    elseif decor.floor_bar then
-        love.graphics.setColor(1, 1, 1)
-        local fw, fh = decor.floor_bar:getDimensions()
-        local floorScale = roomW / fw
-        love.graphics.draw(decor.floor_bar, 0, floorY, 0, floorScale, floorScale)
-        love.graphics.setColor(0.15, 0.1, 0.08)
-        love.graphics.rectangle("fill", 0, floorY + fh * floorScale, roomW, 50)
-    else
-        love.graphics.setColor(0.25, 0.15, 0.08)
-        love.graphics.rectangle("fill", 0, floorY, roomW, 32)
-    end
-
-    drawSaloonLrkDecorFloorAndLamps(floorY, roomW)
-
-    -- Vase on roulette table surface (not mid-air on the wall)
-    if decor.vase then
-        local dealerX = Mods.saloonRoom.npcs[1].x
-        local tableScale = 0.4
-        local tableW = 108 * tableScale
-        local tableH = 64 * tableScale
-        local tableX = dealerX + 10 - tableW / 2
-        local woodH = 6
-        local woodTopY = floorY - woodH
-        local feltY = woodTopY - tableH + 8
-        local vaseS = 0.38
-        local vw = decor.vase:getWidth() * vaseS
-        local vh = decor.vase:getHeight() * vaseS
-        drawSprite("vase", tableX + tableW * 0.5 - vw * 0.5, feltY + tableH - vh - 1, vaseS, vaseS)
+        love.graphics.draw(monster.img, monster.x, monster.y, 0, MONSTER_CAN_SCALE, MONSTER_CAN_SCALE)
     end
 
     -- === LAYER 7: Exit door ===
@@ -1856,8 +1871,9 @@ function saloon:draw()
     if mode == "walking" and not monster.drunk and monster.img and player then
         local pcx = player.x + player.w / 2
         local pcy = player.y + player.h / 2
-        local mcx = monster.x + 6
-        local mcy = monster.y + 8
+        local mw, mh = monster.img:getDimensions()
+        local mcx = monster.x + mw * MONSTER_CAN_SCALE * 0.5
+        local mcy = monster.y + mh * MONSTER_CAN_SCALE * 0.5
         local mdx = pcx - mcx
         local mdy = pcy - mcy
         if (mdx * mdx + mdy * mdy) <= 35 * 35 then
