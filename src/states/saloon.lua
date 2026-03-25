@@ -813,6 +813,7 @@ function saloon:enter(_, _player, _roomManager)
     player.y = sp.y
     player.grounded = false
     player.jumpCount = 0
+    player.airborneFromWalkoff = false
     player.coyoteTimer = 0
     player.jumpBufferTimer = 0
     player.dashTimer = 0

@@ -2408,6 +2408,7 @@ function game:update(dt)
             local loss = OUT_OF_BOUNDS_HP_PENALTY
             player.hp = math.max(0, player.hp - loss)
             player.iframes = math.max(player.iframes or 0, 1.0)
+            player.hurtBlinkTimer = math.max(player.hurtBlinkTimer or 0, 1.0)
             Mods.Sfx.play("hurt")
             local pcx = player.x + player.w / 2
             local pcy = player.y + player.h / 2

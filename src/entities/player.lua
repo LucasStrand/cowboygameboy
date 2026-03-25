@@ -166,7 +166,9 @@ function Player.new(x, y)
     self.grounded = false
     self.coyoteTimer = 0
     self.jumpBufferTimer = 0
-    self.jumpCount = 0 -- 0 = can ground/coyote jump, 1 = can double jump, 2 = spent
+    self.jumpCount = 0 -- 0 = first jump available, 1 = double jump available, 2 = spent
+    -- Left solid ground without using a jump this step; next air jump spends the full chain.
+    self.airborneFromWalkoff = false
 
     self.dashTimer = 0
     self.dashCooldown = 0
@@ -216,6 +218,8 @@ function Player.new(x, y)
     self.gold = 0
 
     self.iframes = 0
+    -- Post-hit visibility blink only (dash/ult iframes do not set this — avoids strobing during dash).
+    self.hurtBlinkTimer = 0
     self.deadEyeTimer = 0
 
     -- Ultimate: Dead Man's Hand
@@ -436,6 +440,9 @@ function Player:update(dt, world, enemies)
     if self.iframes > 0 then
         self.iframes = self.iframes - dt
     end
+    if self.hurtBlinkTimer > 0 then
+        self.hurtBlinkTimer = math.max(0, self.hurtBlinkTimer - dt)
+    end
 
     -- Dead eye timer
     if self.deadEyeTimer > 0 then
@@ -582,10 +589,13 @@ function Player:update(dt, world, enemies)
         end
     end
 
+    local groundedBeforeMovement = self.grounded
+
     -- Coyote time + jump chain reset while supported
     if self.grounded then
         self.coyoteTimer = COYOTE_TIME
         self.jumpCount = 0
+        self.airborneFromWalkoff = false
     else
         self.coyoteTimer = self.coyoteTimer - dt
     end
@@ -607,14 +617,23 @@ function Player:update(dt, world, enemies)
         end
     end
 
-    -- Buffered jump: ground/coyote first, then one mid-air jump (double jump)
+    -- Buffered jump: ground/coyote jump keeps double-jump. Walk-off (no jump off ledge) gives
+    -- one recovery jump only — same jump sets jumpCount = 2 so double-jump is disabled.
     if self.jumpBufferTimer > 0 and not blockRooted then
         if self.jumpCount == 0 and self.coyoteTimer > 0 then
             self.vy = effectiveStats.jumpForce
             self.grounded = false
             self.coyoteTimer = 0
             self.jumpBufferTimer = 0
-            self.jumpCount = 1
+            self.jumpCount = self.airborneFromWalkoff and 2 or 1
+            self.airborneFromWalkoff = false
+            Sfx.play("jump")
+        elseif self.jumpCount == 0 and not self.grounded then
+            self.vy = effectiveStats.jumpForce
+            self.jumpBufferTimer = 0
+            self.coyoteTimer = 0
+            self.jumpCount = 2
+            self.airborneFromWalkoff = false
             Sfx.play("jump")
         elseif self.jumpCount == 1 then
             self.vy = effectiveStats.jumpForce * DOUBLE_JUMP_MULT
@@ -639,9 +658,14 @@ function Player:update(dt, world, enemies)
             self.grounded = true
             self.vy = 0
             self.jumpCount = 0
+            self.airborneFromWalkoff = false
         elseif col.normal.y == 1 then
             self.vy = 0
         end
+    end
+
+    if groundedBeforeMovement and not self.grounded and self.jumpCount == 0 then
+        self.airborneFromWalkoff = true
     end
 
     -- Animation state machine (priority: one-shots > air > ground movement)
@@ -1002,6 +1026,7 @@ function Player:applyResolvedDamage(result, _, packet)
     self.hp = self.hp - (result.final_damage or 0)
     if not bypass_iframes then
         self.iframes = 0.5
+        self.hurtBlinkTimer = 0.5
         Sfx.play("hurt")
     end
 
@@ -1212,8 +1237,8 @@ function Player:draw()
 
     local t = love.timer.getTime()
 
-    -- Flash when invulnerable
-    if not self.dying and self.iframes > 0 and math.floor(self.iframes * 10) % 2 == 0 then
+    -- Flash when recently hurt (not generic iframes — dash grants iframes without this blink).
+    if not self.dying and self.hurtBlinkTimer > 0 and math.floor(self.hurtBlinkTimer * 10) % 2 == 0 then
         return
     end
 
