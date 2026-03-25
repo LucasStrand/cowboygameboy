@@ -1,4 +1,5 @@
 local ImpactFX = require("src.systems.impact_fx")
+local GameRng = require("src.systems.game_rng")
 local Sfx = require("src.systems.sfx")
 
 local Bullet = {}
@@ -92,7 +93,15 @@ function Bullet:update(dt, world)
                 self.y = self.y + col.normal.y * 2
                 world:update(self, self.x, self.y)
                 if not self.fromEnemy then
-                    Sfx.play("ricochet")
+                    local meta = self.packet and self.packet.metadata
+                    local wid = meta and meta.source_weapon_id
+                    if wid == "revolver" then
+                        local idx = GameRng.random("revolver_ricochet", 1, 3)
+                        local ids = { "ricochet_revolver_1", "ricochet_revolver_2", "ricochet_revolver_3" }
+                        Sfx.play(ids[idx])
+                    else
+                        Sfx.play("ricochet")
+                    end
                 end
                 if debugLog then debugLog("Ricochet bounce (" .. self.ricochet .. " left)") end
                 return

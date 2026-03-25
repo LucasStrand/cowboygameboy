@@ -2626,6 +2626,7 @@ function game:keypressed(key)
             ult.flashAlpha = 1
             ult.vignetteAlpha = 1
             Mods.Sfx.play("ult_activate")
+            Mods.Sfx.play("yeehaw", { volume = 0.92 })
             shakeTimer = 0.55
             shakeIntensity = 8
         end
