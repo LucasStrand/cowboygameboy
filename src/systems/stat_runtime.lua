@@ -1,4 +1,5 @@
 local StatRegistry = require("src.data.stat_registry")
+local Weapons = require("src.data.weapons")
 
 local StatRuntime = {}
 
@@ -236,20 +237,12 @@ function StatRuntime.build_player_context(player, gun, base_gun_stats)
         end
     end
 
-    local secondary_is_melee = true
-    if player.getWeaponRuntime then
-        local slot2 = player:getWeaponRuntime(2)
-        secondary_is_melee = not slot2 or slot2.mode ~= "weapon"
-    else
-        -- Legacy fallback for callers that do not yet provide a runtime-backed player.
-        secondary_is_melee = not (player.weapons and player.weapons[2] and player.weapons[2].gun)
-    end
-
-    if secondary_is_melee then
-        local melee = player.gear and player.gear.melee
-        if melee and melee.stats then
-            flat_sources.gear_melee = cloneTable(melee.stats)
-        end
+    -- Melee stance is independent of which weapon slot holds a gun: knife stats only when equipped.
+    local meleeGear = player.gear and player.gear.melee
+    if meleeGear and meleeGear.stats then
+        flat_sources.gear_melee = cloneTable(meleeGear.stats)
+    elseif Weapons.defaults.unarmed and Weapons.defaults.unarmed.stats then
+        flat_sources.unarmed_melee = cloneTable(Weapons.defaults.unarmed.stats)
     end
 
     local buff_mods = nil

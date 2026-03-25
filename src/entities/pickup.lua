@@ -4,6 +4,7 @@ local Guns = require("src.data.guns")
 local GoldCoin = require("src.ui.gold_coin")
 local WorldInteractLabelBatch = require("src.ui.world_interact_label_batch")
 local Vision = require("src.data.vision")
+local GearIcons = require("src.ui.gear_icons")
 
 -- Must match Combat.lua PICKUP_COLLECT_RADIUS (used for label priority only; no combat require here).
 local WEAPON_INTERACT_RADIUS = 26
@@ -56,7 +57,7 @@ local XP_ATTRACT_SPEED_MIN = 110
 local XP_ATTRACT_SPEED_MAX = 300
 local XP_ATTRACT_ACCEL = 340
 
-function Pickup.new(x, y, pickupType, value)
+function Pickup.new(x, y, pickupType, value, opts)
     local self = setmetatable({}, Pickup)
     self.x = x
     self.y = y
@@ -95,6 +96,16 @@ function Pickup.new(x, y, pickupType, value)
         self.w = 14
         self.h = 14
         self.lifetime = 30         -- weapons stay longer
+        if opts and opts.droppedAmmo ~= nil then
+            self.droppedAmmo = math.max(0, math.floor(tonumber(opts.droppedAmmo) or 0))
+        end
+    end
+
+    if pickupType == "melee_gear" then
+        self.gearDef = value
+        self.w = 12
+        self.h = 12
+        self.lifetime = 30
     end
 
     return self
@@ -369,6 +380,29 @@ function Pickup:draw(player, camera, shakeX, shakeY, room, allPickups)
             gap = 6,
             alpha = airMul,
             priority = priority,
+        })
+    elseif self.pickupType == "melee_gear" and self.gearDef then
+        local cx = self.x + self.w / 2
+        local cy = self.y + self.h / 2 + dy
+        local t = love.timer.getTime()
+        local pulse = 0.85 + 0.15 * math.sin(t * 4)
+        love.graphics.setColor(0.55, 0.5, 0.45, 0.35 * pulse * airMul)
+        love.graphics.circle("fill", cx, cy, 12)
+        love.graphics.setColor(0.82, 0.78, 0.7, airMul)
+        love.graphics.circle("line", cx, cy, 12)
+        if not GearIcons.draw(self.gearDef.icon, self.x, self.y + dy, self.w, self.h, 2, airMul) then
+            love.graphics.setColor(0.9, 0.88, 0.82, airMul)
+            love.graphics.rectangle("fill", self.x + 2, self.y + 2 + dy, self.w - 4, self.h - 4)
+        end
+        if not Pickup._weaponFont then
+            Pickup._weaponFont = Font.new(8)
+        end
+        WorldInteractLabelBatch.queue(cx, self.y + dy - 2, self.gearDef.name or "Melee", {
+            font = Pickup._weaponFont,
+            fg = { 0.82, 0.78, 0.7 },
+            gap = 4,
+            alpha = airMul,
+            priority = 800,
         })
     end
 

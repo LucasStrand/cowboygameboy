@@ -644,8 +644,8 @@ function HUD.draw(player)
         end
 
         local meleeLabel = gun2 and gun2.name
-            or (player.gear.melee and player.gear.melee.name) or "Melee"
-        local shieldLabel = (player.gear.shield and player.gear.shield.name) or "Shield"
+            or (player.gear.melee and player.gear.melee.name) or "Fists"
+        local shieldLabel = (player.gear.shield and player.gear.shield.name) or "—"
 
         local slots = {
             { id = "gun",   label = gun1 and gun1.name or "Gun",  gun = gun1,

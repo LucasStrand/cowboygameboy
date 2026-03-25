@@ -458,6 +458,44 @@ function WeaponRuntime.equipWeapon(player, gun_def, slot_index)
     return true
 end
 
+--- Remove ranged weapon from a slot (that slot becomes empty / melee stance for that slot only).
+--- @return table|nil gun_def, integer ammo — nil if slot was already melee
+function WeaponRuntime.removeWeaponFromSlot(player, slot_index)
+    local slot = WeaponRuntime.getSlot(player, slot_index)
+    if not slot or slot.mode ~= "weapon" or not slot.weapon_def then
+        return nil
+    end
+
+    local gun_def = slot.weapon_def
+    local ammo = slot.ammo or 0
+
+    slot.mode = "melee"
+    slot.weapon_id = nil
+    slot.weapon_def = nil
+    slot.attack_profile_id = nil
+    slot.ammo = 0
+    slot.reload_timer = 0
+    slot.cooldown_timer = 0
+    slot.charges = nil
+    slot.shots_since_reload = 0
+    slot.passive_counters = {}
+    slot.per_target_counters = {}
+    slot.temporary_flags = {}
+
+    local runtime = player.weaponRuntime
+    if runtime and runtime.active_weapon_slot == slot_index then
+        local other = slot_index == 1 and 2 or 1
+        local other_slot = runtime.weapon_slots[other]
+        if other_slot and other_slot.mode == "weapon" then
+            runtime.active_weapon_slot = other
+        end
+    end
+
+    WeaponRuntime.syncLegacyViews(player)
+    debugDump(player, "unequip_drop")
+    return gun_def, ammo
+end
+
 function WeaponRuntime.startReload(player, slot_index)
     local slot = WeaponRuntime.getSlot(player, slot_index)
     if not slot or slot.mode ~= "weapon" or not slot.weapon_def then

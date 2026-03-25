@@ -48,6 +48,8 @@ local Mods = {
     source_ref = require("src.systems.source_ref"),
 }
 
+local WeaponsData = require("src.data.weapons")
+
 local game = {}
 game._runtime = {}
 
@@ -722,34 +724,10 @@ local function processPendingEnemySpawns(dt)
     end
 end
 
-local function refreshMouseAimOverride(pl, idleSec)
-    local t = love.timer.getTime()
-    if love.mouse.isDown(1) or love.mouse.isDown(2) then
-        pl.mouseAimOverrideUntil = t + idleSec
-    end
-end
-
---- Aim point when not using mouse: horizontal line from player in move / last-facing direction.
-local function keyboardFallbackAimPoint(pl)
-    local cx = pl.x + pl.w * 0.5
-    local cy = pl.y + pl.h * 0.5
-    local ml = love.keyboard.isDown("a") or love.keyboard.isDown("left")
-    local mr = love.keyboard.isDown("d") or love.keyboard.isDown("right")
-    local dir
-    if mr and not ml then
-        dir = 1
-    elseif ml and not mr then
-        dir = -1
-    else
-        dir = pl.facingRight and 1 or -1
-    end
-    return cx + dir * 240, cy
-end
-
 local function drawAimCrosshair()
     if not player then return end
     if not Mods.Settings.getShowCrosshair() then return end
-    -- Hide only in pure auto+keyboard mode; show again while mouse is active (even with auto on)
+    -- Hide in auto-gun mode when not holding primary (attack); show while LMB held so cursor aim is visible
     if player.autoGun and player.keyboardAimMode then return end
     local px = player.x + player.w * 0.5
     local py = player.y + player.h * 0.5
@@ -1299,7 +1277,7 @@ end
 local function drawCharacterSheet()
     if not player then return end
     local pad = 14
-    local w, h = 332, 452
+    local w, h = 332, 508
     local x, y = 18, 56
     love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
     love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -1385,10 +1363,22 @@ local function drawCharacterSheet()
     drawGearBlock("hat", "Hat")
     drawGearBlock("vest", "Vest")
     drawGearBlock("boots", "Boots")
-    drawGearBlock("melee", "Melee")
+    do
+        local mg = player.gear.melee
+        local show = mg and mg.name or "Fists"
+        love.graphics.setColor(0.88, 0.82, 0.72)
+        love.graphics.print(string.format("Melee: %s", show), x + pad, py)
+        py = py + 18
+        local tipGear = mg or WeaponsData.defaults.unarmed
+        drawWrappedSectionLines(Mods.ContentTooltips.getLines("gear", tipGear), { 0.75, 0.84, 0.74, 1 })
+    end
     drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
+    love.graphics.print("1 / 2 — drop weapon from that slot (floor pickup)", x + pad, py)
+    py = py + 18
+    love.graphics.print("M — drop melee gear (e.g. knife) to the floor", x + pad, py)
+    py = py + 18
     local ck = Mods.Keybinds.formatActionKey("character")
     love.graphics.print(string.format("%s to close  ·  ESC", ck), x + pad, py)
 end
@@ -2142,10 +2132,7 @@ function game:update(dt)
             player.aimWorldY = wy
         end
 
-        local aimIdle = Mods.Settings.getMouseAimIdleSec()
-        refreshMouseAimOverride(player, aimIdle)
-        local tNow = love.timer.getTime()
-        mouseAimOn = tNow < (player.mouseAimOverrideUntil or 0)
+        mouseAimOn = love.mouse.isDown(1)
         player.keyboardAimMode = not mouseAimOn
         local nightMode = currentRoom and currentRoom.nightMode
         autoTx, autoTy = Mods.Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB, camera, nightMode, 0, 0)
@@ -2154,7 +2141,7 @@ function game:update(dt)
         elseif autoTx then
             player.effectiveAimX, player.effectiveAimY = autoTx, autoTy
         else
-            player.effectiveAimX, player.effectiveAimY = keyboardFallbackAimPoint(player)
+            player.effectiveAimX, player.effectiveAimY = player:keyboardFallbackAimPoint()
         end
     end
 
@@ -2605,6 +2592,20 @@ function game:keypressed(key)
         return
     end
 
+    if not paused and characterSheetOpen and player and world and pickups then
+        local dropSlot = (key == "1" or key == "kp1") and 1
+            or (key == "2" or key == "kp2") and 2
+            or nil
+        if dropSlot then
+            Mods.Combat.dropPlayerWeaponToFloor(player, world, pickups, dropSlot)
+            return
+        end
+        if key == "m" then
+            Mods.Combat.dropPlayerMeleeGear(player, world, pickups)
+            return
+        end
+    end
+
     if Mods.Keybinds.matches("character", key) then
         characterSheetOpen = not characterSheetOpen
         return
@@ -2733,9 +2734,6 @@ function game:mousemoved(x, y, dx, dy)
         return
     end
     if not player then return end
-    if math.abs(dx) + math.abs(dy) > 0.25 then
-        player.mouseAimOverrideUntil = love.timer.getTime() + Mods.Settings.getMouseAimIdleSec()
-    end
 end
 
 function game:mousepressed(x, y, button)
@@ -2816,9 +2814,6 @@ function game:mousepressed(x, y, button)
             end
         end
         return
-    end
-    if player then
-        player.mouseAimOverrideUntil = love.timer.getTime() + Mods.Settings.getMouseAimIdleSec()
     end
     if button == 1 and player and not player.blocking then
         local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)

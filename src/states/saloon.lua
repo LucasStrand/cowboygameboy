@@ -34,6 +34,8 @@ local Mods = {
     WorldInteractLabelBatch = require("src.ui.world_interact_label_batch"),
 }
 
+local WeaponsData = require("src.data.weapons")
+
 local saloon = {}
 
 -- Persistent assets (loaded once)
@@ -422,7 +424,7 @@ end
 local function drawCharacterSheet()
     if not player then return end
     local pad = 14
-    local w, h = 332, 452
+    local w, h = 332, 508
     local x, y = 18, 56
     love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
     love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -508,10 +510,22 @@ local function drawCharacterSheet()
     drawGearBlock("hat", "Hat")
     drawGearBlock("vest", "Vest")
     drawGearBlock("boots", "Boots")
-    drawGearBlock("melee", "Melee")
+    do
+        local mg = player.gear.melee
+        local show = mg and mg.name or "Fists"
+        love.graphics.setColor(0.88, 0.82, 0.72)
+        love.graphics.print(string.format("Melee: %s", show), x + pad, py)
+        py = py + 18
+        local tipGear = mg or WeaponsData.defaults.unarmed
+        drawWrappedSectionLines(Mods.ContentTooltips.getLines("gear", tipGear), { 0.75, 0.84, 0.74, 1 })
+    end
     drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
+    love.graphics.print("1 / 2 — drop weapon from that slot (floor pickup)", x + pad, py)
+    py = py + 18
+    love.graphics.print("M — drop melee gear (e.g. knife) to the floor", x + pad, py)
+    py = py + 18
     local ck = Mods.Keybinds.formatActionKey("character")
     love.graphics.print(string.format("%s to close  ·  ESC", ck), x + pad, py)
 end
@@ -942,8 +956,13 @@ function saloon:update(dt)
             local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
             player.aimWorldX = wx
             player.aimWorldY = wy
-            player.effectiveAimX, player.effectiveAimY = wx, wy
-            player.keyboardAimMode = false
+            if love.mouse.isDown(1) then
+                player.effectiveAimX, player.effectiveAimY = wx, wy
+                player.keyboardAimMode = false
+            else
+                player.effectiveAimX, player.effectiveAimY = player:keyboardFallbackAimPoint()
+                player.keyboardAimMode = true
+            end
         end
 
         player:update(dt, world, {})
@@ -1169,6 +1188,20 @@ function saloon:keypressed(key)
             end
         end
         return
+    end
+
+    if not paused and characterSheetOpen and player and world and pickups then
+        local dropSlot = (key == "1" or key == "kp1") and 1
+            or (key == "2" or key == "kp2") and 2
+            or nil
+        if dropSlot then
+            Mods.Combat.dropPlayerWeaponToFloor(player, world, pickups, dropSlot)
+            return
+        end
+        if key == "m" then
+            Mods.Combat.dropPlayerMeleeGear(player, world, pickups)
+            return
+        end
     end
 
     if Mods.Keybinds.matches("character", key) then

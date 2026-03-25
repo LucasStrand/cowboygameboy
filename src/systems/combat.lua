@@ -13,8 +13,31 @@ local Buffs = require("src.systems.buffs")
 local GameRng = require("src.systems.game_rng")
 local SourceRef = require("src.systems.source_ref")
 local AttackPacketBuilder = require("src.systems.attack_packet_builder")
+local WeaponRuntime = require("src.systems.weapon_runtime")
 
 local Combat = {}
+
+--- Deep-enough copy for floor melee gear so player gear and pickup defs never share `stats` tables.
+function Combat.cloneMeleeGearDef(g)
+    if not g then
+        return nil
+    end
+    local st = nil
+    if g.stats then
+        st = {}
+        for k, v in pairs(g.stats) do
+            st[k] = v
+        end
+    end
+    return {
+        id = g.id,
+        name = g.name,
+        slot = g.slot or "melee",
+        tier = g.tier,
+        icon = g.icon,
+        stats = st,
+    }
+end
 
 local explosiveShakeHook = nil
 
@@ -88,16 +111,85 @@ function Combat.tryEquipWeaponPickup(pickups, player, world)
     local i = Combat.findClosestGroundedWeaponIndex(pickups, player)
     if not i then return false end
     local p = pickups[i]
-    player:equipWeapon(p.gunDef, player.activeWeaponSlot)
+    local slotIdx = player.activeWeaponSlot
+    player:equipWeapon(p.gunDef, slotIdx)
+    if p.droppedAmmo ~= nil then
+        local slot = WeaponRuntime.getSlot(player, slotIdx)
+        if slot and slot.mode == "weapon" then
+            local cap = WeaponRuntime.getAmmoCapacity(player, slotIdx) or 0
+            slot.ammo = math.max(0, math.min(p.droppedAmmo, cap))
+            WeaponRuntime.syncLegacyViews(player)
+        end
+    end
     local cx = p.x + p.w / 2
     local cy = p.y + p.h / 2
     DamageNumbers.spawnPickup(cx, cy, p.gunDef.name, "weapon")
     Sfx.play("reload", { volume = 0.55 })
+    player:playPickupAnim()
     p.alive = false
     if world and world:hasItem(p) then
         world:remove(p)
     end
     table.remove(pickups, i)
+    return true
+end
+
+--- Spawn the player's weapon from a slot onto the floor (Character sheet: 1 / 2).
+--- @return boolean
+function Combat.dropPlayerWeaponToFloor(player, world, pickups, slotIndex)
+    if not player or not world or not pickups then
+        return false
+    end
+    if Buffs.getControlState(player.statuses).stunned then
+        return false
+    end
+    slotIndex = slotIndex or 1
+    if slotIndex ~= 1 and slotIndex ~= 2 then
+        return false
+    end
+
+    local gun_def, ammo = WeaponRuntime.removeWeaponFromSlot(player, slotIndex)
+    if not gun_def then
+        return false
+    end
+
+    local toss = player.facingRight and 95 or -95
+    local px = player.x + player.w * 0.5 - 7 + (player.facingRight and 8 or -8)
+    local py = player.y + player.h - 12
+    local p = Pickup.new(px, py, "weapon", gun_def, { droppedAmmo = ammo })
+    p.vx = toss
+    p.vy = -110
+    world:add(p, p.x, p.y, p.w, p.h)
+    table.insert(pickups, p)
+    Sfx.play("reload", { volume = 0.4 })
+    return true
+end
+
+--- Drop equipped melee gear (knife) to the floor. Character sheet: M while open.
+function Combat.dropPlayerMeleeGear(player, world, pickups)
+    if not player or not world or not pickups then
+        return false
+    end
+    if Buffs.getControlState(player.statuses).stunned then
+        return false
+    end
+    if not player.gear or not player.gear.melee then
+        return false
+    end
+
+    local gearCopy = Combat.cloneMeleeGearDef(player.gear.melee)
+    player.gear.melee = nil
+    player:syncLegacyWeaponViews()
+
+    local toss = player.facingRight and 88 or -88
+    local px = player.x + player.w * 0.5 - 6 + (player.facingRight and 6 or -6)
+    local py = player.y + player.h - 10
+    local p = Pickup.new(px, py, "melee_gear", gearCopy)
+    p.vx = toss
+    p.vy = -95
+    world:add(p, p.x, p.y, p.w, p.h)
+    table.insert(pickups, p)
+    Sfx.play("reload", { volume = 0.35 })
     return true
 end
 
@@ -657,7 +749,6 @@ function Combat.checkPlayerMelee(player, enemies)
                 if result.applied then
                     applyStatusApplications(packet, result, player, e, "enemy", nil)
                     DamageNumbers.spawn(e.x + e.w / 2, e.y + e.h / 2 - 4, result.final_damage, "out")
-                    ImpactFX.spawn(e.x + e.w / 2, e.y + e.h / 2, "melee", nil, player.meleeAimAngle)
                     Sfx.play("melee_hit")
                     player.meleeHitEnemies[e] = true
                     player.meleeHitFlashTimer = 0.2
@@ -696,9 +787,6 @@ function Combat.checkPlayerMeleeVegetation(player, decorProps)
                 player.meleeHitDecor[prop] = true
                 player.meleeHitFlashTimer = 0.12
                 Sfx.play("melee_hit", { volume = 0.22 })
-                local cx = prop.x
-                local cy = (prop.footY or 0) + (prop.sink or 0) - 40 * sc
-                ImpactFX.spawn(cx, cy, "melee", nil, player.meleeAimAngle)
             end
         end
     end
@@ -721,6 +809,7 @@ function Combat.checkPickups(pickups, player, world)
         -- XP: after its short pop-out (Pickup.xpMagnetDelay), it self-attracks from any range.
         -- Other loot: magnet only when grounded and in pickup radius.
         -- Weapons use interact tap/hold (see advanceWeaponPickupInteraction), not proximity.
+        -- melee_gear: magnet like consumables.
         -- Health: only magnet when HP is not full (otherwise leave pack on the ground).
         if p.pickupType ~= "xp" and dist < attractR and p.pickupType ~= "weapon" and p.grounded then
             if p.pickupType == "health" then
@@ -755,6 +844,11 @@ function Combat.checkPickups(pickups, player, world)
                     Sfx.play("pickup_health")
                     collected = true
                 end
+            elseif p.pickupType == "melee_gear" and p.gearDef then
+                player:equipGear(Combat.cloneMeleeGearDef(p.gearDef))
+                DamageNumbers.spawnPickup(cx, cy, p.gearDef.name or "Melee", "weapon")
+                Sfx.play("reload", { volume = 0.5 })
+                collected = true
             end
             if p.pickupType == "xp" or p.pickupType == "gold" or p.pickupType == "silver" then
                 collected = true
@@ -762,6 +856,7 @@ function Combat.checkPickups(pickups, player, world)
         end
 
         if collected then
+            player:playPickupAnim()
             p.alive = false
         end
 

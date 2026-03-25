@@ -33,6 +33,10 @@ function Keybinds.normalizeCapturedKey(key)
     return key
 end
 
+function Keybinds.blockUsesCtrl()
+    return S() and S().block == "ctrl"
+end
+
 function Keybinds.isBlockDown()
     local b = S() and S().block
     if not b then return false end

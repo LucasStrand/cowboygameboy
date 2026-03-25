@@ -5,7 +5,6 @@ local Animator = require("src.systems.animation")
 local Keybinds = require("src.systems.keybinds")
 local Sfx = require("src.systems.sfx")
 local ImpactFX = require("src.systems.impact_fx")
-local GearIcons = require("src.ui.gear_icons")
 local Font = require("src.ui.font")
 local Buffs = require("src.systems.buffs")
 local DamagePacket = require("src.systems.damage_packet")
@@ -48,6 +47,11 @@ Player.__index = Player
 -- Seconds before game over after death. Death strip (~0.95s) plus long hold on the last frame.
 Player.DEATH_DURATION = 2.35
 
+-- Smoking idle: rarer trigger, short bouts, cooldown between; never during melee fight-stance idle.
+local IDLE_SMOKE_AFTER_STILL = 6
+local IDLE_SMOKE_PLAY_TIME = 3.5
+local IDLE_SMOKE_COOLDOWN_STILL = 22
+
 local GRAVITY = 900
 
 -- Melee swipe: same aim idea as bullets — segment from body toward cursor (AABB bounds the rotated stroke).
@@ -62,9 +66,9 @@ local JUMP_RELEASE_GRAVITY_MULT = 0.95 -- extra gravity while rising if jump not
 local DASH_SPEED = 520
 local DASH_DURATION = 0.12
 local DASH_COOLDOWN = 0.52
--- Melee swing: hit window + held dagger overlay (longer than melee anim tail so knife stays visible)
+-- Melee swing: hit window (longer than melee anim tail for combat resolution)
 local MELEE_SWING_DURATION = 0.30
-local DASH_MELEE_SWING_DURATION = 0.26  -- dash strike: linger past dash motion so dagger doesn’t vanish instantly
+local DASH_MELEE_SWING_DURATION = 0.26  -- dash strike: linger past dash motion for hit checks
 
 -- Original player base gun stats — used to compute perk deltas when a
 -- non-default weapon is equipped.  These MUST match the values in Player.new().
@@ -79,6 +83,10 @@ local PLAYER_BASE_GUN_STATS = {
 
 -- Face sprite toward horizontal aim; small deadzone only when aim is ~through torso
 local AIM_FACE_DEADZONE = 3
+-- F-melee without click: use cursor in world space; ignore if cursor is basically on the body
+local MELEE_CURSOR_MIN_DIST_SQ = 8 * 8
+-- During melee swing, flip body from strike angle if mostly horizontal (~vertical = keep prior facing branch)
+local MELEE_FACE_COS_THRESHOLD = 0.2
 
 -- Head/gun draw: turn relative to body forward so we never flip the cowboy upside down
 local MAX_HEAD_TURN = 1.32 -- ~75° each way from facing
@@ -236,8 +244,8 @@ function Player.new(x, y)
         hat    = nil,
         vest   = nil,
         boots  = nil,
-        melee  = Weapons.defaults.melee,
-        shield = Weapons.defaults.shield,
+        melee  = nil, -- knife / melee gear from pickups, shop, or saloon
+        shield = nil,
     }
 
     self.weapons = {}
@@ -261,15 +269,13 @@ function Player.new(x, y)
     self.aimWorldX = 0
     self.aimWorldY = 0
 
-    -- Set in game state: cursor aim, auto-target, or cursor fallback — drives gun/head angle + crosshair.
+    -- Set in game state: cursor aim, auto-target, or keyboard fallback — drives gun/head angle + crosshair.
     self.effectiveAimX = nil
     self.effectiveAimY = nil
-    -- While > love.timer.getTime(), shooting uses mouse aim instead of findAutoTarget.
-    self.mouseAimOverrideUntil = 0
-    -- Set each frame in game: true = ignore cursor for aim/facing (WASD + auto after mouse idle)
+    -- Set each frame in game: true = ignore cursor for aim/facing (WASD / auto-target)
     self.keyboardAimMode = true
 
-    -- Loadout automation (toggled via HUD right-click). Auto gun + mouse overrides aim while active.
+    -- Loadout automation (toggled via HUD right-click). Auto gun uses cursor aim only while primary (attack) button held.
     -- Shield auto-block only applies when equipped shield has stats.allowAutoBlock.
     self.autoGun   = true
     self.autoMelee = true
@@ -298,7 +304,9 @@ function Player.new(x, y)
 
     -- Sprite animation
     self.anim = Animator.new()
-    self.idleTimer = 0          -- seconds standing still, triggers smoking idle
+    self.idleTimer = 0          -- seconds standing still before smoking can start
+    self.smokeSessionTimer = 0  -- seconds in current smoking bout
+    self.smokeCooldownTimer = 0 -- seconds still to wait after a bout before smoking again
 
     self.dying = false
     self.deathTimer = 0
@@ -500,9 +508,10 @@ function Player:update(dt, world, enemies)
         self.meleeHitFlashTimer = math.max(0, self.meleeHitFlashTimer - dt)
     end
 
-    -- Blocking: bound key (default Ctrl). Auto-block only if this shield supports it (gear stat) and HUD toggle is on.
+    -- Blocking: only when a shield is equipped (no default shield). Auto-block only if gear supports it + HUD toggle.
     local keysBlock = Keybinds.isBlockDown()
     local autoBlockActive = false
+    local shieldEquipped = self.gear.shield ~= nil
     if self:shieldAllowsAutoBlock() and self.autoBlock and enemies then
         local px = self.x + self.w / 2
         local py = self.y + self.h / 2
@@ -518,8 +527,16 @@ function Player:update(dt, world, enemies)
             end
         end
     end
-    self.blocking  = keysBlock or autoBlockActive
-    self.crouching = love.keyboard.isDown("down") or Keybinds.isDown("drop")
+    self.blocking  = shieldEquipped and (keysBlock or autoBlockActive)
+    -- Crouch: down / drop (default S) / Ctrl — unless Ctrl is bound to block *and* a shield is equipped.
+    do
+        local blockOnCtrl = Keybinds.blockUsesCtrl()
+        local ctrlDown = love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl")
+        local crouchCtrl = ctrlDown and not (blockOnCtrl and shieldEquipped)
+        self.crouching = love.keyboard.isDown("down")
+            or Keybinds.isDown("drop")
+            or crouchCtrl
+    end
 
     -- Drop-through timer (set by tryDropThrough on keypressed, not polled)
     if self.dropThroughTimer > 0 then
@@ -554,29 +571,32 @@ function Player:update(dt, world, enemies)
     elseif blockRooted then
         self.vx = 0
     else
+        local walkSpd = effectiveStats.moveSpeed
+        if self.grounded and self.crouching and self.dashTimer <= 0 then
+            walkSpd = walkSpd * 0.52
+        end
         self.vx = 0
         if moveLeft then
-            self.vx = self.vx - effectiveStats.moveSpeed
+            self.vx = self.vx - walkSpd
         end
         if moveRight then
-            self.vx = self.vx + effectiveStats.moveSpeed
+            self.vx = self.vx + walkSpd
         end
     end
 
-    -- Facing: mouse-aim mode uses horizontal aim; keyboard mode uses WASD / move / dash only
+    -- Facing: active melee swing locks body to strike direction (F uses cursor, not movement aim).
+    -- Otherwise horizontal effective aim, then dash / velocity / held move keys.
     do
-        if self.keyboardAimMode then
-            if moveRight and not moveLeft then
-                self.facingRight = true
-            elseif moveLeft and not moveRight then
-                self.facingRight = false
-            elseif self.dashTimer > 0 and not blockRooted then
-                self.facingRight = self.dashDir > 0
-            elseif self.vx ~= 0 then
-                self.facingRight = self.vx > 0
+        local cx = self.x + self.w * 0.5
+        local usedMeleeFacing = false
+        if self.meleeSwingTimer > 0 then
+            local c = math.cos(self.meleeAimAngle)
+            if math.abs(c) >= MELEE_FACE_COS_THRESHOLD then
+                self.facingRight = c > 0
+                usedMeleeFacing = true
             end
-        else
-            local cx = self.x + self.w * 0.5
+        end
+        if not usedMeleeFacing then
             local ax = self.effectiveAimX or self.aimWorldX or cx
             local aimDx = ax - cx
             if math.abs(aimDx) > AIM_FACE_DEADZONE then
@@ -675,24 +695,54 @@ function Player:update(dt, world, enemies)
     -- Animation state machine (priority: one-shots > air > ground movement)
     local anim = self.anim
     anim:update(dt)
-    local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee" or anim.current == "drinking")
-        and not anim.done
+    local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee" or anim.current == "jab"
+        or anim.current == "knife_jab" or anim.current == "melee_fist"
+        or anim.current == "drinking" or anim.current == "pickup") and not anim.done
     if not oneShotPlaying then
         if self.dashTimer > 0 then
             anim:play("dash")
             self.idleTimer = 0
+            self.smokeSessionTimer = 0
         elseif not self.grounded then
             if self.vy < 0 then anim:play("jump") else anim:play("fall") end
             self.idleTimer = 0
+            self.smokeSessionTimer = 0
+        elseif self.crouching and (anim.quads.crouch or anim.quads.crouch_walk) then
+            if math.abs(self.vx) > 10 then
+                anim:play("crouch_walk")
+            else
+                anim:play("crouch")
+            end
+            self.idleTimer = 0
+            self.smokeSessionTimer = 0
         elseif math.abs(self.vx) > 10 then
             anim:play("run")
             self.idleTimer = 0
+            self.smokeSessionTimer = 0
         else
-            -- Idle: after 3 seconds of standing still, transition to smoking
             self.idleTimer = self.idleTimer + dt
-            if self.idleTimer >= 3 then
+            if self.smokeCooldownTimer > 0 then
+                self.smokeCooldownTimer = math.max(0, self.smokeCooldownTimer - dt)
+            end
+
+            local meleeFight = self:getActiveSlotMode() == "melee" and anim.quads.idle_melee
+
+            if meleeFight then
+                self.smokeSessionTimer = 0
+                anim:play("idle_melee")
+            elseif anim.current == "smoking" then
+                self.smokeSessionTimer = self.smokeSessionTimer + dt
+                if self.smokeSessionTimer >= IDLE_SMOKE_PLAY_TIME then
+                    self.smokeSessionTimer = 0
+                    self.idleTimer = 0
+                    self.smokeCooldownTimer = IDLE_SMOKE_COOLDOWN_STILL
+                    anim:play("idle", true)
+                end
+            elseif self.smokeCooldownTimer <= 0 and self.idleTimer >= IDLE_SMOKE_AFTER_STILL then
                 anim:play("smoking")
+                self.smokeSessionTimer = 0
             else
+                self.smokeSessionTimer = 0
                 anim:play("idle")
             end
         end
@@ -745,11 +795,6 @@ function Player:tryDash()
         self.meleeCooldown   = 0           -- dash resets cooldown so it always fires
         self.meleeHitEnemies = {}
         self.meleeHitDecor = {}
-        local cx = self.x + self.w * 0.5
-        local cy = self.y + self.h * 0.5
-        local a = self.meleeAimAngle
-        local tip = 20
-        ImpactFX.spawn(cx + math.cos(a) * tip, cy + math.sin(a) * tip, "melee", nil, a)
     end
 end
 
@@ -802,6 +847,23 @@ function Player:shoot(mx, my)
         return #allBullets > 0 and allBullets or nil
     end
     return self:shootFromSlot(self.activeWeaponSlot, mx, my)
+end
+
+--- World point for aim/facing when not using mouse aim (move keys + last facing).
+function Player:keyboardFallbackAimPoint()
+    local cx = self.x + self.w * 0.5
+    local cy = self.y + self.h * 0.5
+    local ml = love.keyboard.isDown("a") or love.keyboard.isDown("left")
+    local mr = love.keyboard.isDown("d") or love.keyboard.isDown("right")
+    local dir
+    if mr and not ml then
+        dir = 1
+    elseif ml and not mr then
+        dir = -1
+    else
+        dir = self.facingRight and 1 or -1
+    end
+    return cx + dir * 240, cy
 end
 
 --- World angle (radians) from body center toward effective aim (auto target or cursor).
@@ -870,6 +932,14 @@ function Player:spinHolster()
     -- Holster spin animation disabled for now (saloon / weapon prompts still call this hook)
 end
 
+--- Brief reach-down anim when collecting world loot or equipping a floor weapon (cowboy_v2 `pickup` strip).
+function Player:playPickupAnim()
+    local anim = self.anim
+    if anim and anim.quads.pickup then
+        anim:play("pickup", true)
+    end
+end
+
 function Player:meleeAttack(aimX, aimY)
     if Buffs.getControlState(self.statuses).stunned then return false end
     local s = self:getEffectiveStats()
@@ -879,20 +949,41 @@ function Player:meleeAttack(aimX, aimY)
     if aimX ~= nil and aimY ~= nil then
         self.meleeAimAngle = math.atan2(aimY - cy, aimX - cx)
     else
-        self.meleeAimAngle = self:getMeleeAimAngleLive()
+        -- Key melee (F): aim at mouse in world — effectiveAim still follows move/LMB rules, so
+        -- you can run one way and swing "behind" toward the cursor without holding LMB.
+        local wx, wy = self.aimWorldX, self.aimWorldY
+        if wx and wy then
+            local dx, dy = wx - cx, wy - cy
+            if dx * dx + dy * dy >= MELEE_CURSOR_MIN_DIST_SQ then
+                self.meleeAimAngle = math.atan2(dy, dx)
+            else
+                self.meleeAimAngle = self:getMeleeAimAngleLive()
+            end
+        else
+            self.meleeAimAngle = self:getMeleeAimAngleLive()
+        end
     end
     self.meleeCooldown   = s.meleeCooldown
     self.meleeSwingTimer = MELEE_SWING_DURATION
     self.meleeHitEnemies = {}
     self.meleeHitDecor = {}
-    self.anim:play("melee", true)
-    Sfx.play("melee_swing")
--- Row 1 of RetroImpactEffectPack1A (see impact_fx.lua ANIM.melee)
     do
-        local tip = 22
-        local a = self.meleeAimAngle
-        ImpactFX.spawn(cx + math.cos(a) * tip, cy + math.sin(a) * tip, "melee", nil, a)
+        local anim = self.anim
+        local animName = "melee"
+        if self.gear and self.gear.melee then
+            if anim.quads.knife_jab then
+                animName = "knife_jab"
+            end
+        else
+            if anim.quads.jab then
+                animName = "jab"
+            elseif anim.quads.melee_fist then
+                animName = "melee_fist"
+            end
+        end
+        anim:play(animName, true)
     end
+    Sfx.play("melee_swing")
     return true
 end
 
@@ -1152,8 +1243,7 @@ function Player:applyPerk(perk)
 end
 
 --- Save active slot state from live fields, then restore the target slot.
---- Always toggles 1 <-> 2 so Tab can highlight which slot a ground weapon will replace
---- (including when slot 2 is empty / melee).
+--- Always toggles 1 <-> 2 so Tab can highlight which slot a ground weapon will replace.
 function Player:switchWeapon()
     if Buffs.getControlState(self.statuses).stunned then
         return
@@ -1171,10 +1261,6 @@ function Player:equipWeapon(gunDef, slotIndex)
     slotIndex = slotIndex or 2
     WeaponRuntime.equipWeapon(self, gunDef, slotIndex)
     self:syncLegacyWeaponViews()
-
-    if slotIndex == 2 then
-        self.gear.melee = nil
-    end
 end
 
 function Player.filter(item, other)
@@ -1308,7 +1394,7 @@ function Player:draw()
 
         self.anim:drawCentered(cx, footY, self.facingRight)
 
-        -- Weapon sprite overlay (gun — hidden during melee swing so equipped dagger reads clearly)
+        -- Weapon sprite overlay (gun — hidden during melee swing for body anim)
         if self.meleeSwingTimer <= 0 then
             local aimAngle = self:getAimAngle()
             local handX = cx + (self.facingRight and 2 or -2)
@@ -1337,33 +1423,6 @@ function Player:draw()
             else
                 local gun = self:getActiveGun()
                 if gun then drawGunSprite(gun, 0) end
-            end
-        end
-
-        -- Equipped melee weapon (same icon as HUD / gear.icon) during swing or dash strike
-        if self.meleeSwingTimer > 0 then
-            local s = self:getEffectiveStats()
-            if s.meleeDamage > 0 then
-                local gear = self.gear.melee or Weapons.defaults.melee
-                if gear and gear.icon then
-                    local ang = self.meleeAimAngle
-                    local pcx = self.x + self.w * 0.5
-                    local pcy = self.y + self.h * 0.5
-                    local grip = 10
-                    local hx = pcx + math.cos(ang) * grip
-                    local hy = pcy + math.sin(ang) * grip
-                    if self.facingRight then
-                        hy = hy - 10  -- nudge up vs left-facing (screen Y+ is down)
-                    end
-                    -- Facing-right body is not mirrored like the left-facing sprite; flip the tile on X so the grip/blade match the good left-facing read.
-                    GearIcons.drawHeld(gear.icon, hx, hy, ang, {
-                        scale       = 1.45,  -- 16px tile → ~23px; reads as a knife vs 16×28 body
-                        originX     = 0.42,
-                        originY     = 0.58,
-                        angleOffset = math.pi * 0.5,
-                        flipX       = self.facingRight,
-                    })
-                end
             end
         end
 
