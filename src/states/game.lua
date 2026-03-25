@@ -1789,8 +1789,8 @@ local function enterInitialGameplayState(opts, worldId, worldDef)
     if editorRoom then
         roomManager:generateSequence()
         Mods.DevLog.init()
-        Mods.DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
-        Mods.DevLog.push("sys", "Editor test play")
+        Mods.DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed), { noOverlay = true })
+        Mods.DevLog.push("sys", "Editor test play", { noOverlay = true })
         currentRoom = roomManager:loadRoom(editorRoom, world, player)
         currentTheme = roomManager:getTheme()
         Mods.TileRenderer.preloadTheme(currentTheme)
@@ -1800,16 +1800,16 @@ local function enterInitialGameplayState(opts, worldId, worldDef)
     else
         roomManager:generateSequence()
         Mods.DevLog.init()
-        Mods.DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed))
+        Mods.DevLog.push("sys", "Run seed: " .. tostring(game._runtime.runSeed), { noOverlay = true })
         if devArenaMode then
             Mods.dev_event_echo.init()
             if opts and opts.devBoot then
-                Mods.DevLog.push("sys", "CLI dev boot active")
+                Mods.DevLog.push("sys", "CLI dev boot active", { noOverlay = true })
             end
-            Mods.DevLog.push("sys", "Dev arena started")
+            Mods.DevLog.push("sys", "Dev arena started", { noOverlay = true })
             loadNextRoom()
         else
-            Mods.DevLog.push("sys", string.format("Run started — World: %s", worldDef and worldDef.name or worldId))
+            Mods.DevLog.push("sys", string.format("Run started — World: %s", worldDef and worldDef.name or worldId), { noOverlay = true })
             local saloonState = require("src.states.saloon")
             Mods.Gamestate.push(saloonState, player, roomManager)
         end
@@ -1919,11 +1919,11 @@ function loadNextRoom()
     -- Snap camera to player on room load (no lerp lag)
     updateCamera(0, true)
     if roomManager.devArenaMode then
-        Mods.DevLog.push("sys", string.format("Dev arena loaded  (diff %.1f)", roomManager.difficulty or 1))
+        Mods.DevLog.push("sys", string.format("Dev arena loaded  (diff %.1f)", roomManager.difficulty or 1), { noOverlay = true })
     else
         Mods.DevLog.push("sys", string.format("Room %d/%d loaded  (diff %.1f)",
             roomManager.currentRoomIndex, #roomManager.roomSequence,
-            roomManager.difficulty or 1))
+            roomManager.difficulty or 1), { noOverlay = true })
     end
 end
 
@@ -2325,6 +2325,10 @@ function game:update(dt)
                     local p = Mods.Pickup.new(drop.x, drop.y, drop.type, drop.value)
                     if drop.vx then p.vx = drop.vx end
                     if drop.vy then p.vy = drop.vy end
+                    if drop.xpLaneOffset then p.xpLaneOffset = drop.xpLaneOffset end
+                    if drop.xpMagnetStagger and p.xpMagnetDelay then
+                        p.xpMagnetDelay = p.xpMagnetDelay + drop.xpMagnetStagger
+                    end
                     world:add(p, p.x, p.y, p.w, p.h)
                     table.insert(pickups, p)
                 end
@@ -3270,6 +3274,8 @@ function game:draw()
 
         -- Mods.HUD (screen space)
         Mods.HUD.draw(player)
+        Mods.DamageNumbers.drawHudXp()
+        Mods.DamageNumbers.drawHudGold(player, camera)
         if DEBUG then
             Mods.HUD.drawReadabilityTierDebug(GAME_WIDTH, GAME_HEIGHT)
         end

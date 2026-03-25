@@ -52,8 +52,9 @@ local ATTRACT_SPEED_MIN = 180
 local ATTRACT_SPEED_MAX = 520
 -- XP: brief pop-out, then homes from any distance (see xpMagnetDelay)
 local XP_MAGNET_DELAY = 0.11
-local XP_ATTRACT_SPEED_MIN = 260
-local XP_ATTRACT_SPEED_MAX = 640
+local XP_ATTRACT_SPEED_MIN = 110
+local XP_ATTRACT_SPEED_MAX = 300
+local XP_ATTRACT_ACCEL = 340
 
 function Pickup.new(x, y, pickupType, value)
     local self = setmetatable({}, Pickup)
@@ -156,11 +157,28 @@ function Pickup:update(dt, world, playerX, playerY)
         if self.attractSpeed < vmin then
             self.attractSpeed = vmin
         end
-        self.attractSpeed = math.min(vmax, self.attractSpeed + 900 * dt)
+        local accel = (self.pickupType == "xp") and XP_ATTRACT_ACCEL or 900
+        self.attractSpeed = math.min(vmax, self.attractSpeed + accel * dt)
         local cx = self.x + self.w / 2
         local cy = self.y + self.h / 2
-        local dx = (playerX) - cx
-        local dy = (playerY) - cy
+        local tx, ty = playerX, playerY
+        if self.pickupType == "xp" then
+            local toPx = playerX - cx
+            local toPy = playerY - cy
+            local dist = math.sqrt(toPx * toPx + toPy * toPy)
+            local lane = self.xpLaneOffset or 0
+            if lane ~= 0 and dist > 1 then
+                -- Perpendicular offset so a batch lines up instead of stacking on one point;
+                -- fades out near the player so collection still works.
+                local perpX = -toPy / dist
+                local perpY = toPx / dist
+                local fade = math.min(1, dist * 0.014)
+                tx = playerX + perpX * lane * fade
+                ty = playerY + perpY * lane * fade
+            end
+        end
+        local dx = tx - cx
+        local dy = ty - cy
         local len = math.sqrt(dx * dx + dy * dy)
         if len > 1 then
             self.x = self.x + (dx / len) * self.attractSpeed * dt
@@ -299,10 +317,7 @@ function Pickup:draw(player, camera, shakeX, shakeY, room, allPickups)
         local pulse = 1 + 0.14 * math.sin(self.bobTimer * 5)
         local spr = getHealthSprite()
         local sw, sh = spr:getDimensions()
-        local scale = (12 * pulse) / sw
-        -- Soft outer glow
-        love.graphics.setColor(1.0, 0.1, 0.1, 0.28 * airMul)
-        love.graphics.circle("fill", cx, cy, 8)
+        local scale = (20 * pulse) / sw
         -- Health sprite
         love.graphics.setColor(1, 1, 1, airMul)
         love.graphics.draw(spr, cx, cy, 0, scale, scale, sw / 2, sh / 2)

@@ -39,6 +39,23 @@ end
 -- Must be this close to the player (after attraction) to collect
 local PICKUP_COLLECT_RADIUS = 26
 
+-- Enemy kill XP: many small blobs; total XP per kill unchanged.
+local ENEMY_XP_MAX_PER_BLOB = 4
+
+local function splitEnemyXPIntoValues(total)
+    total = math.floor(tonumber(total) or 0)
+    if total <= 0 then return {} end
+    local maxPer = math.max(1, ENEMY_XP_MAX_PER_BLOB)
+    local n = math.ceil(total / maxPer)
+    local base = math.floor(total / n)
+    local rem = total % n
+    local vals = {}
+    for i = 1, n do
+        vals[i] = base + (i <= rem and 1 or 0)
+    end
+    return vals
+end
+
 -- Weapon floor pickups: tap interact to equip, hold interact to sell for scrap gold.
 local WEAPON_SELL_HOLD = 0.45
 local WEAPON_TAP_MAX = 0.32
@@ -373,14 +390,25 @@ function Combat.onEnemyKilled(enemy, player)
     end
 
     do
-        local t = {
-            x = baseX,
-            y = baseY,
-            type = "xp",
-            value = enemy.xpValue,
-        }
-        burst("xp", t)
-        table.insert(drops, t)
+        local xpVals = splitEnemyXPIntoValues(enemy.xpValue)
+        local n = #xpVals
+        local laneSpacing = 9
+        for vi = 1, n do
+            local lane = 0
+            if n > 1 then
+                lane = ((vi - 1) - (n - 1) * 0.5) * laneSpacing
+            end
+            local t = {
+                x = baseX + (vi - 1) * 2 - math.floor(n * 0.5),
+                y = baseY,
+                type = "xp",
+                value = xpVals[vi],
+                xpLaneOffset = lane,
+                xpMagnetStagger = (vi - 1) * 0.055,
+            }
+            burst("xp", t)
+            table.insert(drops, t)
+        end
     end
 
     if enemy.goldValue > 0 and GameRng.randomChance("combat.enemy_drop.gold", 0.7) then
@@ -693,8 +721,17 @@ function Combat.checkPickups(pickups, player, world)
         -- XP: after its short pop-out (Pickup.xpMagnetDelay), it self-attracks from any range.
         -- Other loot: magnet only when grounded and in pickup radius.
         -- Weapons use interact tap/hold (see advanceWeaponPickupInteraction), not proximity.
+        -- Health: only magnet when HP is not full (otherwise leave pack on the ground).
         if p.pickupType ~= "xp" and dist < attractR and p.pickupType ~= "weapon" and p.grounded then
-            p.attracted = true
+            if p.pickupType == "health" then
+                if player.hp < player:getEffectiveStats().maxHP then
+                    p.attracted = true
+                else
+                    p.attracted = false
+                end
+            else
+                p.attracted = true
+            end
         end
 
         local collected = false
@@ -712,11 +749,16 @@ function Combat.checkPickups(pickups, player, world)
                 DamageNumbers.spawnPickup(cx, cy, p.value, p.pickupType == "silver" and "silver" or "gold")
                 Sfx.play("pickup_gold")
             elseif p.pickupType == "health" then
-                player:heal(p.value)
-                DamageNumbers.spawnPickup(cx, cy, p.value, "health")
-                Sfx.play("pickup_health")
+                if player.hp < player:getEffectiveStats().maxHP then
+                    player:heal(p.value)
+                    DamageNumbers.spawnPickup(cx, cy, p.value, "health")
+                    Sfx.play("pickup_health")
+                    collected = true
+                end
             end
-            collected = true
+            if p.pickupType == "xp" or p.pickupType == "gold" or p.pickupType == "silver" then
+                collected = true
+            end
         end
 
         if collected then
