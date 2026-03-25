@@ -27,17 +27,17 @@ SKIN_ANIMS["cowboy"] = {
 }
 
 -- cowboy_v2 (PixelLab-generated, character_id: e4dda30e-08d1-4fbe-b4fe-97bb2b46a52e)
--- footYOffset: world pixels to push the strip down so feet (not the 48² cell bottom) sit on ground.
--- Smoking reads correct at 0; other strips have more empty padding below the feet in-frame.
+-- footYOffset: shifts sprite down (quad bottom = footY + footYOffset) when soles sit above
+-- the 48px cell bottom. All v2 strips use the same ~5px padding; 8 overshot into the floor.
 SKIN_ANIMS["cowboy_v2"] = {
-    idle         = { file = "idle.png",         frames = 8,  fps = 6,  loop = true,  footYOffset = 8 },
-    smoking      = { file = "smoking.png",       frames = 8,  fps = 5,  loop = true,  footYOffset = 0 },
-    run          = { file = "run.png",           frames = 8,  fps = 10, loop = true,  footYOffset = 8 },
-    jump         = { file = "draw.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 1, footYOffset = 8 },
-    fall         = { file = "draw.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 5, footYOffset = 8 },
-    dash         = { file = "dash.png",          frames = 6,  fps = 16, loop = true,  footYOffset = 8 },
-    shoot        = { file = "shoot.png",         frames = 6,  fps = 14, loop = false, footYOffset = 8 },
-    melee        = { file = "quickdraw.png",     frames = 6,  fps = 14, loop = false, startFrame = 1, footYOffset = 8 },
+    idle         = { file = "idle.png",         frames = 8,  fps = 6,  loop = true,  footYOffset = 5 },
+    smoking      = { file = "smoking.png",       frames = 8,  fps = 5,  loop = true,  footYOffset = 5 },
+    run          = { file = "run.png",           frames = 8,  fps = 10, loop = true,  footYOffset = 5 },
+    jump         = { file = "draw.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 1, footYOffset = 5 },
+    fall         = { file = "draw.png",          frames = 1,  fps = 1,  loop = true,  startFrame = 5, footYOffset = 5 },
+    dash         = { file = "dash.png",          frames = 6,  fps = 16, loop = true,  footYOffset = 5 },
+    shoot        = { file = "shoot.png",         frames = 6,  fps = 14, loop = false, footYOffset = 5 },
+    melee        = { file = "quickdraw.png",     frames = 6,  fps = 14, loop = false, startFrame = 1, footYOffset = 5 },
 }
 
 local ANIMS = assert(SKIN_ANIMS[SKIN], "Unknown skin: " .. SKIN)
