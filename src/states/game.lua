@@ -175,6 +175,9 @@ local devPanelState = {
     scroll = 0,
     hover = nil,
     rows = nil,
+    rowsFull = nil,
+    searchQuery = "",
+    searchFocus = false,
     sections = nil,
 }
 local devNpcSpawn = nil
@@ -644,6 +647,10 @@ local function drawDevPanelOverlay()
     Mods.DevPanel.draw(devPanelState.rows, devPanelState.scroll, px, py, pw, ph, devPanelState.hover, {
         title = game.devPanelTitleFont,
         row = game.devPanelRowFont,
+    }, {
+        query = devPanelState.searchQuery or "",
+        focused = devPanelState.searchFocus,
+        hover = devPanelState.hover == Mods.DevPanel.HIT_SEARCH,
     })
 end
 
@@ -1396,6 +1403,12 @@ devClampScroll = function()
     devPanelState.scroll = math.max(0, math.min(maxS, devPanelState.scroll))
 end
 
+local function devApplySearchFilter()
+    if not devPanelState.rowsFull then return end
+    devPanelState.rows = Mods.DevPanel.filterRows(devPanelState.rowsFull, devPanelState.searchQuery or "")
+    devClampScroll()
+end
+
 local function syncCurrentRoomNightMode()
     if not currentRoom or not roomManager then return end
     local want
@@ -1518,6 +1531,8 @@ devRebuildPanelRows = function()
             summary = metaSummary,
         },
     })
+    devPanelState.rowsFull = devPanelState.rows
+    devPanelState.rows = Mods.DevPanel.filterRows(devPanelState.rowsFull, devPanelState.searchQuery or "")
 end
 
 do
@@ -1553,6 +1568,8 @@ local function openDevPanel()
     characterSheetOpen = false
     devPanelState.scroll = 0
     devPanelState.hover = nil
+    devPanelState.searchQuery = ""
+    devPanelState.searchFocus = false
     devRebuildPanelRows()
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Mods.Font.new(16)
@@ -1561,6 +1578,7 @@ local function openDevPanel()
 end
 
 local function devApplyAction(id)
+    if not id or id == Mods.DevPanel.HIT_SEARCH then return end
     local r = game._runtime
     r.world = world
     r.player = player
@@ -1637,6 +1655,10 @@ local function initGameplaySessionState(opts)
     devPanelState.open = false
     devPanelState.scroll = 0
     devPanelState.hover = nil
+    devPanelState.searchQuery = ""
+    devPanelState.searchFocus = false
+    devPanelState.rowsFull = nil
+    devPanelState.rows = nil
     devPanelState.sections = (opts and opts.devBoot) and devBootPanelSections() or defaultDevPanelSections()
     devNpcSpawn = defaultDevNpcSpawn()
     devShowHitboxes = true
@@ -2143,6 +2165,18 @@ function game:update(dt)
         else
             player.effectiveAimX, player.effectiveAimY = player:keyboardFallbackAimPoint()
         end
+
+        -- AK-47 (and any fire-held anim): sustained aim-fire vs keyboard-only auto-aim
+        do
+            local es = player:getEffectiveStats()
+            local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+            local doGunShoot = player.autoGun or (es.meleeDamage or 0) <= 0 or shiftShoot
+            player.inputFireHeld = not player.blocking and (
+                (mouseAimOn and doGunShoot) or (player.autoGun and autoTx)
+            )
+        end
+    elseif player then
+        player.inputFireHeld = false
     end
 
     -- Mods.Player update
@@ -2237,6 +2271,29 @@ function game:update(dt)
                     table.insert(bullets, b)
                 end
                 local gun = gunForShake
+                local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+                local shakeMult = math.min(1, cooldown / 0.38)
+                shakeTimer = 0.08
+                shakeIntensity = 2 * shakeMult
+            end
+        end
+    end
+
+    -- Manual hold-to-fire: LMB held, cadence from weapon runtime (same as auto-fire). Skipped when autoGun already fires this frame.
+    if mouseAimOn and not player.blocking and player:getActiveGun() then
+        local es = player:getEffectiveStats()
+        local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+        local doGunShoot = player.autoGun or (es.meleeDamage or 0) <= 0 or shiftShoot
+        if doGunShoot and not (player.autoGun and autoTx) then
+            local mx, my = player.aimWorldX, player.aimWorldY
+            local bulletData = player:shoot(mx, my)
+            if bulletData then
+                emitPlayerNoise(PLAYER_GUNSHOT_NOISE_RADIUS, "gunshot")
+                for _, data in ipairs(bulletData) do
+                    local b = Mods.Combat.spawnBullet(world, data)
+                    table.insert(bullets, b)
+                end
+                local gun = player:getActiveGun()
                 local cooldown = gun and gun.baseStats.shootCooldown or 0.38
                 local shakeMult = math.min(1, cooldown / 0.38)
                 shakeTimer = 0.08
@@ -2479,6 +2536,15 @@ function game:keypressed(key)
     end
 
     if devToolsEnabled() and devPanelState.open then
+        if devPanelState.searchFocus and key == "backspace" then
+            devPanelState.searchQuery = (devPanelState.searchQuery or ""):sub(1, -2)
+            devApplySearchFilter()
+            return
+        end
+        if devPanelState.searchFocus and key == "tab" then
+            devPanelState.searchFocus = false
+            return
+        end
         if key == "escape" then
             if devNpcSpawn and devNpcSpawn.placement then
                 clearDevNpcPlacement(true)
@@ -2487,11 +2553,13 @@ function game:keypressed(key)
             else
                 devPanelState.open = false
                 devPanelState.hover = nil
+                devPanelState.searchFocus = false
             end
             return
         elseif key == "f1" then
             devPanelState.open = false
             devPanelState.hover = nil
+            devPanelState.searchFocus = false
             clearDevNpcPlacement(false)
             return
         end
@@ -2752,8 +2820,13 @@ function game:mousepressed(x, y, button)
         if insidePanel then
             if button == 1 then
                 local hit = Mods.DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
-                if hit then
-                    devApplyAction(hit)
+                if hit == Mods.DevPanel.HIT_SEARCH then
+                    devPanelState.searchFocus = true
+                else
+                    devPanelState.searchFocus = false
+                    if hit then
+                        devApplyAction(hit)
+                    end
                 end
             end
             return
@@ -2822,21 +2895,8 @@ function game:mousepressed(x, y, button)
             local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
             if not player.autoGun and es.meleeDamage > 0 and not shiftShoot then
                 player:meleeAttack(mx, my)
-            else
-                local bulletData = player:shoot(mx, my)
-                if bulletData then
-                    emitPlayerNoise(PLAYER_GUNSHOT_NOISE_RADIUS, "gunshot")
-                    for _, data in ipairs(bulletData) do
-                        local b = Mods.Combat.spawnBullet(world, data)
-                        table.insert(bullets, b)
-                    end
-                    local gun = player:getActiveGun()
-                    local cooldown = gun and gun.baseStats.shootCooldown or 0.38
-                    local shakeMult = math.min(1, cooldown / 0.38)
-                    shakeTimer = 0.08
-                    shakeIntensity = 2 * shakeMult
-                end
             end
+            -- Gun fire: handled each frame while LMB held (see update: manual hold-to-fire)
         else
             local s = player:getEffectiveStats()
             if s.meleeDamage > 0 then
@@ -2865,6 +2925,16 @@ end
 function game:mousereleased(x, y, button)
     if button == 1 then
         pauseMenu.settingsSliderDragKey = nil
+    end
+end
+
+function game:textinput(t)
+    if not devToolsEnabled() or not devPanelState.open or not devPanelState.searchFocus then return end
+    if t and #t > 0 then
+        local q = (devPanelState.searchQuery or "") .. t
+        if #q > 256 then return end
+        devPanelState.searchQuery = q
+        devApplySearchFilter()
     end
 end
 

@@ -10,6 +10,11 @@ local GAP = 4
 local PANEL_PAD = 14
 local PANEL_W = 620
 local FOOTER_H = 28
+local SEARCH_GAP = 6
+local SEARCH_FIELD_H = 26
+
+-- Sentinel hit id for the filter field (game/saloon handle focus + typing).
+DevPanel.HIT_SEARCH = "__dev_search"
 
 local function rowSection(id, label, open)
     return { kind = "section", id = id, label = label, open = open ~= false }
@@ -250,6 +255,78 @@ function DevPanel.buildRows(args)
     return rows
 end
 
+--- Case-insensitive substring filter. Keeps section headers when any row in that block matches,
+--- or shows the whole section when the section header matches.
+function DevPanel.filterRows(rows, query)
+    if not rows or #rows < 1 then return rows end
+    local q = string.gsub(query or "", "^%s+", "")
+    q = string.gsub(q, "%s+$", "")
+    if q == "" then
+        return rows
+    end
+    q = string.lower(q)
+
+    local function contains(hay)
+        hay = string.lower(tostring(hay or ""))
+        return string.find(hay, q, 1, true) ~= nil
+    end
+
+    local function rowMatches(row)
+        if row.kind == "section" then
+            return contains(row.id) or contains(row.label)
+        elseif row.kind == "action" then
+            return contains(row.id) or contains(row.label)
+        elseif row.kind == "info" then
+            return contains(row.label)
+        end
+        return false
+    end
+
+    local out = {}
+    local i = 1
+    while i <= #rows do
+        local row = rows[i]
+        if row.kind ~= "section" then
+            if rowMatches(row) then
+                out[#out + 1] = row
+            end
+            i = i + 1
+        else
+            local j = i + 1
+            while j <= #rows and rows[j].kind ~= "section" do
+                j = j + 1
+            end
+            local sec = row
+            local secMatch = rowMatches(sec)
+            local block = {}
+            for k = i + 1, j - 1 do
+                block[#block + 1] = rows[k]
+            end
+            if secMatch then
+                out[#out + 1] = sec
+                for _, r in ipairs(block) do
+                    out[#out + 1] = r
+                end
+            else
+                local any = {}
+                for _, r in ipairs(block) do
+                    if rowMatches(r) then
+                        any[#any + 1] = r
+                    end
+                end
+                if #any > 0 then
+                    out[#out + 1] = sec
+                    for _, r in ipairs(any) do
+                        out[#out + 1] = r
+                    end
+                end
+            end
+            i = j
+        end
+    end
+    return out
+end
+
 local function rowHeight(row, rowFont, innerW)
     if row.kind == "section" then
         return SECTION_H + GAP
@@ -278,9 +355,25 @@ function DevPanel.titleBlockHeight(titleFont)
     return PANEL_PAD + titleFont:getHeight() + 12
 end
 
+function DevPanel.searchBarHeight()
+    return SEARCH_GAP + SEARCH_FIELD_H
+end
+
+--- Title row + search field (fixed; list scrolls below).
+function DevPanel.headerHeight(titleFont)
+    return DevPanel.titleBlockHeight(titleFont) + DevPanel.searchBarHeight()
+end
+
+function DevPanel.searchFieldRect(px, py, pw, titleFont)
+    local x0 = px + PANEL_PAD
+    local y0 = py + DevPanel.titleBlockHeight(titleFont) + SEARCH_GAP
+    local w = pw - 2 * PANEL_PAD
+    return x0, y0, w, SEARCH_FIELD_H
+end
+
 function DevPanel.maxScroll(rows, titleFont, rowFont, panelW, panelH)
     local rowsH = DevPanel.rowsHeight(rows, rowFont, panelW)
-    local titleH = DevPanel.titleBlockHeight(titleFont)
+    local titleH = DevPanel.headerHeight(titleFont)
     local viewH = panelH - titleH - PANEL_PAD - FOOTER_H - 8
     if viewH < 40 then return 0 end
     return math.max(0, rowsH - viewH)
@@ -291,7 +384,12 @@ function DevPanel.hitTest(rows, mx, my, scrollY, px, py, pw, ph, titleFont, rowF
         return nil
     end
 
-    local y = py + DevPanel.titleBlockHeight(titleFont) - scrollY
+    local sx, sy, sw, sh = DevPanel.searchFieldRect(px, py, pw, titleFont)
+    if mx >= sx and mx <= sx + sw and my >= sy and my <= sy + sh then
+        return DevPanel.HIT_SEARCH
+    end
+
+    local y = py + DevPanel.headerHeight(titleFont) - scrollY
     local x0 = px + PANEL_PAD
     local innerW = pw - 2 * PANEL_PAD
     local contentBottom = py + ph - PANEL_PAD - FOOTER_H
@@ -313,9 +411,13 @@ function DevPanel.hitTest(rows, mx, my, scrollY, px, py, pw, ph, titleFont, rowF
     return nil
 end
 
-function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
+function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts, searchOpts)
+    searchOpts = searchOpts or {}
     local titleFont = fonts.title
     local rowFont = fonts.row
+    local q = searchOpts.query or ""
+    local searchFocus = searchOpts.focused
+    local searchHover = searchOpts.hover
 
     love.graphics.setColor(0.05, 0.045, 0.07, 0.94)
     love.graphics.rectangle("fill", px, py, pw, ph, 8, 8)
@@ -329,7 +431,37 @@ function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
     love.graphics.setColor(1, 0.75, 0.25)
     love.graphics.print("DEV TOOLS", px + PANEL_PAD, py + 8)
 
-    local innerY = py + DevPanel.titleBlockHeight(titleFont) - scrollY
+    do
+        local sfx, sfy, sfw, sfh = DevPanel.searchFieldRect(px, py, pw, titleFont)
+        local shov = searchHover or searchFocus
+        love.graphics.setColor(0.07, 0.065, 0.09, 0.96)
+        love.graphics.rectangle("fill", sfx - 2, sfy - 2, sfw + 4, sfh + 4, 4, 4)
+        love.graphics.setColor(shov and 0.42 or 0.28, shov and 0.35 or 0.24, shov and 0.2 or 0.14, 0.98)
+        love.graphics.setLineWidth(shov and 2 or 1)
+        love.graphics.rectangle("line", sfx - 2, sfy - 2, sfw + 4, sfh + 4, 4, 4)
+        love.graphics.setLineWidth(1)
+        love.graphics.setFont(rowFont)
+        local display = (#q > 0) and q or "Search…"
+        local r, g, b = 0.88, 0.86, 0.82
+        if #q == 0 then
+            r, g, b = 0.45, 0.44, 0.48
+        end
+        if searchFocus then
+            r, g, b = 0.95, 0.93, 0.88
+        end
+        love.graphics.setColor(r, g, b, (#q > 0 or searchFocus) and 1 or 0.85)
+        local maxW = sfw - 8
+        local text = display
+        if rowFont:getWidth(text) > maxW then
+            while #text > 1 and rowFont:getWidth(text .. "…") > maxW do
+                text = text:sub(1, -2)
+            end
+            text = text .. "…"
+        end
+        love.graphics.print(text, sfx + 4, sfy + math.max(2, (sfh - rowFont:getHeight()) * 0.5))
+    end
+
+    local innerY = py + DevPanel.headerHeight(titleFont) - scrollY
     local x0 = px + PANEL_PAD
     local innerW = pw - 2 * PANEL_PAD
     local contentBottom = py + ph - PANEL_PAD - FOOTER_H
@@ -370,7 +502,7 @@ function DevPanel.draw(rows, scrollY, px, py, pw, ph, hoverId, fonts)
     love.graphics.line(x0 - 4, footerY - 6, x0 + innerW + 4, footerY - 6)
     love.graphics.setFont(rowFont)
     love.graphics.setColor(0.55, 0.55, 0.58)
-    love.graphics.printf("F1 close  |  gameplay stays live  |  wheel scroll", x0, footerY, innerW, "center")
+    love.graphics.printf("F1 close  |  wheel scroll  |  type to filter list", x0, footerY, innerW, "center")
 end
 
 return DevPanel

@@ -52,6 +52,12 @@ SKIN_ANIMS["cowboy_v2"] = {
     fall         = { stripFromDir = "animations/jumping-1/east", frames = 1, fps = 1,  loop = true,  startFrame = 5, footYOffset = 5 },
     dash         = { file = "dash.png",          frames = 6,  fps = 16, loop = true,  footYOffset = 5 },
     shoot        = { file = "shoot.png",         frames = 6,  fps = 14, loop = false, footYOffset = 5 },
+    -- Rifle/long-gun shoot: custom 16-frame strip built from per-frame PNGs.
+    shoot_rifle  = { stripFromDir = "animations/rifle-shoot/east", frames = 16, fps = 20, loop = false, footYOffset = 5 },
+    -- AK-47: 512×64 cells, drawn 1:1. Startup foot align: ~16 sank into floor, ~12 floated — split at 14.
+    shoot_ak47_startup = { file = "ak47shooting.png", startFrame = 1, frames = 4, fps = 16, loop = false, footYOffset = 14, cellW = 64, cellH = 64, scaleCellToFrameHeight = false },
+    shoot_ak47_loop    = { file = "ak47shooting.png", startFrame = 5, frames = 3, fps = 22, loop = true,  footYOffset = 13, cellW = 64, cellH = 64, scaleCellToFrameHeight = false },
+    shoot_ak47_end     = { file = "ak47shooting.png", startFrame = 8, frames = 1, fps = 16, loop = false, footYOffset = 14, cellW = 64, cellH = 64, scaleCellToFrameHeight = false },
     jab          = COWBOY_V2_JAB,
     knife_jab    = COWBOY_V2_KNIFE_JAB,
     melee_fist   = COWBOY_V2_JAB,
@@ -145,8 +151,10 @@ function Animator.new()
         end
         self.sheets[name] = sheet
         local sw, sh = sheet:getDimensions()
-        -- Derive total columns in this strip from image width / frame height (square frames)
-        local totalCols = math.floor(sw / FRAME_H)
+        local cellW = def.cellW or FRAME_H
+        local cellH = def.cellH or FRAME_H
+        -- Frame index along the strip (each cell is cellW wide)
+        local totalCols = math.floor(sw / cellW)
         local startCol  = (def.startFrame or 1) - 1  -- 0-indexed
         self.quads[name] = {}
         local built = 0
@@ -155,7 +163,7 @@ function Animator.new()
             if col < totalCols then
                 built = built + 1
                 self.quads[name][built] = love.graphics.newQuad(
-                    col * FRAME_H, 0, FRAME_H, FRAME_H, sw, sh
+                    col * cellW, 0, cellW, cellH, sw, sh
                 )
             end
         end
@@ -206,17 +214,27 @@ function Animator:drawCentered(cx, footY, facingRight, yOffset, alpha)
     local footDy = (def and def.footYOffset) or 0
 
     local sheet   = self.sheets[self.current]
-    local scaledW = FRAME_H * SPRITE_SCALE
-    local scaledH = FRAME_H * SPRITE_SCALE
+    local cellW = def.cellW or FRAME_H
+    local cellH = def.cellH or FRAME_H
+    -- Default: squash tall cells down to FRAME_H world height (uniform scale). Optional off for 1:1 texels (AK vs idle).
+    local squash = def.scaleCellToFrameHeight
+    if squash == nil then squash = true end
+    local norm = 1
+    if squash then
+        norm = FRAME_H / cellH
+    end
+    local sm = SPRITE_SCALE * norm
+    local scaledW = cellW * sm
+    local scaledH = cellH * sm
 
     local drawX   = cx - scaledW / 2
     local drawY   = footY - scaledH + (yOffset or 0) + footDy
 
-    local sx        = facingRight and SPRITE_SCALE or -SPRITE_SCALE
+    local sx        = facingRight and sm or -sm
     local flipShift = facingRight and 0 or scaledW
 
     love.graphics.setColor(1, 1, 1, alpha or 1)
-    love.graphics.draw(sheet, quad, drawX + flipShift, drawY, 0, sx, SPRITE_SCALE)
+    love.graphics.draw(sheet, quad, drawX + flipShift, drawY, 0, sx, sm)
 end
 
 return Animator

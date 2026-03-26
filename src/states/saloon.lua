@@ -126,6 +126,9 @@ local devPanelOpen = false
 local devPanelScroll = 0
 local devPanelHover = nil
 local devPanelRows = nil
+local devPanelRowsFull = nil
+local devPanelSearchQuery = ""
+local devPanelSearchFocus = false
 local devPanelPauseGameplay = true
 local devShowHitboxes = true
 
@@ -248,6 +251,21 @@ local function devClampScroll()
     devPanelScroll = math.max(0, math.min(maxS, devPanelScroll))
 end
 
+local function saloonDevApplySearchFilter()
+    if not devPanelRowsFull then return end
+    devPanelRows = Mods.DevPanel.filterRows(devPanelRowsFull, devPanelSearchQuery or "")
+    devClampScroll()
+end
+
+local function saloonDevRebuildRows()
+    devPanelRowsFull = Mods.DevPanel.buildRows({
+        gameplayPaused = devPanelPauseGameplay,
+        showHitboxes = devShowHitboxes,
+    })
+    devPanelRows = Mods.DevPanel.filterRows(devPanelRowsFull, devPanelSearchQuery or "")
+    devClampScroll()
+end
+
 local function openDevPanel()
     if not devToolsEnabled() then return end
     devPanelOpen = true
@@ -255,17 +273,15 @@ local function openDevPanel()
     characterSheetOpen = false
     devPanelScroll = 0
     devPanelHover = nil
-    devPanelRows = Mods.DevPanel.buildRows({
-        gameplayPaused = devPanelPauseGameplay,
-        showHitboxes = devShowHitboxes,
-    })
+    devPanelSearchQuery = ""
+    devPanelSearchFocus = false
+    saloonDevRebuildRows()
     if not saloon.devPanelTitleFont then
         saloon.devPanelTitleFont = Mods.Font.new(16)
     end
     if not saloon.devPanelRowFont then
         saloon.devPanelRowFont = Mods.Font.new(13)
     end
-    devClampScroll()
 end
 
 --- Gold from casino wins — scattered around the player so you walk to collect (lighter pop than dev cheat).
@@ -334,13 +350,10 @@ end
 
 local function saloonDevApplyAction(id)
     if not devToolsEnabled() or not player or not id then return end
+    if id == Mods.DevPanel.HIT_SEARCH then return end
     if id == "toggle_dev_pause" then
         devPanelPauseGameplay = not (devPanelPauseGameplay ~= false)
-        devPanelRows = Mods.DevPanel.buildRows({
-            gameplayPaused = devPanelPauseGameplay,
-            showHitboxes = devShowHitboxes,
-        })
-        devClampScroll()
+        saloonDevRebuildRows()
         Mods.DevLog.push("sys", "[dev] gameplay " .. ((devPanelPauseGameplay ~= false) and "paused" or "live"))
         return
     end
@@ -358,11 +371,7 @@ local function saloonDevApplyAction(id)
         Mods.DevLog.push("sys", "[dev] hurt 1")
     elseif id == "toggle_hitboxes" then
         devShowHitboxes = not devShowHitboxes
-        devPanelRows = Mods.DevPanel.buildRows({
-            gameplayPaused = devPanelPauseGameplay,
-            showHitboxes = devShowHitboxes,
-        })
-        devClampScroll()
+        saloonDevRebuildRows()
         Mods.DevLog.push("sys", "[dev] hitboxes " .. (devShowHitboxes and "on" or "off"))
     elseif id == "toggle_god" then
         player.devGodMode = not player.devGodMode
@@ -916,10 +925,9 @@ function saloon:enter(_, _player, _roomManager)
     devPanelHover = nil
     devPanelPauseGameplay = true
     devShowHitboxes = true
-    devPanelRows = Mods.DevPanel.buildRows({
-        gameplayPaused = devPanelPauseGameplay,
-        showHitboxes = devShowHitboxes,
-    })
+    devPanelSearchQuery = ""
+    devPanelSearchFocus = false
+    saloonDevRebuildRows()
 end
 
 function saloon:leave()
@@ -963,9 +971,31 @@ function saloon:update(dt)
                 player.effectiveAimX, player.effectiveAimY = player:keyboardFallbackAimPoint()
                 player.keyboardAimMode = true
             end
+            do
+                local es = player:getEffectiveStats()
+                local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+                local doGunShoot = player.autoGun or (es.meleeDamage or 0) <= 0 or shiftShoot
+                player.inputFireHeld = not player.blocking and not characterSheetOpen
+                    and love.mouse.isDown(1) and doGunShoot
+            end
         end
 
         player:update(dt, world, {})
+
+        -- Manual hold-to-fire while LMB held (weapon cadence from runtime cooldown)
+        if love.mouse.isDown(1) and not characterSheetOpen and not player.blocking and player:getActiveGun() then
+            local es = player:getEffectiveStats()
+            local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+            if player.autoGun or (es.meleeDamage or 0) <= 0 or shiftShoot then
+                local bulletData = player:shoot(player.aimWorldX, player.aimWorldY)
+                if bulletData then
+                    for _, data in ipairs(bulletData) do
+                        local b = Mods.Combat.spawnBullet(world, data)
+                        table.insert(bullets, b)
+                    end
+                end
+            end
+        end
 
         Mods.Combat.updateBullets(bullets, dt, world, {}, player)
         local bi = #bullets
@@ -1076,6 +1106,15 @@ end
 function saloon:keypressed(key)
     local _, _, _, consoleH = getDebugConsoleLayout()
     if devToolsEnabled() and devPanelOpen then
+        if devPanelSearchFocus and key == "backspace" then
+            devPanelSearchQuery = (devPanelSearchQuery or ""):sub(1, -2)
+            saloonDevApplySearchFilter()
+            return
+        end
+        if devPanelSearchFocus and key == "tab" then
+            devPanelSearchFocus = false
+            return
+        end
         if key == "end" then
             Mods.DevLog.followConsole()
             return
@@ -1091,6 +1130,7 @@ function saloon:keypressed(key)
         elseif key == "escape" or key == "f2" then
             devPanelOpen = false
             devPanelHover = nil
+            devPanelSearchFocus = false
         end
         return
     end
@@ -1305,6 +1345,16 @@ function saloon:keypressed(key)
     end
 end
 
+function saloon:textinput(t)
+    if not devToolsEnabled() or not devPanelOpen or not devPanelSearchFocus then return end
+    if t and #t > 0 then
+        local q = (devPanelSearchQuery or "") .. t
+        if #q > 256 then return end
+        devPanelSearchQuery = q
+        saloonDevApplySearchFilter()
+    end
+end
+
 function saloon:mousemoved(x, y, dx, dy)
     local gx, gy = x, y
     if devToolsEnabled() and devPanelOpen and devPanelRows then
@@ -1382,8 +1432,13 @@ function saloon:mousepressed(x, y, button)
         if insidePanel then
             if button == 1 then
                 local hit = Mods.DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont, saloon.devPanelRowFont)
-                if hit then
-                    saloonDevApplyAction(hit)
+                if hit == Mods.DevPanel.HIT_SEARCH then
+                    devPanelSearchFocus = true
+                else
+                    devPanelSearchFocus = false
+                    if hit then
+                        saloonDevApplyAction(hit)
+                    end
                 end
             end
             return
@@ -1478,15 +1533,8 @@ function saloon:mousepressed(x, y, button)
                 local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
                 if not player.autoGun and es.meleeDamage > 0 and not shiftShoot then
                     player:meleeAttack(mx, my)
-                else
-                    local bulletData = player:shoot(mx, my)
-                    if bulletData then
-                        for _, data in ipairs(bulletData) do
-                            local b = Mods.Combat.spawnBullet(world, data)
-                            table.insert(bullets, b)
-                        end
-                    end
                 end
+                -- Gun fire: handled each frame while LMB held (see saloon:update)
             else
                 local s = player:getEffectiveStats()
                 if s.meleeDamage > 0 then
@@ -2048,6 +2096,10 @@ function saloon:draw()
         Mods.DevPanel.draw(devPanelRows, devPanelScroll, px, py, pw, ph, devPanelHover, {
             title = saloon.devPanelTitleFont,
             row = saloon.devPanelRowFont,
+        }, {
+            query = devPanelSearchQuery or "",
+            focused = devPanelSearchFocus,
+            hover = devPanelHover == Mods.DevPanel.HIT_SEARCH,
         })
     end
 

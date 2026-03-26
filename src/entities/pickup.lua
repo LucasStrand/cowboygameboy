@@ -265,9 +265,6 @@ function Pickup:draw(player, camera, shakeX, shakeY, room, allPickups)
             pts[#pts + 1] = cx + math.cos(a) * r
             pts[#pts + 1] = cy + math.sin(a) * r
         end
-        -- Soft glow
-        love.graphics.setColor(0.2, 0.55, 1.0, 0.32 * airMul)
-        love.graphics.circle("fill", cx, cy, r1 + 4)
         -- Star body
         love.graphics.setColor(0.45, 0.78, 1.0, airMul)
         love.graphics.polygon("fill", pts)

@@ -125,7 +125,6 @@ function Combat.tryEquipWeaponPickup(pickups, player, world)
     local cy = p.y + p.h / 2
     DamageNumbers.spawnPickup(cx, cy, p.gunDef.name, "weapon")
     Sfx.play("reload", { volume = 0.55 })
-    player:playPickupAnim()
     p.alive = false
     if world and world:hasItem(p) then
         world:remove(p)
@@ -856,7 +855,6 @@ function Combat.checkPickups(pickups, player, world)
         end
 
         if collected then
-            player:playPickupAnim()
             p.alive = false
         end
 

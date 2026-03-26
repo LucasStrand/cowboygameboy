@@ -274,6 +274,10 @@ function Player.new(x, y)
     self.effectiveAimY = nil
     -- Set each frame in game: true = ignore cursor for aim/facing (WASD / auto-target)
     self.keyboardAimMode = true
+    -- Set each frame in game/saloon: player is holding fire input (LMB aim + gun path, or auto-aim firing).
+    self.inputFireHeld = false
+    -- AK-47 body anim: "startup" | "loop" | "end" while using shoot_ak47_* anims
+    self.ak47ShootPhase = nil
 
     -- Loadout automation (toggled via HUD right-click). Auto gun uses cursor aim only while primary (attack) button held.
     -- Shield auto-block only applies when equipped shield has stats.allowAutoBlock.
@@ -599,7 +603,10 @@ function Player:update(dt, world, enemies)
         if not usedMeleeFacing then
             local ax = self.effectiveAimX or self.aimWorldX or cx
             local aimDx = ax - cx
-            if math.abs(aimDx) > AIM_FACE_DEADZONE then
+            -- AK-47 sustained fire: cursor often jitters around the body center; don't flip facing every frame.
+            local gun = self:getActiveGun()
+            local akSprayHold = gun and gun.id == "ak47" and self.inputFireHeld
+            if not akSprayHold and math.abs(aimDx) > AIM_FACE_DEADZONE then
                 self.facingRight = aimDx > 0
             elseif self.dashTimer > 0 and not blockRooted then
                 self.facingRight = self.dashDir > 0
@@ -695,9 +702,44 @@ function Player:update(dt, world, enemies)
     -- Animation state machine (priority: one-shots > air > ground movement)
     local anim = self.anim
     anim:update(dt)
-    local oneShotPlaying = (anim.current == "shoot" or anim.current == "melee" or anim.current == "jab"
+
+    local agun = self:getActiveGun()
+    if not agun or agun.id ~= "ak47" then
+        if self.ak47ShootPhase then
+            self.ak47ShootPhase = nil
+            if anim.current == "shoot_ak47_startup" or anim.current == "shoot_ak47_loop" or anim.current == "shoot_ak47_end" then
+                anim:play("idle", true)
+            end
+        end
+    else
+        local held = self.inputFireHeld
+        if held then
+            if self.ak47ShootPhase == "end" or not self.ak47ShootPhase then
+                self.ak47ShootPhase = "startup"
+                anim:play("shoot_ak47_startup", true)
+            elseif self.ak47ShootPhase == "startup" and anim.current == "shoot_ak47_startup" and anim.done then
+                self.ak47ShootPhase = "loop"
+                anim:play("shoot_ak47_loop", true)
+            end
+        else
+            if self.ak47ShootPhase == "startup" or self.ak47ShootPhase == "loop" then
+                self.ak47ShootPhase = "end"
+                anim:play("shoot_ak47_end", true)
+            elseif self.ak47ShootPhase == "end" and anim.done then
+                self.ak47ShootPhase = nil
+            end
+        end
+    end
+
+    local ak47AnimBusy = (anim.current == "shoot_ak47_loop")
+        or (anim.current == "shoot_ak47_startup" and not anim.done)
+        or (anim.current == "shoot_ak47_end" and not anim.done)
+    local oneShotPlaying = ak47AnimBusy or (
+        (anim.current == "shoot" or anim.current == "shoot_rifle"
+        or anim.current == "melee" or anim.current == "jab"
         or anim.current == "knife_jab" or anim.current == "melee_fist"
-        or anim.current == "drinking" or anim.current == "pickup") and not anim.done
+        or anim.current == "drinking") and not anim.done
+    )
     if not oneShotPlaying then
         if self.dashTimer > 0 then
             anim:play("dash")
@@ -798,6 +840,20 @@ function Player:tryDash()
     end
 end
 
+--- Pick the right shoot animation based on the active gun's weapon tag.
+function Player:getShootAnim()
+    local gun = self:getActiveGun()
+    if gun and gun.id == "ak47" then
+        return "shoot_ak47_startup"
+    end
+    if gun then
+        for _, tag in ipairs(gun.tags or {}) do
+            if tag == "weapon:rifle" then return "shoot_rifle" end
+        end
+    end
+    return "shoot"
+end
+
 --- Fire one weapon slot (each gun has its own cooldown, damage, and reload — akimbo works like gun + melee coexistence).
 function Player:shootFromSlot(slotIndex, mx, my)
     if Buffs.getControlState(self.statuses).stunned then
@@ -807,7 +863,9 @@ function Player:shootFromSlot(slotIndex, mx, my)
     if not fired then return nil end
 
     if not self:isAkimbo() then
-        self.anim:play("shoot", true)
+        if not fired.weapon_def or fired.weapon_def.id ~= "ak47" then
+            self.anim:play(self:getShootAnim(), true)
+        end
     end
     Sfx.play("shoot")
     if fired.muzzle_fx_id then
@@ -832,17 +890,22 @@ function Player:shoot(mx, my)
     if self:isAkimbo() then
         local allBullets = {}
         local any = false
+        local anyAk47 = false
         for i = 1, 2 do
             local b = self:shootFromSlot(i, mx, my)
             if b then
                 any = true
+                local w = self:getWeaponRuntime(i)
+                if w and w.weapon_def and w.weapon_def.id == "ak47" then
+                    anyAk47 = true
+                end
                 for _, b2 in ipairs(b) do
                     table.insert(allBullets, b2)
                 end
             end
         end
-        if any then
-            self.anim:play("shoot", true)
+        if any and not anyAk47 then
+            self.anim:play(self:getShootAnim(), true)
         end
         return #allBullets > 0 and allBullets or nil
     end
@@ -930,14 +993,6 @@ end
 
 function Player:spinHolster()
     -- Holster spin animation disabled for now (saloon / weapon prompts still call this hook)
-end
-
---- Brief reach-down anim when collecting world loot or equipping a floor weapon (cowboy_v2 `pickup` strip).
-function Player:playPickupAnim()
-    local anim = self.anim
-    if anim and anim.quads.pickup then
-        anim:play("pickup", true)
-    end
 end
 
 function Player:meleeAttack(aimX, aimY)
@@ -1394,8 +1449,10 @@ function Player:draw()
 
         self.anim:drawCentered(cx, footY, self.facingRight)
 
-        -- Weapon sprite overlay (gun — hidden during melee swing for body anim)
-        if self.meleeSwingTimer <= 0 then
+        -- Weapon sprite overlay (gun — hidden during melee swing and rifle-shoot body anim)
+        local hideGunOverlay = self.meleeSwingTimer > 0 or self.anim.current == "shoot_rifle"
+            or self.anim.current == "shoot_ak47_startup" or self.anim.current == "shoot_ak47_loop" or self.anim.current == "shoot_ak47_end"
+        if not hideGunOverlay then
             local aimAngle = self:getAimAngle()
             local handX = cx + (self.facingRight and 2 or -2)
             local baseHandY = self.y + self.h * 0.42
