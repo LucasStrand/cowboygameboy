@@ -50,7 +50,8 @@ SKIN_ANIMS["cowboy_v2"] = {
     -- draw.png was removed; `jumping-1` per-frame pack is stitched to a strip; columns match frame_000.. order.
     jump         = { stripFromDir = "animations/jumping-1/east", frames = 1, fps = 1,  loop = true,  startFrame = 1, footYOffset = 5 },
     fall         = { stripFromDir = "animations/jumping-1/east", frames = 1, fps = 1,  loop = true,  startFrame = 5, footYOffset = 5 },
-    dash         = { file = "dash.png",          frames = 6,  fps = 16, loop = true,  footYOffset = 5 },
+    -- 3-frame strip plays in DASH_STRIP_TIME; rest of Player DASH_DURATION holds last frame (longer dash pose).
+    dash         = { file = "dash.png",          frames = 3,  fps = 3 / 0.10, loop = false, footYOffset = 5 },
     shoot        = { file = "shoot.png",         frames = 6,  fps = 14, loop = false, footYOffset = 5 },
     -- Rifle/long-gun shoot: custom 16-frame strip built from per-frame PNGs.
     shoot_rifle  = { stripFromDir = "animations/rifle-shoot/east", frames = 16, fps = 20, loop = false, footYOffset = 5 },

@@ -29,7 +29,7 @@ function Combat.cloneMeleeGearDef(g)
             st[k] = v
         end
     end
-    return {
+    local out = {
         id = g.id,
         name = g.name,
         slot = g.slot or "melee",
@@ -37,6 +37,94 @@ function Combat.cloneMeleeGearDef(g)
         icon = g.icon,
         stats = st,
     }
+    if g.tooltip_key then
+        out.tooltip_key = g.tooltip_key
+    end
+    if g.tooltip_tokens then
+        out.tooltip_tokens = {}
+        for k, v in pairs(g.tooltip_tokens) do
+            out.tooltip_tokens[k] = v
+        end
+    end
+    if g.tags then
+        out.tags = {}
+        for i, v in ipairs(g.tags) do
+            out.tags[i] = v
+        end
+    end
+    if g.description then
+        out.description = g.description
+    end
+    return out
+end
+
+--- Weighted pick: guns (Guns.rollDrop pool) or knife — same rarity event as a gun floor drop.
+function Combat.rollWeaponOrMeleeDrop(luck)
+    luck = luck or 0
+    local Weapons = require("src.data.weapons")
+    local meleeDef = Weapons.defaults and Weapons.defaults.melee
+    if not meleeDef then
+        local g = Guns.rollDrop(luck)
+        if g then
+            return { kind = "gun", gun = g }
+        end
+        return nil
+    end
+
+    local entries = {}
+    for _, gun in ipairs(Guns.pool) do
+        if gun.dropWeight > 0 then
+            local w = gun.dropWeight
+            if gun.rarity == "rare" then
+                w = w * (1 + luck)
+            elseif gun.rarity == "uncommon" then
+                w = w * (1 + luck * 0.5)
+            end
+            entries[#entries + 1] = { kind = "gun", weight = w, gun = gun }
+        end
+    end
+    -- Same band as blunderbuss (8): knife competes fairly in the shared weapon drop roll.
+    local knifeWeight = 8
+    local kw = knifeWeight * (1 + luck * 0.5)
+    entries[#entries + 1] = {
+        kind = "melee",
+        weight = kw,
+        gear = Combat.cloneMeleeGearDef(meleeDef),
+    }
+
+    local totalWeight = 0
+    for _, e in ipairs(entries) do
+        totalWeight = totalWeight + e.weight
+    end
+    if totalWeight <= 0 then
+        return nil
+    end
+    local roll = GameRng.randomFloat("combat.enemy_drop.weapon_pick", 0, totalWeight)
+    local cumulative = 0
+    for _, e in ipairs(entries) do
+        cumulative = cumulative + e.weight
+        if roll <= cumulative then
+            return e
+        end
+    end
+    return entries[#entries]
+end
+
+--- Pickup type + value for any world "weapon" spawn (guns + knife — same pool as enemy weapon drops).
+--- @return string|nil pickupType  "weapon" | "melee_gear"
+--- @return table|nil payload      gun def or cloned melee gear def
+function Combat.pickWeaponDropPickup(luck)
+    local pick = Combat.rollWeaponOrMeleeDrop(luck)
+    if not pick then
+        return nil, nil
+    end
+    if pick.kind == "gun" and pick.gun then
+        return "weapon", pick.gun
+    end
+    if pick.kind == "melee" and pick.gear then
+        return "melee_gear", pick.gear
+    end
+    return nil, nil
 end
 
 local explosiveShakeHook = nil
@@ -474,7 +562,7 @@ function Combat.onEnemyKilled(enemy, player)
         elseif kind == "health" then
             t.vx = GameRng.randomFloat(ch .. ".vx", -150, 150)
             t.vy = GameRng.randomFloat(ch .. ".vy", -340, -200)
-        elseif kind == "weapon" then
+        elseif kind == "weapon" or kind == "melee_gear" then
             t.vx = GameRng.randomFloat(ch .. ".vx", -120, 120)
             t.vy = GameRng.randomFloat(ch .. ".vy", -400, -250)
         end
@@ -541,19 +629,28 @@ function Combat.onEnemyKilled(enemy, player)
         table.insert(drops, t)
     end
 
-    -- Weapon drop (rare)
+    -- Weapon drop (rare): gun or knife — one weighted pick from the same event as before.
     local luck = player:getEffectiveStats().luck or 0
     local weaponDropChance = 0.04 + luck * 0.02
     if GameRng.randomChance("combat.enemy_drop.weapon", weaponDropChance) then
-        local gunDef = Guns.rollDrop(luck)
-        if gunDef then
+        local pick = Combat.rollWeaponOrMeleeDrop(luck)
+        if pick and pick.kind == "gun" and pick.gun then
             local t = {
                 x = baseX,
                 y = baseY - 8,
                 type = "weapon",
-                value = gunDef,
+                value = pick.gun,
             }
             burst("weapon", t)
+            table.insert(drops, t)
+        elseif pick and pick.kind == "melee" and pick.gear then
+            local t = {
+                x = baseX,
+                y = baseY - 8,
+                type = "melee_gear",
+                value = pick.gear,
+            }
+            burst("melee_gear", t)
             table.insert(drops, t)
         end
     end

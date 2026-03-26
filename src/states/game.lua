@@ -1042,9 +1042,14 @@ local function wireRoomEntities(roomDef)
             croupiers[#croupiers + 1] = m
         end
         for _, altar in ipairs(activities.weaponAltars or {}) do
-            altar.onChoose = function(gun)
-                if gun and player then
-                    player:equipWeapon(gun, player.activeWeaponSlot or 1)
+            altar.onChoose = function(choice)
+                if not choice or not player then
+                    return
+                end
+                if choice.kind == "gun" and choice.def then
+                    player:equipWeapon(choice.def, player.activeWeaponSlot or 1)
+                elseif choice.kind == "melee" and choice.def then
+                    player:equipGear(choice.def)
                 end
             end
             weaponAltars[#weaponAltars + 1] = altar
@@ -1091,6 +1096,10 @@ local function wireRoomEntities(roomDef)
                     table.insert(pickups, p)
                 elseif rtype == "weapon" and value then
                     local p = Mods.Pickup.new(spawnX, spawnY, "weapon", value)
+                    world:add(p, p.x, p.y, p.w, p.h)
+                    table.insert(pickups, p)
+                elseif rtype == "melee_gear" and value then
+                    local p = Mods.Pickup.new(spawnX, spawnY, "melee_gear", value)
                     world:add(p, p.x, p.y, p.w, p.h)
                     table.insert(pickups, p)
                 elseif rtype == "damage" and player then

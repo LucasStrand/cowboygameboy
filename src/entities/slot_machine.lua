@@ -8,10 +8,10 @@
 ---
 --- Callbacks (set by game.lua wireRoomEntities):
 ---   onResult(rtype, value)
----     rtype: "gold" | "xp" | "health" | "damage" | "weapon"
----     value: number or gun table
+---     rtype: "gold" | "xp" | "health" | "damage" | "weapon" | "melee_gear"
+---     value: number, gun def, or cloned melee gear def
 
-local Guns = require("src.data.guns")
+local Combat = require("src.systems.combat")
 local Font = require("src.ui.font")
 local WorldInteractLabel = require("src.ui.world_interact_label")
 
@@ -209,8 +209,10 @@ function SlotMachine:_computeResult()
         elseif s1 == SYM.BELL then
             self.resultMsg = "Lucky Bells!  Weapon!"
             self.flashTimer = RESULT_TIME * 0.6
-            local gun = Guns.rollDrop(1)
-            if gun and self.onResult then self.onResult("weapon", gun) end
+            local ptype, pval = Combat.pickWeaponDropPickup(1)
+            if ptype and pval and self.onResult then
+                self.onResult(ptype, pval)
+            end
         elseif s1 == SYM.CHERRY then
             self.resultMsg = "Cherries!  +40 XP"
             if self.onResult then self.onResult("xp", 40) end

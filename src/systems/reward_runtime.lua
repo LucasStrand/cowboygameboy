@@ -4,6 +4,7 @@ local RunMetadata = require("src.systems.run_metadata")
 local Perks = require("src.data.perks")
 local GearData = require("src.data.gear")
 local Guns = require("src.data.guns")
+local Weapons = require("src.data.weapons")
 
 local RewardRuntime = {}
 local REROLL_BASE_COST = {
@@ -38,6 +39,7 @@ local FEATURE_HINTS = {
     riding_boots = { "theme:mobility" },
     spurred_boots = { "theme:mobility", "theme:damage" },
     snake_boots = { "theme:mobility", "theme:luck" },
+    knife = { "attack:melee", "theme:damage" },
     heal = { "theme:sustain" },
     ammo_upgrade = { "theme:ammo", "attack:projectile" },
 }
@@ -122,6 +124,10 @@ local function collectItemTags(item)
         append("theme:damage")
     end
     if type(stats.damage) == "number" and stats.damage > 0 then
+        append("theme:damage")
+    end
+    if type(stats.meleeDamage) == "number" and stats.meleeDamage > 0 then
+        append("attack:melee")
         append("theme:damage")
     end
     if type(stats.luck) == "number" and stats.luck > 0 then
@@ -399,6 +405,27 @@ local function buildGearCandidates(player, profile, max_tier)
             candidates[#candidates + 1] = candidate
         end
     end
+
+    -- Knife (melee weapon): same shop/equip path as hat/vest/boots; only if slot is empty.
+    -- Lazy-require Combat here — top-level require would cycle: combat → hud → reward_runtime → combat.
+    local meleeEquipped = player and player.gear and player.gear.melee
+    if not meleeEquipped and Weapons.defaults.melee then
+        local knife = Weapons.defaults.melee
+        if knife.tier <= max_tier then
+            local Combat = require("src.systems.combat")
+            local candidate = decorateCandidate(profile, knife, "power")
+            candidate.type = "gear"
+            candidate.gearData = Combat.cloneMeleeGearDef(knife)
+            candidate.tooltip_key = knife.tooltip_key
+            candidate.tooltip_tokens = knife.tooltip_tokens
+            candidate.reward_weight = math.max(1, 5 - (knife.tier or 1))
+            if candidate.reward_bucket == "support" then
+                candidate.reward_weight = candidate.reward_weight + 4
+            end
+            candidates[#candidates + 1] = candidate
+        end
+    end
+
     return candidates
 end
 

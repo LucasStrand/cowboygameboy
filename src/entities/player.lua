@@ -63,8 +63,9 @@ local JUMP_BUFFER = 0.12
 local DOUBLE_JUMP_MULT = 0.9
 local JUMP_RELEASE_GRAVITY_MULT = 0.95 -- extra gravity while rising if jump not held (short hop)
 
-local DASH_SPEED = 520
-local DASH_DURATION = 0.12
+-- Dash travel ~matches old 0.12s×520; longer duration so dash anim can hold the last frame.
+local DASH_DURATION = 0.20
+local DASH_SPEED = math.floor(520 * 0.12 / DASH_DURATION + 0.5) -- ~312
 local DASH_COOLDOWN = 0.52
 -- Melee swing: hit window (longer than melee anim tail for combat resolution)
 local MELEE_SWING_DURATION = 0.30
@@ -83,6 +84,8 @@ local PLAYER_BASE_GUN_STATS = {
 
 -- Face sprite toward horizontal aim; small deadzone only when aim is ~through torso
 local AIM_FACE_DEADZONE = 3
+-- AK-47 hold: wider deadzone so we still flip to shoot behind, but tiny cursor jitter doesn’t flip every frame
+local AIM_FACE_DEADZONE_AK_SPRAY = 10
 -- F-melee without click: use cursor in world space; ignore if cursor is basically on the body
 local MELEE_CURSOR_MIN_DIST_SQ = 8 * 8
 -- During melee swing, flip body from strike angle if mostly horizontal (~vertical = keep prior facing branch)
@@ -603,10 +606,12 @@ function Player:update(dt, world, enemies)
         if not usedMeleeFacing then
             local ax = self.effectiveAimX or self.aimWorldX or cx
             local aimDx = ax - cx
-            -- AK-47 sustained fire: cursor often jitters around the body center; don't flip facing every frame.
             local gun = self:getActiveGun()
-            local akSprayHold = gun and gun.id == "ak47" and self.inputFireHeld
-            if not akSprayHold and math.abs(aimDx) > AIM_FACE_DEADZONE then
+            local faceDead = AIM_FACE_DEADZONE
+            if gun and gun.id == "ak47" and self.inputFireHeld then
+                faceDead = AIM_FACE_DEADZONE_AK_SPRAY
+            end
+            if math.abs(aimDx) > faceDead then
                 self.facingRight = aimDx > 0
             elseif self.dashTimer > 0 and not blockRooted then
                 self.facingRight = self.dashDir > 0
@@ -740,12 +745,13 @@ function Player:update(dt, world, enemies)
         or anim.current == "knife_jab" or anim.current == "melee_fist"
         or anim.current == "drinking") and not anim.done
     )
-    if not oneShotPlaying then
-        if self.dashTimer > 0 then
-            anim:play("dash")
-            self.idleTimer = 0
-            self.smokeSessionTimer = 0
-        elseif not self.grounded then
+    -- Dash body anim must win over shoot/melee one-shots so the dash strip is visible for the whole dash.
+    if self.dashTimer > 0 then
+        anim:play("dash")
+        self.idleTimer = 0
+        self.smokeSessionTimer = 0
+    elseif not oneShotPlaying then
+        if not self.grounded then
             if self.vy < 0 then anim:play("jump") else anim:play("fall") end
             self.idleTimer = 0
             self.smokeSessionTimer = 0
@@ -1431,6 +1437,28 @@ function Player:draw()
         love.graphics.push()
         love.graphics.translate(jx, jy)
 
+        --- AK-47 slung on back when carried in the non-active slot (not akimbo — both hands hold guns).
+        local function drawAkOnBack()
+            local off = self:getOffhandGun()
+            if not off or off.id ~= "ak47" then return end
+            local gun = Guns.getById("ak47")
+            if not gun then return end
+            local sprite = Guns.getSprite(gun)
+            if not sprite then return end
+            local scale = (gun.spriteScale or 0.72) * 0.52
+            local origin = gun.spriteOrigin or { x = 0.25, y = 0.5 }
+            local sw, sh = sprite:getDimensions()
+            local ox = sw * origin.x
+            local oy = sh * origin.y
+            local ang = self.facingRight and math.rad(-102) or math.rad(102)
+            local bx = cx + (self.facingRight and -10 or 10)
+            local by = self.y + self.h * 0.30
+            local sy = scale
+            if not self.facingRight then sy = -scale end
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sprite, bx, by, ang, scale, sy, ox, oy)
+        end
+
         -- Smash-style energy bubble while blocking (drawn behind the fighter)
         if self.blocking and self.gear.shield then
             local scx = self.x + self.w / 2
@@ -1447,11 +1475,14 @@ function Player:draw()
             love.graphics.ellipse("line", scx, scy, rx * 0.88, ry * 0.88)
         end
 
+        if not self:isAkimbo() then
+            drawAkOnBack()
+        end
+
         self.anim:drawCentered(cx, footY, self.facingRight)
 
-        -- Weapon sprite overlay (gun — hidden during melee swing and rifle-shoot body anim)
+        -- Weapon sprite overlay (gun — hidden during melee swing and rifle-shoot body anim; AK never uses overlay)
         local hideGunOverlay = self.meleeSwingTimer > 0 or self.anim.current == "shoot_rifle"
-            or self.anim.current == "shoot_ak47_startup" or self.anim.current == "shoot_ak47_loop" or self.anim.current == "shoot_ak47_end"
         if not hideGunOverlay then
             local aimAngle = self:getAimAngle()
             local handX = cx + (self.facingRight and 2 or -2)
@@ -1459,6 +1490,7 @@ function Player:draw()
 
             local function drawGunSprite(gun, yOff)
                 if gun.id == "revolver" then return end  -- cowboy animation already has a revolver
+                if gun.id == "ak47" then return end     -- body animation holds the AK; no duplicate sprite
                 local sprite = Guns.getSprite(gun)
                 if not sprite then return end
                 local scale = gun.spriteScale or 0.7

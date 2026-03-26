@@ -94,6 +94,10 @@ local function resolveGearTokens(item)
     if tokens.luck_pct == nil and type(stats.luck) == "number" then
         tokens.luck_pct = math.floor(stats.luck * 100 + 0.5)
     end
+    tokens.melee_damage = tokens.melee_damage or stats.meleeDamage
+    tokens.melee_range = tokens.melee_range or stats.meleeRange
+    tokens.melee_cooldown = tokens.melee_cooldown or stats.meleeCooldown
+    tokens.melee_knockback = tokens.melee_knockback or stats.meleeKnockback
     return tokens
 end
 
