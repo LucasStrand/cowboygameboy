@@ -73,6 +73,16 @@ local perkOptions = nil
 local hoveredPerk = nil
 local fonts = {}
 
+-- Wanted quest stub (foreground pillar)
+local wantedQuestStage = "available" -- available | pending (marker hidden; quest UI later)
+local wantedPoster = {
+    x = 0, y = 0, cx = 0,
+    markerY = 0,
+    interactY = 0,
+    s = 0.30,
+    r2 = 62 * 62, -- interact radius squared (includes some vertical forgiveness)
+}
+
 local CAM_ZOOM = 3
 
 -- Camera + misc state packed to avoid upvalue limit
@@ -1025,6 +1035,19 @@ local function trySaloonWalkingInteract(key)
             return true
         end
     end
+    if wantedQuestStage == "available" and wantedPoster and wantedPoster.cx and wantedPoster.interactY then
+        local pcx = player.x + player.w / 2
+        local pcy = player.y + player.h / 2
+        local qx = wantedPoster.cx
+        local qy = wantedPoster.interactY
+        local dx = pcx - qx
+        local dy = pcy - qy
+        if (dx * dx + dy * dy) <= wantedPoster.r2 then
+            wantedQuestStage = "pending"
+            -- TODO: later: show quest info UI, allow accept, and close.
+            return true
+        end
+    end
     if nearbyNPC then
         if nearbyNPC.type == "dealer" then
             mode = "casino_menu"
@@ -1097,6 +1120,32 @@ function saloon:enter(_, _player, _roomManager)
         end
     end
     loadDecorations()
+
+    -- Wanted quest poster placement (foreground pillar)
+    wantedQuestStage = "available"
+    wantedPoster.s = 0.30
+    do
+        local L = Mods.saloonRoom.decor or {}
+        local pillarX = L.foregroundPillars and L.foregroundPillars[#L.foregroundPillars]
+        if pillarX and decor.wanted then
+            local iw, ih = decor.wanted:getDimensions()
+            local pillarW = 7 -- must match Atmos.drawForegroundPillar
+            local floorY = Mods.saloonRoom.platforms[1].y
+            local ceilingY = floorY - 90
+            local scale = wantedPoster.s
+            local posterW = iw * scale
+            local posterH = ih * scale
+            wantedPoster.x = (pillarX + pillarW * 0.5) - posterW * 0.5
+            wantedPoster.y = ceilingY + 32
+            wantedPoster.cx = wantedPoster.x + posterW * 0.5
+            wantedPoster.markerY = wantedPoster.y - 10
+            -- Interaction anchor should be closer to the player's reachable height
+            -- (use the middle-ish of the poster, not the floating marker).
+            wantedPoster.interactY = wantedPoster.y + posterH * 0.55
+        else
+            wantedPoster.x, wantedPoster.y, wantedPoster.cx, wantedPoster.markerY, wantedPoster.interactY = 0, 0, 0, 0, 0
+        end
+    end
 
     -- Fonts
     fonts.title = Mods.Font.new(36)
@@ -2054,7 +2103,6 @@ function saloon:draw()
     end
     -- Wanted posters on left wall
     drawSprite("wanted", L.wantedX, floorY - 55, 0.35, 0.35)
-    drawSprite("wanted", L.wantedX + 52, floorY - 60, 0.30, 0.30)
 
     -- === LAYER 4: Floor with depth shading ===
     if decor.floor_wood then
@@ -2316,6 +2364,41 @@ function saloon:draw()
     if L.foregroundPillars then
         for _, px in ipairs(L.foregroundPillars) do
             Atmos.drawForegroundPillar(px, ceilingY, floorY)
+        end
+    end
+    -- Wanted poster on a foreground pillar (with floating quest marker)
+    if decor.wanted and wantedPoster and wantedPoster.y and wantedPoster.y ~= 0 then
+        drawSprite("wanted", wantedPoster.x, wantedPoster.y, wantedPoster.s, wantedPoster.s)
+        if mode == "walking" and wantedQuestStage == "available" and wantedPoster.markerY then
+            local bob = math.sin(love.timer.getTime() * 6) * 1.2
+            local mx = math.floor(wantedPoster.cx - 2)
+            local my = math.floor(wantedPoster.markerY + bob)
+            love.graphics.setFont(fonts.default)
+            love.graphics.setColor(0, 0, 0, 0.65)
+            love.graphics.print("!", mx + 1, my + 1)
+            love.graphics.setColor(1, 0.85, 0.25, 1)
+            love.graphics.print("!", mx, my)
+            love.graphics.setColor(1, 1, 1, 1)
+
+            -- Nearby interaction hint
+            if player then
+                local pcx = player.x + player.w / 2
+                local pcy = player.y + player.h / 2
+                local dx = pcx - wantedPoster.cx
+                local dy = pcy - wantedPoster.interactY
+                if (dx * dx + dy * dy) <= wantedPoster.r2 then
+                    local label = "[E] Quest"
+                    local tw = fonts.default:getWidth(label)
+                    -- Keep quest text steady (no bobbing), so it doesn't feel jumpy.
+                    local qy = math.floor(wantedPoster.markerY + 10)
+                    love.graphics.setFont(fonts.default)
+                    love.graphics.setColor(0, 0, 0, 0.7)
+                    love.graphics.print(label, math.floor(wantedPoster.cx - tw / 2) + 1, qy + 1)
+                    love.graphics.setColor(1, 0.85, 0.25, 1)
+                    love.graphics.print(label, math.floor(wantedPoster.cx - tw / 2), qy)
+                    love.graphics.setColor(1, 1, 1, 1)
+                end
+            end
         end
     end
 

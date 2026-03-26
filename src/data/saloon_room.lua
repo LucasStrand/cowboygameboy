@@ -53,9 +53,9 @@ return {
     -- Multiple slot machines in gambling zone
     slotMachine = { cx = 30, cy = 146, r = 40 },
     slotMachines = {
-        { x = 4, scale = 0.22 },
-        { x = 52, scale = 0.19 },
-        { x = 94, scale = 0.21 },
+        { x = 4,  scale = 0.195 },
+        { x = 52, scale = 0.195 },
+        { x = 94, scale = 0.195 },
     },
 
     -- Basement layout info
