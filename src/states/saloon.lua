@@ -601,14 +601,27 @@ local function loadDecorations()
     loadDecorSprite("casino_sheet", "assets/Bar_by_Styl0o/2D Top Down Pixel Art Tileset Casino/2D Top Down Pixel Art Tileset Casino/2D_TopDown_Tileset_Casino_640x512.png")
     if decor.casino_sheet and not rouletteTableQuad then
         local sw, sh = decor.casino_sheet:getDimensions()
-        -- Roulette table with betting grid and wheel from the tileset
         rouletteTableQuad = love.graphics.newQuad(292, 156, 108, 64, sw, sh)
     end
 
+    -- Generated pixel art props
+    loadDecorSprite("gen_window", "assets/saloon_props/window.png")
+    loadDecorSprite("gen_barrel", "assets/saloon_props/barrel.png")
+    loadDecorSprite("gen_piano", "assets/saloon_props/piano.png")
+    loadDecorSprite("gen_poker_table", "assets/saloon_props/poker_table.png")
+    loadDecorSprite("gen_clock", "assets/saloon_props/clock.png")
+    loadDecorSprite("gen_crates", "assets/saloon_props/crates.png")
+    loadDecorSprite("gen_spittoon", "assets/saloon_props/spittoon.png")
+    loadDecorSprite("gen_chair", "assets/saloon_props/chair.png")
+    loadDecorSprite("gen_lantern", "assets/saloon_props/lantern.png")
+    loadDecorSprite("gen_antler", "assets/saloon_props/antler.png")
+
+    -- Wall panel for visible side walls
+    loadDecorSprite("wall_bar", "assets/Bar_by_Styl0o/individuals sprite/wall_bar.png")
 end
 
 ---------------------------------------------------------------------------
--- Dust mote + procedural prop helpers (all on Atmos to save upvalues)
+-- Dust mote + draw helpers (all on Atmos to save upvalues)
 ---------------------------------------------------------------------------
 local function spawnDustMote(roomW, floorY)
     return {
@@ -658,144 +671,221 @@ function Atmos.updateDust(dt)
     end
 end
 
-function Atmos.drawWindow(x, floorY)
-    local wy = floorY - 90
-    local ww, wh = 22, 28
-    love.graphics.setColor(0.06, 0.04, 0.08, 0.9)
-    love.graphics.rectangle("fill", x, wy, ww, wh)
-    love.graphics.setColor(0.25, 0.30, 0.45, 0.5)
-    love.graphics.rectangle("fill", x + 2, wy + 2, ww - 4, wh - 4)
-    love.graphics.setColor(0.30, 0.18, 0.10)
-    love.graphics.rectangle("fill", x + math.floor(ww / 2) - 1, wy, 2, wh)
-    love.graphics.rectangle("fill", x, wy + math.floor(wh / 2) - 1, ww, 2)
-    love.graphics.setColor(0.35, 0.22, 0.12)
-    love.graphics.rectangle("line", x, wy, ww, wh)
-    love.graphics.rectangle("line", x - 1, wy - 1, ww + 2, wh + 2)
+-- === Structural elements ===
+
+function Atmos.drawCeiling(roomW, ceilingY)
+    -- Dark wooden ceiling planks
+    love.graphics.setColor(0.14, 0.08, 0.04)
+    love.graphics.rectangle("fill", 0, ceilingY, roomW, 6)
+    -- Bottom edge highlight
+    love.graphics.setColor(0.22, 0.13, 0.07)
+    love.graphics.rectangle("fill", 0, ceilingY + 5, roomW, 1)
+    -- Rafters/beams across ceiling
+    love.graphics.setColor(0.18, 0.10, 0.05)
+    love.graphics.rectangle("fill", 0, ceilingY + 6, roomW, 2)
 end
 
-function Atmos.drawLightShaft(x, floorY)
-    local wy = floorY - 62
-    local shaftW = 30
-    local shaftH = floorY - wy
+function Atmos.drawSideWall(x, ceilingY, bottomY, isLeft)
+    local wallW = 8
+    local wallH = bottomY - ceilingY
+    local wx = isLeft and x or (x - wallW)
+    -- Main wall panel (extends to basement)
+    love.graphics.setColor(0.16, 0.09, 0.05)
+    love.graphics.rectangle("fill", wx, ceilingY, wallW, wallH)
+    -- Vertical plank lines
+    love.graphics.setColor(0.12, 0.07, 0.03)
+    for i = 0, wallW - 1, 3 do
+        love.graphics.rectangle("fill", wx + i, ceilingY, 1, wallH)
+    end
+    -- Inner edge highlight/shadow
+    if isLeft then
+        love.graphics.setColor(0.22, 0.14, 0.08)
+        love.graphics.rectangle("fill", wx + wallW - 1, ceilingY, 1, wallH)
+    else
+        love.graphics.setColor(0.22, 0.14, 0.08)
+        love.graphics.rectangle("fill", wx, ceilingY, 1, wallH)
+    end
+end
+
+function Atmos.drawBasement(roomW, floorY, floorH)
+    local baseY = floorY + floorH  -- just below main floor
+    local bsmtFloorY = Mods.saloonRoom.basementFloorY or (baseY + 80)
+    local bsmtFloorH = Mods.saloonRoom.basementFloorH or 20
+    local bsmtH = bsmtFloorY - baseY
+
+    -- Dark stone back wall
+    love.graphics.setColor(0.07, 0.05, 0.03)
+    love.graphics.rectangle("fill", 0, baseY, roomW, bsmtH)
+
+    -- Stone brick pattern on back wall
+    love.graphics.setColor(0.10, 0.07, 0.04)
+    for row = 0, math.floor(bsmtH / 8) do
+        local offX = (row % 2 == 0) and 0 or 6
+        for bx = offX, roomW, 14 do
+            love.graphics.rectangle("fill", bx + 1, baseY + row * 8 + 1, 11, 6)
+        end
+    end
+
+    -- Mortar lines (darker)
+    love.graphics.setColor(0.05, 0.03, 0.02, 0.5)
+    for row = 0, math.floor(bsmtH / 8) do
+        love.graphics.rectangle("fill", 0, baseY + row * 8, roomW, 1)
+    end
+
+    -- Top shadow (darkness below main floor planks)
+    love.graphics.setColor(0.02, 0.01, 0.005, 0.9)
+    love.graphics.rectangle("fill", 0, baseY, roomW, 4)
+
+    -- Cobwebs in corners
+    love.graphics.setColor(0.20, 0.18, 0.16, 0.15)
+    love.graphics.rectangle("fill", 2, baseY + 5, 12, 2)
+    love.graphics.rectangle("fill", 4, baseY + 7, 8, 1)
+    love.graphics.rectangle("fill", roomW - 14, baseY + 5, 12, 2)
+    love.graphics.rectangle("fill", roomW - 12, baseY + 7, 8, 1)
+
+    -- A few barrels/crates stored in basement
+    love.graphics.setColor(0.18, 0.12, 0.06)
+    -- Barrel 1
+    love.graphics.rectangle("fill", 40, bsmtFloorY - 14, 10, 14)
+    love.graphics.setColor(0.12, 0.08, 0.04)
+    love.graphics.rectangle("fill", 40, bsmtFloorY - 10, 10, 2)
+    love.graphics.rectangle("fill", 40, bsmtFloorY - 5, 10, 2)
+    -- Barrel 2
+    love.graphics.setColor(0.16, 0.10, 0.05)
+    love.graphics.rectangle("fill", 56, bsmtFloorY - 12, 9, 12)
+    love.graphics.setColor(0.11, 0.07, 0.03)
+    love.graphics.rectangle("fill", 56, bsmtFloorY - 8, 9, 2)
+    -- Crate
+    love.graphics.setColor(0.20, 0.14, 0.07)
+    love.graphics.rectangle("fill", 600, bsmtFloorY - 16, 14, 16)
+    love.graphics.setColor(0.14, 0.09, 0.04)
+    love.graphics.rectangle("fill", 606, bsmtFloorY - 16, 2, 16)
+    love.graphics.rectangle("fill", 600, bsmtFloorY - 9, 14, 2)
+
+    -- Basement floor (stone)
+    love.graphics.setColor(0.12, 0.09, 0.06)
+    love.graphics.rectangle("fill", 0, bsmtFloorY, roomW, bsmtFloorH)
+    love.graphics.setColor(0.15, 0.11, 0.07)
+    for bx = 0, roomW, 16 do
+        local bw = 13 + (bx * 3 % 5)
+        love.graphics.rectangle("fill", bx + 1, bsmtFloorY + 1, bw, bsmtFloorH - 2)
+    end
+end
+
+function Atmos.drawPillar(x, ceilingY, floorY)
+    -- BACKGROUND pillar: darker/muted, behind player
+    local pillarW = 6
+    local pillarH = floorY - ceilingY
+    -- Main body (dark, recessed)
+    love.graphics.setColor(0.18, 0.10, 0.05)
+    love.graphics.rectangle("fill", x, ceilingY, pillarW, pillarH)
+    -- Left highlight
+    love.graphics.setColor(0.24, 0.14, 0.08)
+    love.graphics.rectangle("fill", x, ceilingY, 1, pillarH)
+    -- Right shadow
+    love.graphics.setColor(0.12, 0.06, 0.03)
+    love.graphics.rectangle("fill", x + pillarW - 1, ceilingY, 1, pillarH)
+    -- Capital (top bracket)
+    love.graphics.setColor(0.22, 0.13, 0.07)
+    love.graphics.rectangle("fill", x - 2, ceilingY + 6, pillarW + 4, 3)
+    love.graphics.rectangle("fill", x - 1, ceilingY + 9, pillarW + 2, 2)
+    -- Base bracket
+    love.graphics.rectangle("fill", x - 2, floorY - 4, pillarW + 4, 4)
+    love.graphics.setColor(0.16, 0.09, 0.04)
+    love.graphics.rectangle("fill", x - 1, floorY - 5, pillarW + 2, 1)
+end
+
+function Atmos.drawForegroundPillar(x, ceilingY, floorY)
+    -- FOREGROUND pillar: normal/lighter color, opaque, drawn OVER player for depth
+    local pillarW = 7
+    local pillarH = floorY - ceilingY
+    love.graphics.setColor(0.28, 0.17, 0.09)
+    love.graphics.rectangle("fill", x, ceilingY, pillarW, pillarH)
+    -- Left highlight
+    love.graphics.setColor(0.38, 0.24, 0.14)
+    love.graphics.rectangle("fill", x, ceilingY, 2, pillarH)
+    -- Right shadow
+    love.graphics.setColor(0.18, 0.10, 0.05)
+    love.graphics.rectangle("fill", x + pillarW - 2, ceilingY, 2, pillarH)
+    -- Capital
+    love.graphics.setColor(0.34, 0.22, 0.12)
+    love.graphics.rectangle("fill", x - 3, ceilingY + 6, pillarW + 6, 4)
+    love.graphics.rectangle("fill", x - 2, ceilingY + 10, pillarW + 4, 2)
+    -- Base
+    love.graphics.rectangle("fill", x - 3, floorY - 5, pillarW + 6, 5)
+    love.graphics.setColor(0.26, 0.16, 0.08)
+    love.graphics.rectangle("fill", x - 2, floorY - 6, pillarW + 4, 1)
+end
+
+-- === Asset-based prop drawing ===
+
+function Atmos.drawAssetFromBottom(name, x, floorY, s)
+    local img = decor[name]
+    if not img then return end
+    local iw, ih = img:getDimensions()
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.draw(img, x, floorY - ih * s, 0, s, s)
+end
+
+function Atmos.drawAssetFromBottomFlip(name, x, floorY, s)
+    local img = decor[name]
+    if not img then return end
+    local iw, ih = img:getDimensions()
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.draw(img, x + iw * s, floorY - ih * s, 0, -s, s)
+end
+
+function Atmos.drawWindow(wx, floorY, s)
+    local img = decor.gen_window
+    local windowY = floorY - 72  -- on the back wall, well below ceiling
+    if img then
+        local iw, ih = img:getDimensions()
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.draw(img, wx, windowY, 0, s, s)
+    else
+        -- Procedural fallback: simple window frame with yellow interior
+        local ww, wh = math.floor(40 * s), math.floor(40 * s)
+        love.graphics.setColor(1.0, 0.88, 0.45, 0.6)
+        love.graphics.rectangle("fill", wx + 2, windowY + 2, ww - 4, wh - 4)
+        love.graphics.setColor(0.22, 0.13, 0.07)
+        love.graphics.rectangle("line", wx, windowY, ww, wh)
+        love.graphics.rectangle("fill", wx + math.floor(ww/2) - 1, windowY, 2, wh)
+        love.graphics.rectangle("fill", wx, windowY + math.floor(wh/2) - 1, ww, 2)
+    end
+end
+
+function Atmos.drawWindowGlow(wx, floorY, s)
+    -- Warm yellow glow spilling from window
+    local img = decor.gen_window
+    local iw = img and img:getWidth() or 40
+    local windowY = floorY - 72
+    local cx = wx + iw * s * 0.5
+    local wy = windowY + 10
     love.graphics.setBlendMode("add")
-    for i = 0, 5 do
-        local alpha = 0.015 - i * 0.002
-        if alpha > 0 then
-            love.graphics.setColor(1.0, 0.92, 0.65, alpha)
+    -- Glow on wall around window
+    for i = 1, 5 do
+        local r = 10 + i * 7
+        local a = 0.04 - i * 0.006
+        if a > 0 then
+            love.graphics.setColor(1.0, 0.88, 0.45, a)
+            love.graphics.circle("fill", cx, wy, r, 16)
+        end
+    end
+    -- Light shaft downward
+    local shaftH = floorY - wy
+    for i = 0, 3 do
+        local a = 0.012 - i * 0.003
+        if a > 0 then
+            love.graphics.setColor(1.0, 0.90, 0.55, a)
             love.graphics.polygon("fill",
-                x + 4 - i, wy,
-                x + 18 + i, wy,
-                x + shaftW + 10 + i * 2, wy + shaftH,
-                x - 6 - i * 2, wy + shaftH
+                cx - 8 - i * 2, wy + 8,
+                cx + 8 + i * 2, wy + 8,
+                cx + 20 + i * 3, wy + shaftH,
+                cx - 20 - i * 3, wy + shaftH
             )
         end
     end
     love.graphics.setBlendMode("alpha")
-end
-
-function Atmos.drawPillar(x, floorY)
-    local pillarH = 88
-    local pillarW = 5
-    local py = floorY - pillarH
-    love.graphics.setColor(0.28, 0.16, 0.09)
-    love.graphics.rectangle("fill", x, py, pillarW, pillarH)
-    love.graphics.setColor(0.38, 0.24, 0.14)
-    love.graphics.rectangle("fill", x, py, 1, pillarH)
-    love.graphics.setColor(0.18, 0.10, 0.05)
-    love.graphics.rectangle("fill", x + pillarW - 1, py, 1, pillarH)
-    love.graphics.setColor(0.35, 0.22, 0.12)
-    love.graphics.rectangle("fill", x - 2, py, pillarW + 4, 3)
-    love.graphics.rectangle("fill", x - 1, floorY - 3, pillarW + 2, 3)
-end
-
-function Atmos.drawForegroundPillar(x, floorY)
-    local pillarH = 88
-    local pillarW = 5
-    local py = floorY - pillarH
-    love.graphics.setColor(0.15, 0.08, 0.04, 0.55)
-    love.graphics.rectangle("fill", x, py, pillarW, pillarH)
-    love.graphics.setColor(0.25, 0.15, 0.08, 0.45)
-    love.graphics.rectangle("fill", x, py, 1, pillarH)
-    love.graphics.setColor(0.20, 0.12, 0.06, 0.5)
-    love.graphics.rectangle("fill", x - 2, py, pillarW + 4, 3)
-    love.graphics.rectangle("fill", x - 1, floorY - 3, pillarW + 2, 3)
-end
-
-function Atmos.drawPiano(x, floorY)
-    local pw, ph = 24, 18
-    local py = floorY - ph
-    love.graphics.setColor(0.20, 0.12, 0.06)
-    love.graphics.rectangle("fill", x, py, pw, ph)
-    love.graphics.setColor(0.25, 0.15, 0.08)
-    love.graphics.rectangle("fill", x, py, pw, 3)
-    love.graphics.setColor(0.30, 0.19, 0.10)
-    love.graphics.rectangle("fill", x, py + 3, pw, 1)
-    local keysY = floorY - 7
-    love.graphics.setColor(0.92, 0.90, 0.85)
-    love.graphics.rectangle("fill", x + 2, keysY, pw - 4, 4)
-    love.graphics.setColor(0.10, 0.08, 0.06)
-    for k = 0, 5 do
-        local kx = x + 3 + k * 3
-        if kx < x + pw - 3 then
-            love.graphics.rectangle("fill", kx, keysY, 1, 2)
-        end
-    end
-    love.graphics.setColor(0.18, 0.10, 0.05)
-    love.graphics.rectangle("fill", x + 1, floorY - 2, 2, 2)
-    love.graphics.rectangle("fill", x + pw - 3, floorY - 2, 2, 2)
-    love.graphics.setColor(0.22, 0.13, 0.07)
-    love.graphics.rectangle("fill", x + pw + 3, floorY - 8, 6, 3)
-    love.graphics.setColor(0.16, 0.09, 0.04)
-    love.graphics.rectangle("fill", x + pw + 5, floorY - 5, 2, 5)
-end
-
-function Atmos.drawCardTable(x, floorY)
-    local tw, th = 20, 10
-    local ty = floorY - th
-    love.graphics.setColor(0.25, 0.15, 0.08)
-    love.graphics.rectangle("fill", x + 2, floorY - 3, 2, 3)
-    love.graphics.rectangle("fill", x + tw - 4, floorY - 3, 2, 3)
-    love.graphics.setColor(0.12, 0.30, 0.15)
-    love.graphics.rectangle("fill", x, ty, tw, 4)
-    love.graphics.setColor(0.30, 0.18, 0.10)
-    love.graphics.rectangle("fill", x - 1, ty - 1, tw + 2, 1)
-    love.graphics.rectangle("fill", x - 1, ty + 4, tw + 2, 1)
-    love.graphics.setColor(0.95, 0.93, 0.88)
-    love.graphics.rectangle("fill", x + 4, ty + 1, 3, 2)
-    love.graphics.setColor(0.85, 0.83, 0.78)
-    love.graphics.rectangle("fill", x + 9, ty + 1, 3, 2)
-    love.graphics.setColor(0.85, 0.20, 0.15)
-    love.graphics.rectangle("fill", x + 14, ty + 1, 2, 2)
-end
-
-function Atmos.drawBarrel(x, floorY)
-    local bw, bh = 10, 14
-    local by = floorY - bh
-    love.graphics.setColor(0.30, 0.18, 0.10)
-    love.graphics.rectangle("fill", x, by, bw, bh)
-    love.graphics.setColor(0.25, 0.15, 0.08)
-    love.graphics.rectangle("fill", x + 1, by - 1, bw - 2, 1)
-    love.graphics.rectangle("fill", x + 1, by + bh, bw - 2, 1)
-    love.graphics.setColor(0.36, 0.22, 0.13)
-    love.graphics.rectangle("fill", x, by + 5, bw, 4)
-    love.graphics.setColor(0.45, 0.40, 0.35)
-    love.graphics.rectangle("fill", x, by + 2, bw, 1)
-    love.graphics.rectangle("fill", x, by + bh - 3, bw, 1)
-    love.graphics.setColor(0.40, 0.26, 0.16)
-    love.graphics.rectangle("fill", x, by, 1, bh)
-end
-
-function Atmos.drawSpittoon(x, floorY)
-    local sw, sh = 6, 5
-    local sy = floorY - sh
-    love.graphics.setColor(0.65, 0.50, 0.20)
-    love.graphics.rectangle("fill", x, sy + 1, sw, sh - 1)
-    love.graphics.setColor(0.75, 0.58, 0.25)
-    love.graphics.rectangle("fill", x - 1, sy, sw + 2, 2)
-    love.graphics.setColor(0.30, 0.22, 0.10)
-    love.graphics.rectangle("fill", x + 1, sy, sw - 2, 1)
-    love.graphics.setColor(0.80, 0.65, 0.30)
-    love.graphics.rectangle("fill", x, sy + 2, 1, 2)
 end
 
 function Atmos.drawLampGlow(x, y)
@@ -809,6 +899,51 @@ function Atmos.drawLampGlow(x, y)
         end
     end
     love.graphics.setBlendMode("alpha")
+end
+
+function Atmos.drawBarrel(x, floorY, s)
+    -- Procedural barrel that matches the pixel art style
+    local bw = math.floor(18 * s)
+    local bh = math.floor(24 * s)
+    local by = floorY - bh
+    -- Body
+    love.graphics.setColor(0.30, 0.18, 0.08)
+    love.graphics.rectangle("fill", x, by, bw, bh)
+    -- Slight bulge (wider middle rows)
+    love.graphics.setColor(0.33, 0.20, 0.10)
+    love.graphics.rectangle("fill", x - 1, by + math.floor(bh * 0.3), bw + 2, math.floor(bh * 0.4))
+    -- Metal bands
+    love.graphics.setColor(0.20, 0.20, 0.22)
+    local bandH = math.max(1, math.floor(2 * s))
+    love.graphics.rectangle("fill", x - 1, by + math.floor(bh * 0.2), bw + 2, bandH)
+    love.graphics.rectangle("fill", x - 1, by + math.floor(bh * 0.7), bw + 2, bandH)
+    -- Top rim
+    love.graphics.setColor(0.25, 0.15, 0.07)
+    love.graphics.rectangle("fill", x, by, bw, math.max(1, math.floor(2 * s)))
+    -- Left highlight
+    love.graphics.setColor(0.38, 0.24, 0.12)
+    love.graphics.rectangle("fill", x, by, math.max(1, math.floor(s)), bh)
+    -- Right shadow
+    love.graphics.setColor(0.18, 0.10, 0.04)
+    love.graphics.rectangle("fill", x + bw - math.max(1, math.floor(s)), by, math.max(1, math.floor(s)), bh)
+end
+
+function Atmos.drawAntler(x, floorY)
+    local img = decor.gen_antler
+    if img then
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.draw(img, x, floorY - 85, 0, 0.5, 0.5)
+    else
+        -- Procedural fallback
+        love.graphics.setColor(0.35, 0.25, 0.15)
+        local ay = floorY - 80
+        love.graphics.rectangle("fill", x + 4, ay + 4, 8, 6)  -- plaque
+        love.graphics.setColor(0.55, 0.45, 0.35)
+        love.graphics.rectangle("fill", x, ay, 3, 8)
+        love.graphics.rectangle("fill", x + 13, ay, 3, 8)
+        love.graphics.rectangle("fill", x + 2, ay - 2, 2, 4)
+        love.graphics.rectangle("fill", x + 12, ay - 2, 2, 4)
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -1827,7 +1962,11 @@ function saloon:draw()
     camera:attach(0, 0, screenW, screenH)
     Mods.WorldInteractLabelBatch.clear()
 
-    -- === LAYER 1: Background image (saloon interior walls) ===
+    local L = Mods.saloonRoom.decor
+    local ceilingY = floorY - 90
+    local floorH = Mods.saloonRoom.platforms[1].h
+
+    -- === LAYER 0: Background image (saloon interior walls) ===
     if bgImage then
         local viewW = screenW / CAM_ZOOM
         local viewH = screenH / CAM_ZOOM
@@ -1838,27 +1977,32 @@ function saloon:draw()
         love.graphics.draw(bgImage, camX - (bw * scale) / 2, camY - (bh * scale) / 2, 0, scale, scale)
     end
 
-    -- === LAYER 2: Back wall windows + light shafts ===
-    local L = Mods.saloonRoom.decor
+    -- === LAYER 1: Ceiling + side walls (room structure, extending to basement) ===
+    Atmos.drawCeiling(roomW, ceilingY)
+    local wallBottomY = (Mods.saloonRoom.basementFloorY or floorY) + (Mods.saloonRoom.basementFloorH or 0)
+    Atmos.drawSideWall(0, ceilingY, wallBottomY, true)
+    Atmos.drawSideWall(roomW, ceilingY, wallBottomY, false)
+
+    -- === LAYER 2: Back wall windows with warm glow ===
     if L.windows then
-        for _, wx in ipairs(L.windows) do
-            Atmos.drawWindow(wx, floorY)
-            Atmos.drawLightShaft(wx, floorY)
+        for _, w in ipairs(L.windows) do
+            Atmos.drawWindow(w.x, floorY, w.scale or 0.55)
+            Atmos.drawWindowGlow(w.x, floorY, w.scale or 0.55)
         end
     end
 
     -- === LAYER 3: Back wall decorations ===
-    -- Beam across ceiling area (scales with room width)
-    drawSprite("beam", 0, floorY - 82, 2.0 * (roomW / 480), 0.7)
+    -- Beam across ceiling
+    drawSprite("beam", 0, ceilingY + 7, 2.0 * (roomW / 480), 0.7)
 
-    -- Back pillars (behind everything, part of the wall structure)
-    if L.pillars then
-        for _, px in ipairs(L.pillars) do
-            Atmos.drawPillar(px, floorY)
+    -- Back pillars (floor-to-ceiling structural)
+    if L.backPillars then
+        for _, px in ipairs(L.backPillars) do
+            Atmos.drawPillar(px, ceilingY, floorY)
         end
     end
 
-    -- Hanging lamps from ceiling + warm glow
+    -- Hanging lamps + warm glow
     do
         local lampCount = math.max(5, math.floor(roomW / 120))
         local lampPositions = {}
@@ -1869,18 +2013,17 @@ function saloon:draw()
             else
                 lx = 50 + (i - 1) * ((roomW - 100) / (lampCount - 1))
             end
-            drawSprite("ampule", lx, floorY - 78, 0.8, 0.8)
+            drawSprite("ampule", lx, ceilingY + 10, 0.8, 0.8)
             lampPositions[i] = lx
         end
-        -- Warm lamp glow under each lamp
         for _, lx in ipairs(lampPositions) do
-            Atmos.drawLampGlow(lx + 4, floorY - 68)
+            Atmos.drawLampGlow(lx + 4, ceilingY + 22)
         end
     end
 
-    -- Fridge to the left of the shelf
+    -- Fridge
     drawSpriteFromBottom("fridge", L.fridgeX, floorY, 1.0, 1.0)
-    -- Back bar shelving (two units — same asset tiled right with small overlap)
+    -- Back bar shelving
     local shelfSX, shelfSY = 0.6, 0.5
     if decor.shelf then
         local shelf2Off = (L.shelfSecondOffsetX) or math.floor(decor.shelf:getWidth() * shelfSX - 2)
@@ -1894,17 +2037,26 @@ function saloon:draw()
         drawSprite("bottles", L.bottlesX, floorY - 52, 0.7, 0.7)
         drawSprite("jars", L.jarsX, floorY - 50, 0.7, 0.7)
     end
-    -- Greenboard (menu/specials) — in lounge zone
+    -- Greenboard in lounge zone
     drawSprite("greenboard", L.greenboardX, floorY - 70, 0.6, 0.6)
-    -- Watch on wall
-    drawSprite("watch", L.watchX, floorY - 65, 0.6, 0.6)
-    -- Wanted posters on left wall (gambling den flavor)
+    -- Wall clock (generated asset, NOT on shelves)
+    if L.clockX then
+        if decor.gen_clock then
+            love.graphics.setColor(1, 1, 1)
+            love.graphics.draw(decor.gen_clock, L.clockX, floorY - 82, 0, 0.45, 0.45)
+        else
+            drawSprite("watch", L.clockX, floorY - 75, 0.6, 0.6)
+        end
+    end
+    -- Antler trophy
+    if L.antlerX then
+        Atmos.drawAntler(L.antlerX, floorY)
+    end
+    -- Wanted posters on left wall
     drawSprite("wanted", L.wantedX, floorY - 55, 0.35, 0.35)
     drawSprite("wanted", L.wantedX + 52, floorY - 60, 0.30, 0.30)
-    -- Boxes in the left corner
-    drawSprite("boxes", 4, floorY - 16, 0.5, 0.5)
 
-    -- === LAYER 3b: Floor with depth shading ===
+    -- === LAYER 4: Floor with depth shading ===
     if decor.floor_wood then
         local fw, fh = decor.floor_wood:getDimensions()
         local tileScale = 1.0
@@ -1912,7 +2064,6 @@ function saloon:draw()
         local th = fh * tileScale
         local row = 0
         for tx = 0, roomW, tw do
-            -- Alternating plank brightness for depth
             local shade = (row % 2 == 0) and 1.0 or 0.88
             love.graphics.setColor(shade, shade, shade)
             love.graphics.draw(decor.floor_wood, tx, floorY, 0, tileScale, tileScale)
@@ -1929,81 +2080,98 @@ function saloon:draw()
         love.graphics.setColor(0.25, 0.15, 0.08)
         love.graphics.rectangle("fill", 0, floorY, roomW, 32)
     end
-    -- Subtle floor edge shadow (top of floor gets a dark strip for depth)
-    love.graphics.setColor(0, 0, 0, 0.15)
+    -- Floor edge shadow
+    love.graphics.setColor(0, 0, 0, 0.18)
     love.graphics.rectangle("fill", 0, floorY, roomW, 1)
 
-    -- === LAYER 3c: Floor-level props ===
+    -- === LAYER 4b: Basement beneath floor ===
+    Atmos.drawBasement(roomW, floorY, floorH)
+
+    -- === LAYER 5: Floor-level props ===
     -- Coat rack / umbrella
     if decor.umbrella then
-        local uS = 0.55
-        drawSpriteFromBottom("umbrella", L.umbrellaX, floorY, uS, uS)
+        drawSpriteFromBottom("umbrella", L.umbrellaX, floorY, 0.55, 0.55)
     end
 
-    -- Barrels (western flavor)
+    -- Barrels (procedural — matches pixel art style better)
     if L.barrels then
         for _, b in ipairs(L.barrels) do
-            Atmos.drawBarrel(b.x, floorY - (b.yOff or 0))
+            local s = b.scale or 0.6
+            Atmos.drawBarrel(b.x, floorY, s)
         end
     end
 
-    -- Spittoon near gambling area
+    -- Crate stacks (boxes asset at bigger scale)
+    if L.crates then
+        for _, c in ipairs(L.crates) do
+            local s = c.scale or 0.65
+            drawSpriteFromBottom("boxes", c.x, floorY, s, s)
+        end
+    end
+
+    -- Spittoon
     if L.spittoonX then
-        Atmos.drawSpittoon(L.spittoonX, floorY)
+        Atmos.drawAssetFromBottom("gen_spittoon", L.spittoonX, floorY, 0.35)
     end
 
-    -- Procedural piano in lounge zone
+    -- Piano (generated asset)
     if L.pianoX then
-        Atmos.drawPiano(L.pianoX, floorY)
+        Atmos.drawAssetFromBottom("gen_piano", L.pianoX, floorY, 0.55)
     end
 
-    -- Card table near dealer
-    if L.cardTableX then
-        Atmos.drawCardTable(L.cardTableX, floorY)
+    -- Poker table removed (didn't fit visually)
+
+    -- Chairs near poker table
+    if L.chairs then
+        for _, ch in ipairs(L.chairs) do
+            if ch.flip then
+                Atmos.drawAssetFromBottomFlip("gen_chair", ch.x, floorY, 0.4)
+            else
+                Atmos.drawAssetFromBottom("gen_chair", ch.x, floorY, 0.4)
+            end
+        end
     end
 
-    -- === LAYER 4: NPCs (behind furniture — they stand behind counter/table) ===
+    -- === LAYER 6: NPCs (behind counter/table) ===
     for _, npc in ipairs(npcs) do
         npc:draw()
     end
 
-    -- === LAYER 5a: Slot machine (left of dealer)
+    -- === LAYER 7a: Multiple slot machines in gambling zone ===
     if decor.slot_machine and slotMachineQuad then
-        local smScale = 0.195
-        local iw, ih = 86, 229
-        local drawH = ih * smScale
-        local smDef = Mods.saloonRoom.slotMachine
-        local drawX = smDef.cx - (iw * smScale) / 2
-        local drawY = floorY - drawH
-        love.graphics.setColor(1, 1, 1)
-        love.graphics.draw(decor.slot_machine, slotMachineQuad, drawX, drawY, 0, smScale, smScale)
+        local slots = Mods.saloonRoom.slotMachines
+        if slots then
+            for _, sm in ipairs(slots) do
+                local smScale = sm.scale or 0.195
+                local iw, ih = 86, 229
+                local drawH = ih * smScale
+                love.graphics.setColor(1, 1, 1)
+                love.graphics.draw(decor.slot_machine, slotMachineQuad, sm.x, floorY - drawH, 0, smScale, smScale)
+            end
+        end
     end
 
-    -- === LAYER 5a: Roulette table in front of dealer ===
+    -- === LAYER 7b: Roulette table in front of dealer ===
     if decor.casino_sheet and rouletteTableQuad then
         local tableScale = 0.4
-        local tableW = 108 * tableScale  -- ~43px
-        local tableH = 64 * tableScale   -- ~26px
+        local tableW = 108 * tableScale
+        local tableH = 64 * tableScale
         local dealerX = Mods.saloonRoom.npcs[1].x
-        local tableX = dealerX + 10 - tableW / 2  -- centered on dealer
-        local woodH = 6                    -- wooden base height
-        local woodTopY = floorY - woodH    -- wood panel top
-        -- Wooden front panel (stays in place)
+        local tableX = dealerX + 10 - tableW / 2
+        local woodH = 6
+        local woodTopY = floorY - woodH
         love.graphics.setColor(0.30, 0.18, 0.08)
         love.graphics.rectangle("fill", tableX, woodTopY, tableW, woodH)
-        -- Darker bottom edge
         love.graphics.setColor(0.22, 0.13, 0.06)
         love.graphics.rectangle("fill", tableX, floorY - 1, tableW, 1)
-        -- Draw the green felt pushed down so it overlaps well onto the wood
-        local feltY = woodTopY - tableH + 8  -- +8 pushes felt down into the wood
+        local feltY = woodTopY - tableH + 8
         love.graphics.setColor(1, 1, 1)
         love.graphics.draw(decor.casino_sheet, rouletteTableQuad, tableX, feltY, 0, tableScale, tableScale)
-        -- Trim strip at the seam
         love.graphics.setColor(0.40, 0.25, 0.12)
         love.graphics.rectangle("fill", tableX, woodTopY, tableW, 1)
     end
 
-    -- === LAYER 5b: Bar counter (foreground furniture) — tile bar.png for length
+    -- === LAYER 7c: Bar counter ===
     local barScale, barW, _, barY, totalBarW, barSegments = saloonBarGeometry(floorY)
     if decor.bar_counter then
         love.graphics.setColor(1, 1, 1)
@@ -2015,30 +2183,33 @@ function saloon:draw()
         end
     end
 
-    -- Stools in front of bar (centered under full counter width)
+    -- Stools — sporadic placement (slight random-looking offsets baked in)
     if decor.stool then
         local stoolScale = 0.5
-        local nStools = (L.stoolCount) or 6
+        local nStools = (L.stoolCount) or 7
         if nStools < 1 then nStools = 1 end
         local sw = decor.stool:getWidth() * stoolScale
         local gapB = (L.stoolGapBetween) or 8
         local rowW = nStools * sw + (nStools - 1) * gapB
-        local stoolStartX = L.barCounterX + math.floor((totalBarW - rowW) / 2 + 0.5)
+        local stoolOff = (L.stoolStartOffsetX) or 0
+        local stoolStartX = L.barCounterX + math.floor((totalBarW - rowW) / 2 + 0.5) + stoolOff
+        -- Sporadic offsets: some stools nudged or slightly scaled differently
+        local offsets = { 0, 3, -1, 5, -2, 1, -3 }
+        local scales = { 0.50, 0.48, 0.50, 0.52, 0.50, 0.49, 0.50 }
         for i = 0, nStools - 1 do
-            drawSpriteFromBottom("stool", stoolStartX + i * (sw + gapB), floorY, stoolScale, stoolScale)
+            local off = offsets[(i % #offsets) + 1] or 0
+            local sc = scales[(i % #scales) + 1] or stoolScale
+            drawSpriteFromBottom("stool", stoolStartX + i * (sw + gapB) + off, floorY, sc, sc)
         end
     end
 
-    -- Beer mugs: bottom edge on countertop
+    -- Beer mugs on countertop
     local glassFootY = saloonBarCounterSurfaceY(barY, barScale)
     local glassS = 0.7
     local bx0 = L.barCounterX
-    local g1x = bx0 + math.floor(totalBarW * 0.12)
-    local g2x = bx0 + math.floor(totalBarW * 0.28)
-    local g3x = bx0 + math.floor(totalBarW * 0.72)
-    drawSpriteFromBottom("glass", g1x, glassFootY, glassS, glassS)
-    drawSpriteFromBottom("glass", g2x, glassFootY, glassS, glassS)
-    drawSpriteFromBottom("glass", g3x, glassFootY, 0.6, 0.6)
+    drawSpriteFromBottom("glass", bx0 + math.floor(totalBarW * 0.10), glassFootY, glassS, glassS)
+    drawSpriteFromBottom("glass", bx0 + math.floor(totalBarW * 0.28), glassFootY, 0.65, 0.65)
+    drawSpriteFromBottom("glass", bx0 + math.floor(totalBarW * 0.74), glassFootY, 0.6, 0.6)
 
     -- Vase on bar counter
     if decor.vase then
@@ -2054,8 +2225,7 @@ function saloon:draw()
         love.graphics.draw(monster.img, monster.x, monster.y, 0, MONSTER_CAN_SCALE, MONSTER_CAN_SCALE)
     end
 
-    -- === LAYER 6: Doors ===
-    -- Exit door
+    -- === LAYER 8: Doors ===
     if exitDoor then
         if doorSheet and #doorQuads > 0 then
             love.graphics.setColor(1, 1, 1)
@@ -2069,8 +2239,6 @@ function saloon:draw()
             love.graphics.setColor(0.7, 0.5, 0.2)
             love.graphics.rectangle("line", exitDoor.x, exitDoor.y, exitDoor.w, exitDoor.h)
         end
-
-        -- Exit prompt
         if mode == "walking" and player then
             local pcx = player.x + player.w / 2
             local pcy = player.y + player.h / 2
@@ -2089,8 +2257,6 @@ function saloon:draw()
             end
         end
     end
-
-    -- Test room door
     if testDoor then
         if doorSheet and #doorQuads > 0 then
             love.graphics.setColor(1, 1, 1)
@@ -2104,8 +2270,6 @@ function saloon:draw()
             love.graphics.setColor(0.7, 0.5, 0.2)
             love.graphics.rectangle("line", testDoor.x, testDoor.y, testDoor.w, testDoor.h)
         end
-
-        -- Test room prompt
         if mode == "walking" and player then
             local pcx = player.x + player.w / 2
             local pcy = player.y + player.h / 2
@@ -2125,42 +2289,43 @@ function saloon:draw()
         end
     end
 
-    -- === LAYER 7: Dust motes (atmospheric, behind player) ===
+    -- === LAYER 9: Dust motes ===
     for _, m in ipairs(Atmos.dustMotes) do
         love.graphics.setColor(1.0, 0.95, 0.80, m.alpha)
         love.graphics.rectangle("fill", math.floor(m.x), math.floor(m.y), m.size, m.size)
     end
 
-    -- === LAYER 8: Pickups (gold on the floor) ===
+    -- === LAYER 10: Pickups ===
     for _, p in ipairs(pickups) do
         p:draw(player, camera, 0, 0, nil, pickups)
     end
     Mods.WorldInteractLabelBatch.flush()
 
-    -- === LAYER 9: Player (in front of environment) ===
+    -- === LAYER 11: Player ===
     if player then
         love.graphics.setColor(1, 1, 1)
         player:draw()
     end
-
     for _, b in ipairs(bullets) do
         b:draw()
     end
     Mods.ImpactFX.draw()
-
     Mods.DamageNumbers.draw()
 
-    -- === LAYER 10: Foreground depth elements (drawn over player) ===
-    -- Foreground pillar at entry zone for parallax depth
-    Atmos.drawForegroundPillar(56, floorY)
+    -- === LAYER 12: FOREGROUND elements (opaque, in front of player for depth) ===
+    if L.foregroundPillars then
+        for _, px in ipairs(L.foregroundPillars) do
+            Atmos.drawForegroundPillar(px, ceilingY, floorY)
+        end
+    end
 
-    -- === LAYER 11: NPC prompts and speech (always on top in world space) ===
+    -- === LAYER 13: NPC prompts (always on top in world space) ===
     for _, npc in ipairs(npcs) do
         npc:drawSpeech()
         npc:drawPrompt()
     end
 
-    -- Monster Energy "[E] Drink" prompt
+    -- Monster Energy prompt
     if mode == "walking" and not monster.drunk and monster.img and player then
         local pcx = player.x + player.w / 2
         local pcy = player.y + player.h / 2
@@ -2192,10 +2357,10 @@ function saloon:draw()
         love.graphics.print(label, math.floor(sm.cx - tw / 2), math.floor(sm.cy - 42))
     end
 
-    -- === LAYER 12: Warm ambient wash ===
+    -- === LAYER 14: Warm ambient wash ===
     love.graphics.setBlendMode("multiply", "premultiplied")
     love.graphics.setColor(1.0, 0.97, 0.90, 1.0)
-    love.graphics.rectangle("fill", 0, 0, roomW, Mods.saloonRoom.height)
+    love.graphics.rectangle("fill", 0, ceilingY, roomW, Mods.saloonRoom.height)
     love.graphics.setBlendMode("alpha")
 
     if DEBUG and devShowHitboxes and world then

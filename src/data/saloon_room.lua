@@ -1,27 +1,31 @@
--- Saloon hub: single floor, side-view platformer layout.
--- Bump `ROOM_WIDTH` to widen the space; `decor` + `lrk` positions derive from it.
+-- Saloon hub: two-level side-view platformer layout (main floor + basement).
+-- Bump `ROOM_WIDTH` to widen the space; `decor` + prop positions derive from it.
 
 local ROOM_WIDTH = 960
 local FLOOR_TOP = 168
 local FLOOR_H = 32
+local BASEMENT_GAP = 80   -- vertical space between main floor bottom and basement floor
+local BASEMENT_FLOOR_Y = FLOOR_TOP + FLOOR_H + BASEMENT_GAP
+local BASEMENT_FLOOR_H = 20
 
--- Bar cluster anchored from the right wall (same offsets as the old 480-wide room).
+-- Bar cluster anchored from the right wall.
 local BAR_X = ROOM_WIDTH - 200
 
 return {
     id = "saloon_hub",
     width = ROOM_WIDTH,
-    height = 200,
+    height = BASEMENT_FLOOR_Y + BASEMENT_FLOOR_H + 16,  -- tall enough for basement
 
-    -- Solid platforms (oneWay = false means player can't drop through)
+    -- Main floor is oneWay (press down to drop to basement); basement is solid
     platforms = {
-        { x = 0, y = FLOOR_TOP, w = ROOM_WIDTH, h = FLOOR_H, oneWay = false },
+        { x = 0, y = FLOOR_TOP, w = ROOM_WIDTH, h = FLOOR_H, oneWay = true },
+        { x = 0, y = BASEMENT_FLOOR_Y, w = ROOM_WIDTH, h = BASEMENT_FLOOR_H, oneWay = false },
     },
 
     walls = {
         { x = 0, y = -16, w = ROOM_WIDTH, h = 16 },
-        { x = -16, y = -16, w = 16, h = 232 },
-        { x = ROOM_WIDTH, y = -16, w = 16, h = 232 },
+        { x = -16, y = -16, w = 16, h = BASEMENT_FLOOR_Y + BASEMENT_FLOOR_H + 48 },
+        { x = ROOM_WIDTH, y = -16, w = 16, h = BASEMENT_FLOOR_Y + BASEMENT_FLOOR_H + 48 },
     },
 
     npcs = {
@@ -46,48 +50,69 @@ return {
     exitDoor = { x = ROOM_WIDTH - 30, y = 120, w = 24, h = 48 },
     testDoor = { x = math.floor(ROOM_WIDTH * 0.45), y = 120, w = 24, h = 48 },
 
+    -- Multiple slot machines in gambling zone
     slotMachine = { cx = 30, cy = 146, r = 40 },
+    slotMachines = {
+        { x = 4, scale = 0.22 },
+        { x = 52, scale = 0.19 },
+        { x = 94, scale = 0.21 },
+    },
+
+    -- Basement layout info
+    basementFloorY = BASEMENT_FLOOR_Y,
+    basementFloorH = BASEMENT_FLOOR_H,
 
     --- Prop anchors (world pixels). Used by `saloon.lua` draw + enter.
     decor = {
-        -- bar.png 127×47 — balance visibility vs height (0.68 read too tall vs stools).
+        -- bar.png 127x47
         barCounterScale = 0.52,
-        -- Tile bar.png this many times side-by-side for a longer counter
         barCounterSegments = 3,
-        -- Nudge can toward the right (pixels, after centering on full counter width)
-        monsterCanOffsetX = 48,
-        -- Stools: count + gap between stools (pixels between inner edges); X is computed in draw from bar width
-        stoolCount = 8,
-        stoolGapBetween = 6,
+        monsterCanOffsetX = 10,  -- shifted left from 48
+        -- Stools: placed with sporadic offsets in draw code
+        stoolCount = 7,
+        stoolGapBetween = 8,
+        stoolStartOffsetX = -30,  -- shift stools left so they cover more of the counter
         barCounterX = BAR_X,
         fridgeX = BAR_X - 22,
         shelfX = BAR_X + 10,
         bottlesX = BAR_X + 18,
         jarsX = BAR_X + 40,
-        greenboardX = math.floor(ROOM_WIDTH * 0.38),
-        watchX = BAR_X + 100,
+        greenboardX = math.floor(ROOM_WIDTH * 0.42),
         wantedX = 12,
-        -- Coat rack: left lounge (not behind the bar cluster)
-        umbrellaX = 120,
-        -- Second back-bar shelf: horizontal offset from first shelf (pixels, same scale)
+        umbrellaX = 135,
         shelfSecondOffsetX = 66,
 
-        -- === New depth props ===
-        -- Wooden support pillars (x positions)
-        pillars = { 150, 380, 600 },
-        -- Back wall windows (x positions, drawn high on wall)
-        windows = { 310, 520 },
-        -- Procedural piano in the lounge zone
-        pianoX = 440,
-        -- Card table near the gambling area
-        cardTableX = 270,
-        -- Barrel positions {x, y_offset_from_floor}
+        -- === Structural / depth ===
+        -- Pillars: SWAPPED — old foreground positions are now back, old back are now foreground
+        backPillars = { 300, 740 },          -- normal color, behind player
+        foregroundPillars = { 160, 410, 620 }, -- opaque, drawn over player for depth
+        -- Windows with warm glow (asset-based) — added a left-side window so visible from spawn
+        windows = { { x = 180, scale = 0.55 }, { x = 420, scale = 0.6 }, { x = 650, scale = 0.55 } },
+        -- Wall clock (asset, on back wall — NOT on shelves)
+        clockX = 470,
+        -- Antler trophy mount
+        antlerX = 580,
+
+        -- === Floor props ===
+        pianoX = 350,  -- moved away from test door
+        -- Poker table removed (generated asset didn't fit)
+        pokerTableX = nil,
         barrels = {
-            { x = 80, yOff = 0 },
-            { x = 700, yOff = 0 },
-            { x = 920, yOff = 0 },
+            { x = 68, scale = 0.70 },
+            { x = 690, scale = 0.65 },
+            { x = 910, scale = 0.75 },
+            { x = 925, scale = 0.55 },
         },
-        -- Spittoon near the gambling area
-        spittoonX = 240,
+        -- Crate stacks (boxes asset at bigger scale)
+        crates = {
+            { x = 4, scale = 1.0 },
+            { x = 895, scale = 0.85 },
+        },
+        spittoonX = 235,
+        -- Chairs near dealer area
+        chairs = {
+            { x = 245, flip = false },
+            { x = 290, flip = true },
+        },
     },
 }
