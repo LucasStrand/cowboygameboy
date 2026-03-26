@@ -5,6 +5,47 @@ local Sfx = require("src.systems.sfx")
 local Bullet = {}
 Bullet.__index = Bullet
 
+local AMMO_SHEET_PATH = "assets/weapons/Ammunition/Normal/Set 32x32.png"
+local AMMO_TILE = 32
+-- Ammo art faces diagonally in-sheet; compensate so sprite forward matches travel angle.
+local AMMO_ANGLE_OFFSET = math.pi * 0.25
+local ammoSheet = nil
+local ammoSheetAttempted = false
+local ammoQuads = nil
+
+local function getAmmoSheet()
+    if ammoSheetAttempted then
+        return ammoSheet
+    end
+    ammoSheetAttempted = true
+    local ok, img = pcall(love.graphics.newImage, AMMO_SHEET_PATH)
+    if ok and img then
+        img:setFilter("nearest", "nearest")
+        ammoSheet = img
+    end
+    return ammoSheet
+end
+
+local function getAmmoQuads()
+    if ammoQuads then
+        return ammoQuads
+    end
+    local sheet = getAmmoSheet()
+    if not sheet then
+        return nil
+    end
+    -- Keep these indices centralized so swapping bullet art is one edit.
+    local function q(col, row)
+        return love.graphics.newQuad(col * AMMO_TILE, row * AMMO_TILE, AMMO_TILE, AMMO_TILE, sheet:getDimensions())
+    end
+    ammoQuads = {
+        player = q(0, 0),
+        enemy = q(1, 0),
+        ult = q(2, 0),
+    }
+    return ammoQuads
+end
+
 function Bullet.new(data)
     local self = setmetatable({}, Bullet)
     self.x = data.x
@@ -130,10 +171,38 @@ function Bullet.filter(item, other)
     return "cross"
 end
 
---- Procedural pistol slug: elongated capsule along +x after rotation (no bullet sprites in assets).
 function Bullet:draw()
     local cx = self.x + self.w * 0.5
     local cy = self.y + self.h * 0.5
+    local quads = getAmmoQuads()
+    local sheet = getAmmoSheet()
+
+    if quads and sheet then
+        local quad = quads.player
+        if self.ultBullet then
+            quad = quads.ult or quad
+        elseif self.fromEnemy then
+            quad = quads.enemy or quad
+        end
+
+        local targetSize = self.ultBullet and 11 or 8
+        local scale = targetSize / AMMO_TILE
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(
+            sheet,
+            quad,
+            cx,
+            cy,
+            self.angle + AMMO_ANGLE_OFFSET,
+            scale,
+            scale,
+            AMMO_TILE * 0.5,
+            AMMO_TILE * 0.5
+        )
+        return
+    end
+
+    -- Fallback: procedural slug if ammo sheet fails to load.
     local len = self.ultBullet and 8.5 or 5.5
     local halfW = self.ultBullet and 1.15 or 0.95
 

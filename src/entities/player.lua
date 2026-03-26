@@ -93,6 +93,8 @@ local MELEE_FACE_COS_THRESHOLD = 0.2
 
 -- Head/gun draw: turn relative to body forward so we never flip the cowboy upside down
 local MAX_HEAD_TURN = 1.32 -- ~75° each way from facing
+local RUN_GUN_SPLIT_Y = 33
+local RUN_GUN_TORSO_Y_OFFSET = 0
 
 local STAT_RUNTIME_COMPARE_KEYS = {
     "maxHP",
@@ -285,6 +287,8 @@ function Player.new(x, y)
     self.ak47ShootPhase = nil
     -- Previous frame grounded state (for land impact anim on air → ground)
     self._animGroundedPrev = true
+    -- Run-and-gun lower-body cycle (legs keep running while torso shoots).
+    self.runGunLegTimer = 0
 
     -- Loadout automation (toggled via HUD right-click per weapon slot). Any slot on = auto-aim / sustained fire semantics apply.
     -- Shield auto-block only applies when equipped shield has stats.allowAutoBlock.
@@ -531,6 +535,17 @@ function Player:update(dt, world, enemies)
         if self.monsterSpeechLife >= MONSTER_SPEECH_DURATION then
             self.monsterSpeechText = nil
             self.monsterSpeechLife = 0
+        end
+    end
+
+    do
+        local ag = self:getActiveGun()
+        local running = self.grounded and math.abs(self.vx or 0) > 10 and not self.crouching and self.dashTimer <= 0
+        local firingRanged = self.inputFireHeld and ag and ag.weapon_kind ~= "melee"
+        if running and firingRanged then
+            self.runGunLegTimer = (self.runGunLegTimer or 0) + dt
+        else
+            self.runGunLegTimer = 0
         end
     end
 
@@ -1627,7 +1642,31 @@ function Player:draw()
             love.graphics.ellipse("line", scx, scy, rx * 0.88, ry * 0.88)
         end
 
-        self.anim:drawCentered(cx, footY, self.facingRight)
+        local function isShootAnimName(name)
+            return name == "shoot"
+                or name == "shoot_rifle"
+                or name == "shoot_ak47_startup"
+                or name == "shoot_ak47_loop"
+                or name == "shoot_ak47_end"
+        end
+
+        local ag = self:getActiveGun()
+        local running = self.grounded and math.abs(self.vx or 0) > 10 and not self.crouching and self.dashTimer <= 0
+        local firingRanged = self.inputFireHeld and ag and ag.weapon_kind ~= "melee"
+        local useRunGunSplit = running and firingRanged and isShootAnimName(self.anim.current)
+
+        if useRunGunSplit and self.anim.drawCenteredSlice and self.anim.getFrameCap then
+            local runCap = self.anim:getFrameCap("run") or 1
+            local runFps = 10
+            local runFrame = math.floor((self.runGunLegTimer or 0) * runFps) % math.max(1, runCap) + 1
+            local torsoCap = self.anim:getFrameCap(self.anim.current) or 1
+            local torsoFrame = math.max(1, math.min(self.anim.frame or 1, torsoCap))
+
+            self.anim:drawCenteredSlice("run", runFrame, cx, footY, self.facingRight, nil, nil, RUN_GUN_SPLIT_Y, 48 - RUN_GUN_SPLIT_Y)
+            self.anim:drawCenteredSlice(self.anim.current, torsoFrame, cx, footY, self.facingRight, RUN_GUN_TORSO_Y_OFFSET, nil, 0, RUN_GUN_SPLIT_Y)
+        else
+            self.anim:drawCentered(cx, footY, self.facingRight)
+        end
 
         -- Weapon sprite overlay (gun — hidden during melee swing and rifle-shoot body anim; AK never uses overlay)
         local hideGunOverlay = self.meleeSwingTimer > 0 or self.anim.current == "shoot_rifle"

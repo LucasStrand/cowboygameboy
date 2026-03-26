@@ -293,4 +293,86 @@ function Animator:drawCentered(cx, footY, facingRight, yOffset, alpha)
     end
 end
 
+local function drawCenteredInternal(self, animName, frameIndex, cx, footY, facingRight, yOffset, alpha, sliceTop, sliceHeight)
+    local quads = self.quads[animName]
+    if not quads then return end
+    local quad = quads[frameIndex]
+    if not quad then return end
+
+    local def = ANIMS[animName]
+    local footDy = (def and def.footYOffset) or 0
+
+    local sheet = self.sheets[animName]
+    local cellW = def.cellW or FRAME_H
+    local cellH = def.cellH or FRAME_H
+    if def.inferCellWidth then
+        local sw = sheet:getDimensions()
+        cellW = math.floor(sw / def.frames)
+    end
+    local squash = def.scaleCellToFrameHeight
+    if squash == nil then squash = true end
+    local norm = squash and (FRAME_H / cellH) or 1
+    local sm = SPRITE_SCALE * norm
+    local speedStretch = math.min(0.09, (self.motionSpeed or 0) / 560)
+    local airborneStretch = 0
+    if animName == "jump" or animName == "fall" or animName == "dash" then
+        airborneStretch = math.min(0.12, math.abs(self.motionVy or 0) / 900 * 0.12)
+    end
+    local impulse = self.squashStretchImpulse or 0
+    local stretchY = speedStretch + airborneStretch - impulse
+    local syMul = math.max(0.82, 1 + stretchY)
+    local sxMul = 1 / math.max(EPSILON, syMul)
+    local sxm = sm * sxMul
+    local sym = sm * syMul
+
+    local qx, qy, qw, qh = quad:getViewport()
+    local top = math.max(0, math.floor(sliceTop or 0))
+    local height = math.max(1, math.floor(sliceHeight or cellH))
+    if top >= qh then
+        return
+    end
+    if top + height > qh then
+        height = qh - top
+    end
+    local subQuad = love.graphics.newQuad(qx, qy + top, qw, height, sheet:getDimensions())
+    local yWorld = footY + footDy + (yOffset or 0)
+
+    love.graphics.setColor(1, 1, 1, alpha or 1)
+    -- For sliced compositing (run+gun), force foot anchoring so upper/lower
+    -- halves from different strips align on the same world baseline.
+    local useAnchorFeet = def.anchorFeet or (sliceTop ~= nil and sliceHeight ~= nil)
+    if useAnchorFeet then
+        -- Keep the same world foot anchor as the full frame.
+        -- For a cropped slice that starts at `top`, the correct origin is the
+        -- distance from slice-top to full-frame bottom.
+        local oy = cellH - top
+        if facingRight then
+            love.graphics.draw(sheet, subQuad, cx, yWorld, 0, sxm, sym, cellW / 2, oy)
+        else
+            love.graphics.push()
+            love.graphics.translate(cx, yWorld)
+            love.graphics.scale(-1, 1)
+            love.graphics.draw(sheet, subQuad, 0, 0, 0, sxm, sym, cellW / 2, oy)
+            love.graphics.pop()
+        end
+    else
+        local sx = facingRight and sxm or -sxm
+        local scaledW = cellW * sxm
+        local scaledH = cellH * sym
+        local drawX = cx - scaledW / 2
+        local drawY = footY - scaledH + (yOffset or 0) + footDy
+        local topWorld = drawY + top * sym
+        local flipShift = facingRight and 0 or scaledW
+        love.graphics.draw(sheet, subQuad, drawX + flipShift, topWorld, 0, sx, sym)
+    end
+end
+
+function Animator:drawCenteredSlice(animName, frameIndex, cx, footY, facingRight, yOffset, alpha, sliceTop, sliceHeight)
+    drawCenteredInternal(self, animName, frameIndex, cx, footY, facingRight, yOffset, alpha, sliceTop, sliceHeight)
+end
+
+function Animator:getFrameCap(animName)
+    return (self.frameCaps and self.frameCaps[animName]) or nil
+end
+
 return Animator
