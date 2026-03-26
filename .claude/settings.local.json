@@ -131,7 +131,11 @@
       "Bash(unzip -o cowboy_v2_updated.zip -d cowboy_v2_extracted/)",
       "Bash(unzip -l cowboy_v2_update.zip)",
       "Bash(mkdir -p assets/sprites/cowboy_v2/animations/rifle-shoot/east)",
-      "Bash(unzip -j -o cowboy_v2_update.zip \"animations/custom-shooting a rifle, holding a long gun and firing it/east/*\" -d assets/sprites/cowboy_v2/animations/rifle-shoot/east/)"
+      "Bash(unzip -j -o cowboy_v2_update.zip \"animations/custom-shooting a rifle, holding a long gun and firing it/east/*\" -d assets/sprites/cowboy_v2/animations/rifle-shoot/east/)",
+      "Bash(find /c/Users/lucas/Documents/GitHub/cowboygameboy/assets -name *saloon* -o -name *SaloonDoor*)",
+      "Bash(lua5.1 -e \"loadfile\\(''src/states/saloon.lua''\\)\")",
+      "Bash(luajit -e \"loadfile\\(''src/states/saloon.lua''\\)\")",
+      "Bash(timeout 5 love . --dev)"
     ]
   }
 }
