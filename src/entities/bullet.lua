@@ -150,7 +150,12 @@ function Bullet:update(dt, world)
                 if not self.fromEnemy then
                     Sfx.play("hit_wall")
                 end
-                ImpactFX.spawn(self.x + self.w / 2, self.y + self.h / 2, "hit_wall")
+                ImpactFX.spawn(
+                    self.x + self.w / 2,
+                    self.y + self.h / 2,
+                    "hit_wall",
+                    { angle = self.angle }
+                )
                 self.alive = false
                 return
             end

@@ -419,7 +419,10 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
                         tryExplosiveShake(fxId)
                     end
                 else
-                    ImpactFX.spawn(hitX, hitY, "hit_enemy", { scale_mul = fxScale })
+                    ImpactFX.spawn(hitX, hitY, "hit_enemy", {
+                        scale_mul = fxScale,
+                        angle = b.angle,
+                    })
                 end
                 if b.ultBullet then
                     ImpactFX.spawn(hitX, hitY - 8, "melee", { scale_mul = fxScale })
@@ -453,7 +456,9 @@ function Combat.updateBullets(bullets, dt, world, enemies, player)
             if result.applied then
                 applyStatusApplications(packet, result, b.source_actor, player, "player", world)
                 DamageNumbers.spawn(b.x + b.w / 2, b.y + b.h / 2, result.final_damage, "in")
-                ImpactFX.spawn(b.x + b.w / 2, b.y + b.h / 2, "hit_enemy")
+                ImpactFX.spawn(b.x + b.w / 2, b.y + b.h / 2, "hit_enemy", {
+                    angle = b.angle,
+                })
             end
         end
 

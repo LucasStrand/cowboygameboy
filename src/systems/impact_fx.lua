@@ -32,6 +32,7 @@ local EFFECTS = {
         scale = 0.5,
         blend_mode = DEFAULT_BLEND_MODE,
         alpha_mode = DEFAULT_ALPHA_MODE,
+        rotation_mode = "follow_angle",
     },
     hit_wall = {
         sheet_id = "pack1a",
@@ -42,6 +43,7 @@ local EFFECTS = {
         scale = 0.5,
         blend_mode = DEFAULT_BLEND_MODE,
         alpha_mode = DEFAULT_ALPHA_MODE,
+        rotation_mode = "follow_angle",
     },
     melee = {
         sheet_id = "pack1a",
