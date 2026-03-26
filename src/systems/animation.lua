@@ -81,6 +81,7 @@ local Animator = {}
 Animator.__index = Animator
 
 local cowboyV2MeleeResolved = false
+local EPSILON = 0.0001
 
 -- Shared sheet cache so each PNG is loaded once across all players / animators.
 local _sheetCache = {}
@@ -184,6 +185,10 @@ function Animator.new()
     self.frame   = 1
     self.timer   = 0
     self.done    = false
+    self.motionSpeed = 0
+    self.motionVy = 0
+    self.squashStretchImpulse = 0
+    self.squashStretchDamping = 8.5
     return self
 end
 
@@ -212,6 +217,18 @@ function Animator:update(dt)
             self.done = true
         end
     end
+    local damp = math.exp(-self.squashStretchDamping * dt)
+    self.squashStretchImpulse = self.squashStretchImpulse * damp
+end
+
+function Animator:setMotion(vx, vy)
+    self.motionSpeed = math.abs(vx or 0)
+    self.motionVy = vy or 0
+end
+
+function Animator:triggerSquashStretch(amount)
+    if amount == nil then return end
+    self.squashStretchImpulse = math.max(-0.4, math.min(0.4, (self.squashStretchImpulse or 0) + amount))
 end
 
 function Animator:drawCentered(cx, footY, facingRight, yOffset, alpha)
@@ -238,8 +255,19 @@ function Animator:drawCentered(cx, footY, facingRight, yOffset, alpha)
         norm = FRAME_H / cellH
     end
     local sm = SPRITE_SCALE * norm
-    local scaledW = cellW * sm
-    local scaledH = cellH * sm
+    local speedStretch = math.min(0.09, (self.motionSpeed or 0) / 560)
+    local airborneStretch = 0
+    if self.current == "jump" or self.current == "fall" or self.current == "dash" then
+        airborneStretch = math.min(0.12, math.abs(self.motionVy or 0) / 900 * 0.12)
+    end
+    local impulse = self.squashStretchImpulse or 0
+    local stretchY = speedStretch + airborneStretch - impulse
+    local syMul = math.max(0.82, 1 + stretchY)
+    local sxMul = 1 / math.max(EPSILON, syMul)
+    local sxm = sm * sxMul
+    local sym = sm * syMul
+    local scaledW = cellW * sxm
+    local scaledH = cellH * sym
 
     love.graphics.setColor(1, 1, 1, alpha or 1)
     local yWorld = footY + footDy + (yOffset or 0)
@@ -247,21 +275,21 @@ function Animator:drawCentered(cx, footY, facingRight, yOffset, alpha)
     -- Pin bottom-center of the frame to (cx, yWorld): recoil art shifts inside the cell; centering the whole cell slides the body.
     if def.anchorFeet then
         if facingRight then
-            love.graphics.draw(sheet, quad, cx, yWorld, 0, sm, sm, cellW / 2, cellH)
+            love.graphics.draw(sheet, quad, cx, yWorld, 0, sxm, sym, cellW / 2, cellH)
         else
             -- Flip around the foot anchor (negative sx + origin can smear on some drivers).
             love.graphics.push()
             love.graphics.translate(cx, yWorld)
             love.graphics.scale(-1, 1)
-            love.graphics.draw(sheet, quad, 0, 0, 0, sm, sm, cellW / 2, cellH)
+            love.graphics.draw(sheet, quad, 0, 0, 0, sxm, sym, cellW / 2, cellH)
             love.graphics.pop()
         end
     else
-        local sx = facingRight and sm or -sm
+        local sx = facingRight and sxm or -sxm
         local drawX = cx - scaledW / 2
         local drawY = footY - scaledH + (yOffset or 0) + footDy
         local flipShift = facingRight and 0 or scaledW
-        love.graphics.draw(sheet, quad, drawX + flipShift, drawY, 0, sx, sm)
+        love.graphics.draw(sheet, quad, drawX + flipShift, drawY, 0, sx, sym)
     end
 end
 

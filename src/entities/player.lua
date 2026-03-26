@@ -687,6 +687,7 @@ function Player:update(dt, world, enemies)
             self.jumpBufferTimer = 0
             self.jumpCount = self.airborneFromWalkoff and 2 or 1
             self.airborneFromWalkoff = false
+            self.anim:triggerSquashStretch(-0.16)
             Sfx.play("jump")
         elseif self.jumpCount == 0 and not self.grounded then
             self.vy = effectiveStats.jumpForce
@@ -694,11 +695,13 @@ function Player:update(dt, world, enemies)
             self.coyoteTimer = 0
             self.jumpCount = 2
             self.airborneFromWalkoff = false
+            self.anim:triggerSquashStretch(-0.16)
             Sfx.play("jump")
         elseif self.jumpCount == 1 then
             self.vy = effectiveStats.jumpForce * DOUBLE_JUMP_MULT
             self.jumpBufferTimer = 0
             self.jumpCount = 2
+            self.anim:triggerSquashStretch(-0.16)
             Sfx.play("jump")
         end
     end
@@ -730,6 +733,7 @@ function Player:update(dt, world, enemies)
 
     -- Animation state machine (priority: one-shots > air > ground movement)
     local anim = self.anim
+    anim:setMotion(self.vx, self.vy)
     anim:update(dt)
 
     -- Air → ground (before AK/air one-shots so landing isn’t skipped e.g. by AK fire held)
@@ -785,6 +789,7 @@ function Player:update(dt, world, enemies)
         self.smokeSessionTimer = 0
     elseif not oneShotPlaying then
         if justLanded and anim.quads.land then
+            anim:triggerSquashStretch(0.3)
             anim:play("land", true)
             self.idleTimer = 0
             self.smokeSessionTimer = 0
@@ -874,6 +879,7 @@ function Player:tryDash()
     end
     self.dashDir = dir
     self.dashTimer = DASH_DURATION
+    self.anim:triggerSquashStretch(-0.14)
     self.iframes = math.max(self.iframes, 0.2)
     Sfx.play("dash")
 end
@@ -912,6 +918,7 @@ function Player:shootFromSlot(slotIndex, mx, my)
             self.anim:play(self:getShootAnim(), true)
         end
     end
+    self.anim:triggerSquashStretch(0.1)
     Sfx.play("shoot")
     if fired.muzzle_fx_id then
         local cx = self.x + self.w * 0.5
@@ -1158,6 +1165,7 @@ function Player:meleeAttack(aimX, aimY, opts)
         end
         anim:play(animName, true)
     end
+    self.anim:triggerSquashStretch(0.12)
     Sfx.play("melee_swing")
     return true
 end
@@ -1301,6 +1309,7 @@ function Player:applyResolvedDamage(result, _, packet)
     if not bypass_iframes then
         self.iframes = 0.5
         self.hurtBlinkTimer = 0.5
+        self.anim:triggerSquashStretch(0.18)
         Sfx.play("hurt")
     end
 
