@@ -93,7 +93,7 @@ local MELEE_FACE_COS_THRESHOLD = 0.2
 
 -- Head/gun draw: turn relative to body forward so we never flip the cowboy upside down
 local MAX_HEAD_TURN = 1.32 -- ~75° each way from facing
-local RUN_GUN_SPLIT_Y = 33
+local RUN_GUN_SPLIT_Y = 31
 local RUN_GUN_TORSO_Y_OFFSET = 0
 
 local STAT_RUNTIME_COMPARE_KEYS = {
@@ -949,7 +949,12 @@ function Player:shootFromSlot(slotIndex, mx, my, opts)
             self.anim:play(self:getShootAnim(), true)
         end
     end
-    self.anim:triggerSquashStretch(0.1)
+    -- Reduced recoil bounce for rapid-fire weapons (AK-47) to avoid excessive bouncing
+    local recoilImpulse = 0.1
+    if fired.weapon_def and fired.weapon_def.id == "ak47" then
+        recoilImpulse = 0.03
+    end
+    self.anim:triggerSquashStretch(recoilImpulse)
     Sfx.play("shoot")
     if fired.muzzle_fx_id then
         local cx = self.x + self.w * 0.5
@@ -1662,8 +1667,15 @@ function Player:draw()
             local torsoCap = self.anim:getFrameCap(self.anim.current) or 1
             local torsoFrame = math.max(1, math.min(self.anim.frame or 1, torsoCap))
 
+            -- AK-47 uses 64px cells (footYOffset ~13) vs 48px run cells (footYOffset 5).
+            -- Match the waist cut: 10px above feet in both sprites.
+            -- Run: feetRow=43, split=33 (43-10). AK: feetRow=51, split=41 (51-10).
+            local curAnim = self.anim.current
+            local isAK = curAnim == "shoot_ak47_startup" or curAnim == "shoot_ak47_loop" or curAnim == "shoot_ak47_end"
+            local torsoSplitY = isAK and 40 or RUN_GUN_SPLIT_Y
+
             self.anim:drawCenteredSlice("run", runFrame, cx, footY, self.facingRight, nil, nil, RUN_GUN_SPLIT_Y, 48 - RUN_GUN_SPLIT_Y)
-            self.anim:drawCenteredSlice(self.anim.current, torsoFrame, cx, footY, self.facingRight, RUN_GUN_TORSO_Y_OFFSET, nil, 0, RUN_GUN_SPLIT_Y)
+            self.anim:drawCenteredSlice(self.anim.current, torsoFrame, cx, footY, self.facingRight, RUN_GUN_TORSO_Y_OFFSET, nil, 0, torsoSplitY)
         else
             self.anim:drawCentered(cx, footY, self.facingRight)
         end
