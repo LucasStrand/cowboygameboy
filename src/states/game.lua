@@ -736,7 +736,7 @@ local function drawAimCrosshair()
     if not player then return end
     if not Mods.Settings.getShowCrosshair() then return end
     -- Hide in auto-gun mode when not holding primary (attack); show while LMB held so cursor aim is visible
-    if player:anyAutoWeaponSlot() and player.keyboardAimMode then return end
+    if player:anyAutoRangedWeaponSlot() and player.keyboardAimMode then return end
     local px = player.x + player.w * 0.5
     local py = player.y + player.h * 0.5
     local ax = player.effectiveAimX or player.aimWorldX
@@ -2181,14 +2181,11 @@ function game:update(dt)
 
         -- AK-47 (and any fire-held anim): sustained aim-fire vs keyboard-only auto-aim
         do
-            local es = player:getEffectiveStats()
-            local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
             local ag = player:getActiveGun()
             local meleeWeapon = ag and ag.weapon_kind == "melee"
-            local doGunShoot = player:anyAutoWeaponSlot() or (es.meleeDamage or 0) <= 0 or shiftShoot or meleeWeapon
             -- Melee weapons: no sustained "fire held" (tap-only like fists; hold does not chain attacks).
             player.inputFireHeld = not player.blocking and (
-                (not meleeWeapon and mouseAimOn and doGunShoot) or (not meleeWeapon and player:anyAutoWeaponSlot() and autoTx)
+                (not meleeWeapon and mouseAimOn) or (not meleeWeapon and player:anyAutoRangedWeaponSlot() and autoTx)
             )
         end
     elseif player then
@@ -2253,7 +2250,7 @@ function game:update(dt)
     if not player.dying then
     local i, leveledUp -- hoisted for goto (cannot jump over `local` in same block)
     -- Auto-fire: per-slot toggles; both slots try every frame (cooldown-gated); active tab does not matter.
-    if player:anyAutoWeaponSlot() and not player.blocking then
+    if player:anyAutoRangedWeaponSlot() and not player.blocking then
         local tx, ty
         if not autoTx then
             tx, ty = nil, nil
@@ -2290,11 +2287,9 @@ function game:update(dt)
                     else
                     local w = player:getWeaponRuntime(slotIdx)
                     if w and w.mode == "weapon" and w.weapon_def
+                        and Mods.WeaponRuntime.isRangedWeapon(w.weapon_def)
                         and (w.reload_timer or 0) <= 0 and (w.cooldown_timer or 0) <= 0 then
                         local canFire = (w.ammo or 0) > 0
-                        if Mods.WeaponRuntime.isMeleeWeapon(w.weapon_def) then
-                            canFire = true
-                        end
                         if canFire then
                             local bulletData = player:shootFromSlot(slotIdx, tx, ty)
                             if bulletData and #bulletData > 0 then
@@ -2325,12 +2320,9 @@ function game:update(dt)
 
     -- Manual hold-to-fire: ranged only. Equipped melee (knife) uses discrete taps (mouse/key) only — same as fists.
     if mouseAimOn and not player.blocking and player:getActiveGun() then
-        local es = player:getEffectiveStats()
-        local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
         local ag = player:getActiveGun()
         if ag and ag.weapon_kind ~= "melee" then
-        local doGunShoot = player:anyAutoWeaponSlot() or (es.meleeDamage or 0) <= 0 or shiftShoot
-        if doGunShoot and not (player:anyAutoWeaponSlot() and autoTx) then
+        if not (player:anyAutoRangedWeaponSlot() and autoTx) then
             local mx, my = player.aimWorldX, player.aimWorldY
             local bulletData = player:shoot(mx, my)
             if bulletData and #bulletData > 0 then

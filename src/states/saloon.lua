@@ -979,13 +979,10 @@ function saloon:update(dt)
                 player.keyboardAimMode = true
             end
             do
-                local es = player:getEffectiveStats()
-                local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
                 local ag = player:getActiveGun()
                 local meleeWeapon = ag and ag.weapon_kind == "melee"
-                local doGunShoot = player:anyAutoWeaponSlot() or (es.meleeDamage or 0) <= 0 or shiftShoot or meleeWeapon
                 player.inputFireHeld = not player.blocking and not characterSheetOpen
-                    and (not meleeWeapon and mouseAimOn and doGunShoot)
+                    and (not meleeWeapon and mouseAimOn)
             end
         end
 
@@ -995,15 +992,11 @@ function saloon:update(dt)
         if love.mouse.isDown(1) and not characterSheetOpen and not player.blocking then
             local agHold = player:getActiveGun()
             if agHold and agHold.weapon_kind ~= "melee" then
-                local es = player:getEffectiveStats()
-                local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
-                if player:anyAutoWeaponSlot() or (es.meleeDamage or 0) <= 0 or shiftShoot then
-                    local bulletData = player:shoot(player.aimWorldX, player.aimWorldY)
-                    if bulletData and #bulletData > 0 then
-                        for _, data in ipairs(bulletData) do
-                            local b = Mods.Combat.spawnBullet(world, data)
-                            table.insert(bullets, b)
-                        end
+                local bulletData = player:shoot(player.aimWorldX, player.aimWorldY)
+                if bulletData and #bulletData > 0 then
+                    for _, data in ipairs(bulletData) do
+                        local b = Mods.Combat.spawnBullet(world, data)
+                        table.insert(bullets, b)
                     end
                 end
             end

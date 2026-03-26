@@ -727,10 +727,6 @@ function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB,
     -- When that slot's auto is on, game state fires it via shootFromSlot — skip duplicate swings here.
     local meleeWSlot = player:findMeleeWeaponSlotIndex()
     if meleeWSlot and meleeWSlot ~= player.activeWeaponSlot then
-        local slotAuto = (meleeWSlot == 1) and player.autoGunSlot1 or player.autoGunSlot2
-        if slotAuto then
-            return
-        end
         local w = player:getWeaponRuntime(meleeWSlot)
         if w and WeaponRuntime.isMeleeWeapon(w.weapon_def) then
             if (w.cooldown_timer or 0) > 0 or (w.reload_timer or 0) > 0 then
@@ -747,7 +743,7 @@ function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB,
             if not enemyListOverlapsMeleeAABB(enemies, hx, hy, hw, hh) then
                 return
             end
-            return player:shootFromSlot(meleeWSlot, tx, ty) ~= nil
+            return player:shootFromSlot(meleeWSlot, tx, ty, { enemies = enemies }) ~= nil
         end
     end
 
@@ -758,7 +754,7 @@ function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB,
     if not enemyListOverlapsMeleeAABB(enemies, hx, hy, hw, hh) then
         return
     end
-    return player:meleeAttack(tx, ty)
+    return player:meleeAttack(tx, ty, { enemies = enemies })
 end
 
 -- Called every frame while a melee swing is active.  Hits each enemy at most

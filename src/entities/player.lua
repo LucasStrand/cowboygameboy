@@ -414,6 +414,19 @@ function Player:anyAutoWeaponSlot()
     return self.autoGunSlot1 or self.autoGunSlot2
 end
 
+--- True if any auto-enabled slot currently holds a ranged weapon.
+function Player:anyAutoRangedWeaponSlot()
+    local slot1 = self:getWeaponRuntime(1)
+    local slot2 = self:getWeaponRuntime(2)
+    local slot1Auto = self.autoGunSlot1
+        and slot1 and slot1.mode == "weapon"
+        and slot1.weapon_def and WeaponRuntime.isRangedWeapon(slot1.weapon_def)
+    local slot2Auto = self.autoGunSlot2
+        and slot2 and slot2.mode == "weapon"
+        and slot2.weapon_def and WeaponRuntime.isRangedWeapon(slot2.weapon_def)
+    return slot1Auto or slot2Auto
+end
+
 --- Slot index for automatic gunfire: active slot when a gun is in hand; in melee stance, primary (1) then secondary.
 function Player:getWeaponSlotForAutoFire()
     if self:getActiveSlotMode() == "weapon" then
@@ -472,6 +485,7 @@ end
 local AUTO_BLOCK_RANGE_SQ = 70 * 70
 
 function Player:update(dt, world, enemies)
+    self._combatEnemies = enemies or {}
     if self.dying then
         self.deathTimer = self.deathTimer + dt
         self.anim:update(dt)
@@ -899,7 +913,9 @@ function Player:getShootAnim()
 end
 
 --- Fire one weapon slot (each gun has its own cooldown, damage, and reload — akimbo works like gun + melee coexistence).
-function Player:shootFromSlot(slotIndex, mx, my)
+--- `opts.enemies` can be supplied so melee weapons use live-range checks from the current frame.
+function Player:shootFromSlot(slotIndex, mx, my, opts)
+    opts = opts or {}
     if Buffs.getControlState(self.statuses).stunned then
         return nil
     end
@@ -907,7 +923,7 @@ function Player:shootFromSlot(slotIndex, mx, my)
     if not fired then return nil end
 
     if fired.is_melee_weapon then
-        self:meleeAttack(mx, my, { fromWeaponFire = true, slotIndex = slotIndex })
+        self:meleeAttack(mx, my, { fromWeaponFire = true, slotIndex = slotIndex, enemies = opts.enemies })
         self:syncLegacyWeaponViews()
         -- Sentinel: truthy for callers that check `~= nil`, but `#t == 0` so gun spawn/noise loops skip.
         return { __melee_swing = true }
@@ -1091,7 +1107,9 @@ function Player:tryMeleePrimaryMouseTap(camera, gx, gy, viewW, viewH, opts)
         end
         local es = self:getEffectiveStats()
         local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
-        local allowGunStanceMelee = (not self:anyAutoWeaponSlot()) or opts.fromMeleeKey
+        -- With a ranged gun equipped, LMB is always shoot intent.
+        -- Gun-stance melee is reserved for the dedicated melee key.
+        local allowGunStanceMelee = opts.fromMeleeKey == true
         if allowGunStanceMelee and es.meleeDamage > 0 and not shiftShoot then
             return self:meleeAttack(wx, wy)
         end
@@ -1123,22 +1141,31 @@ function Player:meleeAttack(aimX, aimY, opts)
     if s.meleeDamage <= 0 then return false end
     local cx = self.x + self.w * 0.5
     local cy = self.y + self.h * 0.5
+    local attemptAngle
     if aimX ~= nil and aimY ~= nil then
-        self.meleeAimAngle = math.atan2(aimY - cy, aimX - cx)
+        attemptAngle = math.atan2(aimY - cy, aimX - cx)
     else
         -- Melee without world aim args: use cursor in world — same idea as LMB tap aim.
         local wx, wy = self.aimWorldX, self.aimWorldY
         if wx and wy then
             local dx, dy = wx - cx, wy - cy
             if dx * dx + dy * dy >= MELEE_CURSOR_MIN_DIST_SQ then
-                self.meleeAimAngle = math.atan2(dy, dx)
+                attemptAngle = math.atan2(dy, dx)
             else
-                self.meleeAimAngle = self:getMeleeAimAngleLive()
+                attemptAngle = self:getMeleeAimAngleLive()
             end
         else
-            self.meleeAimAngle = self:getMeleeAimAngleLive()
+            attemptAngle = self:getMeleeAimAngleLive()
         end
     end
+    -- Auto-melee paths pass an explicit `opts.enemies` list so we only start swings
+    -- when something is actually in range. Manual melee keeps legacy free-swing behavior.
+    if opts.enemies ~= nil then
+        if not self:hasEnemyInMeleeRange(attemptAngle, slotIndex, opts.enemies) then
+            return false
+        end
+    end
+    self.meleeAimAngle = attemptAngle
     if activeMeleeW and not opts.fromWeaponFire then
         slot.cooldown_timer = s.meleeCooldown
     elseif not activeMeleeW then
@@ -1191,6 +1218,23 @@ function Player:getMeleeSwingDrawParams()
     local midx = cx + math.cos(angle) * midAlong
     local midy = cy + math.sin(angle) * midAlong
     return midx, midy, angle, range, thick
+end
+
+local function enemiesOverlapAABB(enemies, hx, hy, hw, hh)
+    for _, e in ipairs(enemies or {}) do
+        if e and e.alive then
+            if hx < e.x + e.w and hx + hw > e.x and
+               hy < e.y + e.h and hy + hh > e.y then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function Player:hasEnemyInMeleeRange(angle, statsSlotIndex, enemies)
+    local hx, hy, hw, hh = self:getMeleeHitboxAABB(angle, statsSlotIndex)
+    return enemiesOverlapAABB(enemies or self._combatEnemies, hx, hy, hw, hh)
 end
 
 --- Start reload for one weapon slot (akimbo: each gun reloads on its own timeline).
