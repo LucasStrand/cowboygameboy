@@ -58,6 +58,11 @@ TooltipTemplates.lines = {
         "Fires {bullet_count} projectile per shot for {bullet_damage} base damage.",
         "Shoots every {shoot_cooldown}s and reloads in {reload_speed}s.",
     },
+    gun_knife = {
+        "Melee weapon: {melee_damage} damage, range {melee_range}.",
+        "Swing every {melee_cooldown}s; knockback {melee_knockback}.",
+        "Fits either weapon slot; Tab switches your active weapon.",
+    },
     gear_cowboy_hat = {
         "Gain {luck_pct}% luck.",
     },
@@ -84,6 +89,10 @@ TooltipTemplates.lines = {
     },
     gear_snake_boots = {
         "Gain {move_speed} move speed and {luck_pct}% luck.",
+    },
+    gear_knife = {
+        "Melee weapon: {melee_damage} damage, range {melee_range}.",
+        "Swing every {melee_cooldown}s; knockback {melee_knockback}.",
     },
     status_speed_boost = {
         "Gain move speed for {duration}s.",

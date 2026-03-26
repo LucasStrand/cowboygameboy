@@ -25,7 +25,8 @@ local defaults = {
         drop = "s",
         dash = "shift",
         melee = "f",
-        block = "ctrl",
+        -- Ctrl is used for crouch; shield block uses B (see player.lua crouch vs block resolution).
+        block = "b",
         ult = "q",
         reload = "r",
     },

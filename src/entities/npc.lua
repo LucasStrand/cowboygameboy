@@ -161,7 +161,7 @@ function NPC.new(config)
         self.refFrameH = maxH
     end
 
-    -- Animation cycling: automatically switch between animations
+    -- Animation cycling: randomly switch between clips after variable dwell times
     self.animNames = {}  -- ordered list of animation names
     if config.anims then
         for _, anim in ipairs(config.anims) do
@@ -170,8 +170,17 @@ function NPC.new(config)
             end
         end
     end
+    if #self.animNames > 0 then
+        self:setAnim(self.animNames[math.random(#self.animNames)])
+    end
+
     self.animCycleTimer = 0
-    self.animCycleDuration = config.animCycleDuration or 4  -- seconds per animation before switching
+    self.animCycleMin = config.animCycleMin or 2.2
+    self.animCycleMax = config.animCycleMax or 6.5
+    if self.animCycleMax < self.animCycleMin then
+        self.animCycleMax = self.animCycleMin
+    end
+    self.animCycleDuration = math.random() * (self.animCycleMax - self.animCycleMin) + self.animCycleMin
 
     -- Sprite scale
     self.scale = config.scale or 1
@@ -242,18 +251,18 @@ function NPC:update(dt)
         end
     end
 
-    -- Cycle between animations periodically
+    -- Random clip + random dwell (shuffle / idle / drinking / etc.)
     if #self.animNames > 1 then
         self.animCycleTimer = self.animCycleTimer + dt
         if self.animCycleTimer >= self.animCycleDuration then
             self.animCycleTimer = 0
-            -- Find current animation index and advance to next
-            local curIdx = 1
-            for i, name in ipairs(self.animNames) do
-                if name == self.currentAnim then curIdx = i; break end
-            end
-            local nextIdx = (curIdx % #self.animNames) + 1
-            self:setAnim(self.animNames[nextIdx])
+            self.animCycleDuration = math.random() * (self.animCycleMax - self.animCycleMin) + self.animCycleMin
+            local n = #self.animNames
+            local nextName
+            repeat
+                nextName = self.animNames[math.random(n)]
+            until nextName ~= self.currentAnim or n <= 1
+            self:setAnim(nextName)
         end
     end
 

@@ -50,11 +50,39 @@ local function shallowArray(src)
 end
 
 local function defaultAttackProfileId(gun_def)
+    if gun_def and gun_def.weapon_kind == "melee" then
+        return "melee_weapon"
+    end
     local base_stats = gun_def and gun_def.baseStats or {}
     if (base_stats.bulletCount or 1) > 1 or (base_stats.spreadAngle or 0) > 0 then
         return "projectile_spread"
     end
     return "projectile_basic"
+end
+
+function WeaponRuntime.isMeleeWeapon(gun_def)
+    return gun_def and gun_def.weapon_kind == "melee"
+end
+
+function WeaponRuntime.isRangedWeapon(gun_def)
+    return gun_def and gun_def.weapon_kind ~= "melee"
+end
+
+--- When adding a weapon from a pickup/shop/altar (no explicit slot): fill the lone empty slot if
+--- exactly one of the two slots is free; otherwise equip into the active slot (replace).
+function WeaponRuntime.slotIndexForNewWeapon(player)
+    local w1 = WeaponRuntime.getSlot(player, 1)
+    local w2 = WeaponRuntime.getSlot(player, 2)
+    local has1 = w1 and w1.mode == "weapon"
+    local has2 = w2 and w2.mode == "weapon"
+    if has1 and not has2 then
+        return 2
+    end
+    if has2 and not has1 then
+        return 1
+    end
+    local rt = player.weaponRuntime
+    return (rt and rt.active_weapon_slot) or 1
 end
 
 local function adaptWeaponDef(gun_def)
@@ -301,6 +329,10 @@ local ATTACK_PROFILES = {
         end
         return bullets
     end,
+    -- Unused when firing (melee is handled before profiles); kept for adapted defs / tooling.
+    melee_weapon = function()
+        return {}
+    end,
 }
 
 function WeaponRuntime.initPlayerLoadout(player, primary_gun, secondary_gun)
@@ -432,7 +464,8 @@ function WeaponRuntime.switchActiveSlot(player)
 end
 
 function WeaponRuntime.equipWeapon(player, gun_def, slot_index)
-    slot_index = slot_index or 2
+    local runtime = player.weaponRuntime
+    slot_index = slot_index or (runtime and runtime.active_weapon_slot) or 1
     local slot = WeaponRuntime.getSlot(player, slot_index)
     if not slot then
         return false
@@ -456,6 +489,44 @@ function WeaponRuntime.equipWeapon(player, gun_def, slot_index)
     WeaponRuntime.syncLegacyViews(player)
     debugDump(player, "equip")
     return true
+end
+
+--- Remove ranged weapon from a slot (that slot becomes empty / melee stance for that slot only).
+--- @return table|nil gun_def, integer ammo — nil if slot was already melee
+function WeaponRuntime.removeWeaponFromSlot(player, slot_index)
+    local slot = WeaponRuntime.getSlot(player, slot_index)
+    if not slot or slot.mode ~= "weapon" or not slot.weapon_def then
+        return nil
+    end
+
+    local gun_def = slot.weapon_def
+    local ammo = slot.ammo or 0
+
+    slot.mode = "melee"
+    slot.weapon_id = nil
+    slot.weapon_def = nil
+    slot.attack_profile_id = nil
+    slot.ammo = 0
+    slot.reload_timer = 0
+    slot.cooldown_timer = 0
+    slot.charges = nil
+    slot.shots_since_reload = 0
+    slot.passive_counters = {}
+    slot.per_target_counters = {}
+    slot.temporary_flags = {}
+
+    local runtime = player.weaponRuntime
+    if runtime and runtime.active_weapon_slot == slot_index then
+        local other = slot_index == 1 and 2 or 1
+        local other_slot = runtime.weapon_slots[other]
+        if other_slot and other_slot.mode == "weapon" then
+            runtime.active_weapon_slot = other
+        end
+    end
+
+    WeaponRuntime.syncLegacyViews(player)
+    debugDump(player, "unequip_drop")
+    return gun_def, ammo
 end
 
 function WeaponRuntime.startReload(player, slot_index)
@@ -574,12 +645,34 @@ function WeaponRuntime.fireSlot(player, slot_index, aim_x, aim_y)
     if (slot.reload_timer or 0) > 0 or (slot.cooldown_timer or 0) > 0 then
         return nil
     end
+
+    local gun = slot.weapon_def
+    if WeaponRuntime.isMeleeWeapon(gun) then
+        local resolved = WeaponRuntime.getResolvedStats(player, slot_index)
+        local cx = player.x + player.w / 2
+        local cy = player.y + player.h / 2
+        local angle = math.atan2(aim_y - cy, aim_x - cx)
+        -- Lua: (0 or x) is 0 — never use 0 as "unset" for cooldown or hold-fire runs every frame.
+        local mcd = resolved and resolved.meleeCooldown
+        local scd = resolved and resolved.shootCooldown
+        local cd = (type(mcd) == "number" and mcd > 0) and mcd
+            or (type(scd) == "number" and scd > 0) and scd
+            or 0.42 -- same default as unarmed `meleeCooldown` in weapons.lua
+        slot.cooldown_timer = cd
+        debugDump(player, "fired_melee_weapon")
+        return {
+            bullets = {},
+            angle = angle,
+            weapon_def = gun,
+            resolved_stats = resolved,
+            is_melee_weapon = true,
+        }
+    end
+
     if (slot.ammo or 0) <= 0 then
         WeaponRuntime.startReload(player, slot_index)
         return nil
     end
-
-    local gun = slot.weapon_def
     local resolved = WeaponRuntime.getResolvedStats(player, slot_index)
     local normalized = computeNormalizedStats(player, gun)
     local cx = player.x + player.w / 2

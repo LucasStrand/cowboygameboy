@@ -34,6 +34,8 @@ local Mods = {
     WorldInteractLabelBatch = require("src.ui.world_interact_label_batch"),
 }
 
+local WeaponsData = require("src.data.weapons")
+
 local saloon = {}
 
 -- Persistent assets (loaded once)
@@ -120,10 +122,23 @@ local pauseSettingsBindCapture = nil
 local pauseSettingsSliderDragKey = nil
 local characterSheetOpen = false
 
+--- Same pointer path as `game:tryPrimaryMeleeTapFromPointer` (LMB + melee key).
+local function tryPrimaryMeleeTapFromPointer(fromMeleeKey)
+    if not player or not camera or player.blocking or characterSheetOpen then return end
+    local mx, my = love.mouse.getPosition()
+    local gx, gy = windowToGame(mx, my)
+    player:tryMeleePrimaryMouseTap(camera, gx, gy, GAME_WIDTH, GAME_HEIGHT, {
+        fromMeleeKey = fromMeleeKey == true,
+    })
+end
+
 local devPanelOpen = false
 local devPanelScroll = 0
 local devPanelHover = nil
 local devPanelRows = nil
+local devPanelRowsFull = nil
+local devPanelSearchQuery = ""
+local devPanelSearchFocus = false
 local devPanelPauseGameplay = true
 local devShowHitboxes = true
 
@@ -246,6 +261,21 @@ local function devClampScroll()
     devPanelScroll = math.max(0, math.min(maxS, devPanelScroll))
 end
 
+local function saloonDevApplySearchFilter()
+    if not devPanelRowsFull then return end
+    devPanelRows = Mods.DevPanel.filterRows(devPanelRowsFull, devPanelSearchQuery or "")
+    devClampScroll()
+end
+
+local function saloonDevRebuildRows()
+    devPanelRowsFull = Mods.DevPanel.buildRows({
+        gameplayPaused = devPanelPauseGameplay,
+        showHitboxes = devShowHitboxes,
+    })
+    devPanelRows = Mods.DevPanel.filterRows(devPanelRowsFull, devPanelSearchQuery or "")
+    devClampScroll()
+end
+
 local function openDevPanel()
     if not devToolsEnabled() then return end
     devPanelOpen = true
@@ -253,17 +283,15 @@ local function openDevPanel()
     characterSheetOpen = false
     devPanelScroll = 0
     devPanelHover = nil
-    devPanelRows = Mods.DevPanel.buildRows({
-        gameplayPaused = devPanelPauseGameplay,
-        showHitboxes = devShowHitboxes,
-    })
+    devPanelSearchQuery = ""
+    devPanelSearchFocus = false
+    saloonDevRebuildRows()
     if not saloon.devPanelTitleFont then
         saloon.devPanelTitleFont = Mods.Font.new(16)
     end
     if not saloon.devPanelRowFont then
         saloon.devPanelRowFont = Mods.Font.new(13)
     end
-    devClampScroll()
 end
 
 --- Gold from casino wins — scattered around the player so you walk to collect (lighter pop than dev cheat).
@@ -332,13 +360,10 @@ end
 
 local function saloonDevApplyAction(id)
     if not devToolsEnabled() or not player or not id then return end
+    if id == Mods.DevPanel.HIT_SEARCH then return end
     if id == "toggle_dev_pause" then
         devPanelPauseGameplay = not (devPanelPauseGameplay ~= false)
-        devPanelRows = Mods.DevPanel.buildRows({
-            gameplayPaused = devPanelPauseGameplay,
-            showHitboxes = devShowHitboxes,
-        })
-        devClampScroll()
+        saloonDevRebuildRows()
         Mods.DevLog.push("sys", "[dev] gameplay " .. ((devPanelPauseGameplay ~= false) and "paused" or "live"))
         return
     end
@@ -356,11 +381,7 @@ local function saloonDevApplyAction(id)
         Mods.DevLog.push("sys", "[dev] hurt 1")
     elseif id == "toggle_hitboxes" then
         devShowHitboxes = not devShowHitboxes
-        devPanelRows = Mods.DevPanel.buildRows({
-            gameplayPaused = devPanelPauseGameplay,
-            showHitboxes = devShowHitboxes,
-        })
-        devClampScroll()
+        saloonDevRebuildRows()
         Mods.DevLog.push("sys", "[dev] hitboxes " .. (devShowHitboxes and "on" or "off"))
     elseif id == "toggle_god" then
         player.devGodMode = not player.devGodMode
@@ -422,7 +443,7 @@ end
 local function drawCharacterSheet()
     if not player then return end
     local pad = 14
-    local w, h = 332, 452
+    local w, h = 332, 508
     local x, y = 18, 56
     love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
     love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -508,10 +529,18 @@ local function drawCharacterSheet()
     drawGearBlock("hat", "Hat")
     drawGearBlock("vest", "Vest")
     drawGearBlock("boots", "Boots")
-    drawGearBlock("melee", "Melee")
+    do
+        love.graphics.setColor(0.88, 0.82, 0.72)
+        love.graphics.print("Melee (fists): when your active slot is a gun",
+            x + pad, py)
+        py = py + 18
+        drawWrappedSectionLines(Mods.ContentTooltips.getLines("gear", WeaponsData.defaults.unarmed), { 0.75, 0.84, 0.74, 1 })
+    end
     drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
+    love.graphics.print("1 / 2 — drop weapon from that slot (floor pickup)", x + pad, py)
+    py = py + 18
     local ck = Mods.Keybinds.formatActionKey("character")
     love.graphics.print(string.format("%s to close  ·  ESC", ck), x + pad, py)
 end
@@ -625,7 +654,7 @@ local function nearSlotMachine()
     return dx * dx + dy * dy <= sm.r * sm.r
 end
 
---- Weapon floor pickups (tap/hold interact)
+--- Weapon floor: interact press picks up; hold sells gun for scrap
 local weaponPickupInteractState = {}
 local saloonWalkInteractConsumed = false
 
@@ -648,7 +677,6 @@ local function trySaloonWalkingInteract(key)
             player:consumeMonsterEnergy()
             message = "Full heal!"
             messageTimer = 2.5
-            Mods.Sfx.play("pickup_gold")
             return true
         end
     end
@@ -784,6 +812,9 @@ function saloon:enter(_, _player, _roomManager)
             npcConfig.promptLabel = npcDef.promptLabel or "[E] Gamble"
             -- Shuffle clips are 128² vs 80² idle; same character art is smaller in-frame after idle-based scaling
             local DEALER_ACTION_DRAW_SCALE = 128 / 80
+            npcConfig.animCycleMin = 2.0
+            npcConfig.animCycleMax = 5.8
+            -- Drinking: same dealer pack as idle/shuffle (south / 80²) — not the player cowboy strip.
             npcConfig.anims = {
                 {
                     name = "shuffle",
@@ -792,12 +823,21 @@ function saloon:enter(_, _player, _roomManager)
                     drawScale = DEALER_ACTION_DRAW_SCALE,
                 },
                 { name = "idle", path = "assets/sprites/blackjack_dealer/animations/breathing-idle/south/", speed = 0.3 },
+                { name = "drinking", path = "assets/sprites/blackjack_dealer/animations/drinking/south/", speed = 0.22 },
             }
         elseif npcDef.type == "bartender" then
             npcConfig.promptLabel = npcDef.promptLabel or "[E] Buy Supplies"
+            npcConfig.animCycleMin = 2.2
+            npcConfig.animCycleMax = 6.0
+            -- Prefer bartender’s own drinking (south) if exported; else player strip as last resort.
+            local btDrink = "assets/sprites/bartender/animations/drinking/south/"
+            if not love.filesystem.getInfo(btDrink .. "frame_000.png") then
+                btDrink = "assets/sprites/cowboy_v2/animations/drinking/east/"
+            end
             npcConfig.anims = {
                 { name = "shaking", path = "assets/sprites/bartender/animations/shaking/south/", speed = 0.2 },
                 { name = "idle", path = "assets/sprites/bartender/animations/breathing-idle/south/", speed = 0.3 },
+                { name = "drinking", path = btDrink, speed = 0.22 },
             }
             npcConfig.spritePath = "assets/sprites/bartender/rotations/south.png"
         end
@@ -813,6 +853,7 @@ function saloon:enter(_, _player, _roomManager)
     player.y = sp.y
     player.grounded = false
     player.jumpCount = 0
+    player.airborneFromWalkoff = false
     player.coyoteTimer = 0
     player.jumpBufferTimer = 0
     player.dashTimer = 0
@@ -890,10 +931,9 @@ function saloon:enter(_, _player, _roomManager)
     devPanelHover = nil
     devPanelPauseGameplay = true
     devShowHitboxes = true
-    devPanelRows = Mods.DevPanel.buildRows({
-        gameplayPaused = devPanelPauseGameplay,
-        showHitboxes = devShowHitboxes,
-    })
+    devPanelSearchQuery = ""
+    devPanelSearchFocus = false
+    saloonDevRebuildRows()
 end
 
 function saloon:leave()
@@ -930,11 +970,44 @@ function saloon:update(dt)
             local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
             player.aimWorldX = wx
             player.aimWorldY = wy
-            player.effectiveAimX, player.effectiveAimY = wx, wy
-            player.keyboardAimMode = false
+            local mouseAimOn = love.mouse.isDown(1)
+            if mouseAimOn then
+                player.effectiveAimX, player.effectiveAimY = wx, wy
+                player.keyboardAimMode = false
+            else
+                player.effectiveAimX, player.effectiveAimY = player:keyboardFallbackAimPoint()
+                player.keyboardAimMode = true
+            end
+            do
+                local es = player:getEffectiveStats()
+                local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+                local ag = player:getActiveGun()
+                local meleeWeapon = ag and ag.weapon_kind == "melee"
+                local doGunShoot = player:anyAutoWeaponSlot() or (es.meleeDamage or 0) <= 0 or shiftShoot or meleeWeapon
+                player.inputFireHeld = not player.blocking and not characterSheetOpen
+                    and (not meleeWeapon and mouseAimOn and doGunShoot)
+            end
         end
 
         player:update(dt, world, {})
+
+        -- Manual hold-to-fire: ranged only (melee / knife = tap-only, same as game state)
+        if love.mouse.isDown(1) and not characterSheetOpen and not player.blocking then
+            local agHold = player:getActiveGun()
+            if agHold and agHold.weapon_kind ~= "melee" then
+                local es = player:getEffectiveStats()
+                local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+                if player:anyAutoWeaponSlot() or (es.meleeDamage or 0) <= 0 or shiftShoot then
+                    local bulletData = player:shoot(player.aimWorldX, player.aimWorldY)
+                    if bulletData and #bulletData > 0 then
+                        for _, data in ipairs(bulletData) do
+                            local b = Mods.Combat.spawnBullet(world, data)
+                            table.insert(bullets, b)
+                        end
+                    end
+                end
+            end
+        end
 
         Mods.Combat.updateBullets(bullets, dt, world, {}, player)
         local bi = #bullets
@@ -963,7 +1036,7 @@ function saloon:update(dt)
             end
         end
         weaponPickupInteractState = Mods.Combat.advanceWeaponPickupInteraction(
-            dt, pickups, player, world, weaponPickupInteractState, saloonWalkInteractConsumed
+            dt, pickups, player, world, weaponPickupInteractState
         )
         if not Mods.Keybinds.isDown("interact") then
             saloonWalkInteractConsumed = false
@@ -1042,9 +1115,18 @@ end
 ---------------------------------------------------------------------------
 -- Input
 ---------------------------------------------------------------------------
-function saloon:keypressed(key)
+function saloon:keypressed(key, scancode, isrepeat)
     local _, _, _, consoleH = getDebugConsoleLayout()
     if devToolsEnabled() and devPanelOpen then
+        if devPanelSearchFocus and key == "backspace" then
+            devPanelSearchQuery = (devPanelSearchQuery or ""):sub(1, -2)
+            saloonDevApplySearchFilter()
+            return
+        end
+        if devPanelSearchFocus and key == "tab" then
+            devPanelSearchFocus = false
+            return
+        end
         if key == "end" then
             Mods.DevLog.followConsole()
             return
@@ -1060,6 +1142,7 @@ function saloon:keypressed(key)
         elseif key == "escape" or key == "f2" then
             devPanelOpen = false
             devPanelHover = nil
+            devPanelSearchFocus = false
         end
         return
     end
@@ -1159,6 +1242,16 @@ function saloon:keypressed(key)
         return
     end
 
+    if not paused and characterSheetOpen and player and world and pickups then
+        local dropSlot = (key == "1" or key == "kp1") and 1
+            or (key == "2" or key == "kp2") and 2
+            or nil
+        if dropSlot then
+            Mods.Combat.dropPlayerWeaponToFloor(player, world, pickups, dropSlot)
+            return
+        end
+    end
+
     if Mods.Keybinds.matches("character", key) then
         characterSheetOpen = not characterSheetOpen
         return
@@ -1167,6 +1260,10 @@ function saloon:keypressed(key)
     if mode == "walking" then
         if trySaloonWalkingInteract(key) then
             saloonWalkInteractConsumed = true
+        elseif Mods.Keybinds.matches("interact", key) and player and world and pickups then
+            if Mods.Combat.tryInteractPickupLoot(pickups, player, world) then
+                saloonWalkInteractConsumed = true
+            end
         end
 
         if Mods.Keybinds.matches("jump", key) or key == "w" or key == "up" then
@@ -1181,8 +1278,8 @@ function saloon:keypressed(key)
         if Mods.Keybinds.matches("reload", key) then
             player:reload()
         end
-        if Mods.Keybinds.matches("melee", key) then
-            player:meleeAttack()
+        if Mods.Keybinds.matches("melee", key) and not isrepeat then
+            tryPrimaryMeleeTapFromPointer(true)
         end
         if key == "h" then
             player:spinHolster()
@@ -1257,6 +1354,16 @@ function saloon:keypressed(key)
             mode = (nextMode == "main") and "walking" or nextMode
             perkOptions = nil
         end
+    end
+end
+
+function saloon:textinput(t)
+    if not devToolsEnabled() or not devPanelOpen or not devPanelSearchFocus then return end
+    if t and #t > 0 then
+        local q = (devPanelSearchQuery or "") .. t
+        if #q > 256 then return end
+        devPanelSearchQuery = q
+        saloonDevApplySearchFilter()
     end
 end
 
@@ -1337,8 +1444,13 @@ function saloon:mousepressed(x, y, button)
         if insidePanel then
             if button == 1 then
                 local hit = Mods.DevPanel.hitTest(devPanelRows, gx, gy, devPanelScroll, px, py, pw, ph, saloon.devPanelTitleFont, saloon.devPanelRowFont)
-                if hit then
-                    saloonDevApplyAction(hit)
+                if hit == Mods.DevPanel.HIT_SEARCH then
+                    devPanelSearchFocus = true
+                else
+                    devPanelSearchFocus = false
+                    if hit then
+                        saloonDevApplyAction(hit)
+                    end
                 end
             end
             return
@@ -1424,32 +1536,25 @@ function saloon:mousepressed(x, y, button)
     end
 
     if mode == "walking" and player and camera and world and not characterSheetOpen then
-        if button == 1 and not player.blocking then
-            local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
-            player.aimWorldX = mx
-            player.aimWorldY = my
-            if player:getActiveGun() then
-                local es = player:getEffectiveStats()
-                local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
-                if not player.autoGun and es.meleeDamage > 0 and not shiftShoot then
-                    player:meleeAttack(mx, my)
-                else
-                    local bulletData = player:shoot(mx, my)
-                    if bulletData then
-                        for _, data in ipairs(bulletData) do
-                            local b = Mods.Combat.spawnBullet(world, data)
-                            table.insert(bullets, b)
-                        end
-                    end
-                end
-            else
-                local s = player:getEffectiveStats()
-                if s.meleeDamage > 0 then
-                    player:meleeAttack(mx, my)
-                end
-            end
+        if button == 1 then
+            tryPrimaryMeleeTapFromPointer(false)
+            -- Gun fire: handled each frame while LMB held (see saloon:update)
         elseif button == 2 then
-            player:reload()
+            local slot = Mods.HUD.hitLoadout(gx, gy, GAME_HEIGHT)
+            if slot == "weapon1" then
+                player.autoGunSlot1 = not player.autoGunSlot1
+            elseif slot == "weapon2" then
+                local g2 = player.weapons[2] and player.weapons[2].gun
+                if g2 then
+                    player.autoGunSlot2 = not player.autoGunSlot2
+                else
+                    player.autoMelee = not player.autoMelee
+                end
+            elseif slot == "shield" and player:shieldAllowsAutoBlock() then
+                player.autoBlock = not player.autoBlock
+            else
+                player:reload()
+            end
         end
     end
 end
@@ -2003,6 +2108,10 @@ function saloon:draw()
         Mods.DevPanel.draw(devPanelRows, devPanelScroll, px, py, pw, ph, devPanelHover, {
             title = saloon.devPanelTitleFont,
             row = saloon.devPanelRowFont,
+        }, {
+            query = devPanelSearchQuery or "",
+            focused = devPanelSearchFocus,
+            hover = devPanelHover == Mods.DevPanel.HIT_SEARCH,
         })
     end
 
@@ -2278,6 +2387,8 @@ function drawShop(screenW, screenH)
             local desc = item.description
             if item.type == "gear" and item.gearData then
                 desc = Mods.ContentTooltips.getJoinedText("gear", item.gearData)
+            elseif item.type == "weapon" and item.gunData then
+                desc = Mods.ContentTooltips.getJoinedText("gun", item.gunData)
             elseif item.tooltip_key or item.tooltip_override then
                 desc = Mods.ContentTooltips.getJoinedText("offer", item)
             end

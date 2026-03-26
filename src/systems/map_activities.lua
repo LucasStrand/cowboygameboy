@@ -10,7 +10,7 @@ local Croupier         = require("src.entities.croupier")
 local WeaponAltar    = require("src.entities.weapon_altar")
 local Chest          = require("src.entities.chest")
 local Pickup         = require("src.entities.pickup")
-local Guns           = require("src.data.guns")
+local Combat         = require("src.systems.combat")
 local GoldCoin       = require("src.data.gold_coin")
 local SpikeTrap      = require("src.entities.spike_trap")
 local PressurePlate  = require("src.entities.pressure_plate")
@@ -285,11 +285,11 @@ function MapActivities.generate(room, difficulty, roomIndex)
             local pickValue
             local roll = math.random()
             if roll < 0.10 then
-                -- 10% weapon drop
-                local gun = Guns.rollDrop(0)
-                if gun then
-                    pickType = "weapon"
-                    pickValue = gun
+                -- 10% weapon drop (same pool as enemy kills: guns + knife)
+                local wtype, wval = Combat.pickWeaponDropPickup(0)
+                if wtype and wval then
+                    pickType = wtype
+                    pickValue = wval
                 end
             elseif roll < 0.35 then
                 pickType = "health"
@@ -602,14 +602,14 @@ function MapActivities.generateAll(room, difficulty, roomIndex)
         end
     end
 
-    -- Weapon pickup
+    -- Weapon pickup (guns + knife — same pool as combat / wild rooms)
     do
-        local gun = Guns.rollDrop(0)
-        if gun and #platforms > 0 then
+        local wtype, wval = Combat.pickWeaponDropPickup(0)
+        if wtype and wval and #platforms > 0 then
             local plat = platforms[math.random(#platforms)]
             local px = randomXOnPlatform(plat, 10, 8)
             local py = plat.y - 12
-            local pickup = Pickup.new(px, py, "weapon", gun)
+            local pickup = Pickup.new(px, py, wtype, wval)
             pickup.grounded = true
             result.wildPickups[#result.wildPickups + 1] = pickup
         end

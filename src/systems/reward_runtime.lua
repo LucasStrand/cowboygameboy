@@ -4,8 +4,17 @@ local RunMetadata = require("src.systems.run_metadata")
 local Perks = require("src.data.perks")
 local GearData = require("src.data.gear")
 local Guns = require("src.data.guns")
-
 local RewardRuntime = {}
+
+local function playerHasWeaponId(player, weapon_id)
+    for i = 1, 2 do
+        local w = player and player.weapons and player.weapons[i]
+        if w and w.gun and w.gun.id == weapon_id then
+            return true
+        end
+    end
+    return false
+end
 local REROLL_BASE_COST = {
     levelup = 18,
     shop = 32,
@@ -38,6 +47,7 @@ local FEATURE_HINTS = {
     riding_boots = { "theme:mobility" },
     spurred_boots = { "theme:mobility", "theme:damage" },
     snake_boots = { "theme:mobility", "theme:luck" },
+    knife = { "attack:melee", "theme:damage" },
     heal = { "theme:sustain" },
     ammo_upgrade = { "theme:ammo", "attack:projectile" },
 }
@@ -122,6 +132,10 @@ local function collectItemTags(item)
         append("theme:damage")
     end
     if type(stats.damage) == "number" and stats.damage > 0 then
+        append("theme:damage")
+    end
+    if type(stats.meleeDamage) == "number" and stats.meleeDamage > 0 then
+        append("attack:melee")
         append("theme:damage")
     end
     if type(stats.luck) == "number" and stats.luck > 0 then
@@ -288,7 +302,7 @@ function RewardRuntime.buildProfile(player, context)
         end
     end
 
-    for _, slot_name in ipairs({ "hat", "vest", "boots", "melee", "shield" }) do
+    for _, slot_name in ipairs({ "hat", "vest", "boots", "shield" }) do
         local gear = player and player.gear and player.gear[slot_name] or nil
         if gear then
             addTags(tag_weights, collectItemTags(gear), 1)
@@ -399,6 +413,7 @@ local function buildGearCandidates(player, profile, max_tier)
             candidates[#candidates + 1] = candidate
         end
     end
+
     return candidates
 end
 
@@ -424,7 +439,10 @@ function RewardRuntime.rollShopOffers(player, context)
         elseif role == "utility" or item.type == "ammo" then
             return math.floor(28 * price_multiplier)
         end
-        local tier = item.gearData and item.gearData.tier or 1
+        local tier = (item.gearData and item.gearData.tier)
+            or (item.gunData and item.gunData.rarity == "rare" and 3)
+            or (item.gunData and item.gunData.rarity == "uncommon" and 2)
+            or 1
         if bucket == "pivot" then
             return math.floor((42 + tier * 14) * price_multiplier)
         end
@@ -443,22 +461,45 @@ function RewardRuntime.rollShopOffers(player, context)
     ammo.sold = false
 
     local gear_candidates = buildGearCandidates(player, profile, max_tier)
+    local knifeDef = Guns.getById("knife")
+    if knifeDef and player and not playerHasWeaponId(player, "knife") then
+        local knifeOffer = decorateCandidate(profile, knifeDef, "power")
+        knifeOffer.type = "weapon"
+        knifeOffer.gunData = knifeDef
+        knifeOffer.tooltip_key = knifeDef.tooltip_key
+        knifeOffer.tooltip_tokens = knifeDef.tooltip_tokens or {}
+        knifeOffer.reward_weight = math.max(1, 5 - 1)
+        if knifeOffer.reward_bucket == "support" then
+            knifeOffer.reward_weight = knifeOffer.reward_weight + 4
+        end
+        gear_candidates[#gear_candidates + 1] = knifeOffer
+    end
     local picked = {}
     local support_gear = pickWithoutDuplicates("reward.shop.gear.support", gear_candidates, "support", picked, generation_index + 1)
     local pivot_gear = pickWithoutDuplicates("reward.shop.gear.pivot", gear_candidates, "pivot", picked, generation_index + 2)
 
     local offers = { heal }
     if support_gear then
-        support_gear.name = support_gear.gearData.name
-        support_gear.id = "gear_" .. support_gear.gearData.id
+        if support_gear.type == "weapon" and support_gear.gunData then
+            support_gear.name = support_gear.gunData.name
+            support_gear.id = "weapon_" .. support_gear.gunData.id
+        else
+            support_gear.name = support_gear.gearData.name
+            support_gear.id = "gear_" .. support_gear.gearData.id
+        end
         support_gear.price = priceForOffer(support_gear)
         support_gear.sold = false
         offers[#offers + 1] = support_gear
     end
 
     if pivot_gear then
-        pivot_gear.name = pivot_gear.gearData.name
-        pivot_gear.id = "gear_" .. pivot_gear.gearData.id
+        if pivot_gear.type == "weapon" and pivot_gear.gunData then
+            pivot_gear.name = pivot_gear.gunData.name
+            pivot_gear.id = "weapon_" .. pivot_gear.gunData.id
+        else
+            pivot_gear.name = pivot_gear.gearData.name
+            pivot_gear.id = "gear_" .. pivot_gear.gearData.id
+        end
         pivot_gear.price = priceForOffer(pivot_gear)
         pivot_gear.sold = false
         offers[#offers + 1] = pivot_gear

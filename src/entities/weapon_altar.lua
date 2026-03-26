@@ -1,7 +1,10 @@
 --- Weapon Altar entity: displays 3 weapon choices on pedestals.
 --- Player picks one with E, the others disappear.
+--- Choices are weighted from `Guns.pool` (knife included as a normal weapon).
 
 local Guns = require("src.data.guns")
+local Combat = require("src.systems.combat")
+local GearIcons = require("src.ui.gear_icons")
 local WorldInteractLabel = require("src.ui.world_interact_label")
 
 local WeaponAltar = {}
@@ -39,21 +42,39 @@ function WeaponAltar.new(x, y, luck)
     self.y = y
     self.w = TOTAL_W
     self.h = PEDESTAL_H + 24  -- pedestal + weapon float space
-    -- Roll 3 weapons
     self.choices = {}
-    local usedIds = {}
+    local usedGunIds = {}
+    local lk = luck or 0
     for i = 1, 3 do
-        local gun = nil
-        for attempt = 1, 20 do
-            gun = Guns.rollDrop(luck or 0)
-            if gun and not usedIds[gun.id] then
-                usedIds[gun.id] = true
+        local chosen = nil
+        for _ = 1, 40 do
+            local pick = Combat.rollWeaponOrMeleeDrop(lk)
+            if pick and pick.kind == "gun" and pick.gun and not usedGunIds[pick.gun.id] then
+                usedGunIds[pick.gun.id] = true
+                chosen = { kind = "gun", def = pick.gun }
                 break
             end
         end
-        if gun then
-            self.choices[i] = gun
+        if not chosen then
+            for _ = 1, 25 do
+                local gun = Guns.rollDrop(lk)
+                if gun and not usedGunIds[gun.id] then
+                    usedGunIds[gun.id] = true
+                    chosen = { kind = "gun", def = gun }
+                    break
+                end
+            end
         end
+        if not chosen then
+            -- Last resort: any droppable gun (allow duplicate id so pedestals never stay empty).
+            for _, gun in ipairs(Guns.pool) do
+                if gun.dropWeight and gun.dropWeight > 0 then
+                    chosen = { kind = "gun", def = gun }
+                    break
+                end
+            end
+        end
+        self.choices[i] = chosen
     end
     -- State: "choosing" | "chosen"
     self.state = "choosing"
@@ -62,7 +83,7 @@ function WeaponAltar.new(x, y, luck)
     self.glowTimer = math.random() * 6.28
     -- Vanish animation for unchosen weapons
     self.vanishTimer = 0
-    -- Callback: set by game.lua, called with (gunDef) when player picks
+    -- Callback: set by game.lua, called with ({ kind = "gun", def = gunDef }) when player picks
     self.onChoose = nil
     return self
 end
@@ -119,14 +140,14 @@ end
 function WeaponAltar:tryChoose(player)
     if self.state ~= "choosing" then return false end
     if self.selectedIndex < 1 or self.selectedIndex > 3 then return false end
-    local gun = self.choices[self.selectedIndex]
-    if not gun then return false end
+    local choice = self.choices[self.selectedIndex]
+    if not choice then return false end
 
     self.state = "chosen"
     self.chosenIndex = self.selectedIndex
     self.vanishTimer = 0
     if self.onChoose then
-        self.onChoose(gun)
+        self.onChoose(choice)
     end
     return true
 end
@@ -135,8 +156,8 @@ function WeaponAltar:draw(showHint)
     local pulse = 0.5 + 0.5 * math.sin(self.glowTimer * 3)
 
     for i = 1, 3 do
-        local gun = self.choices[i]
-        if not gun then goto continue end
+        local ch = self.choices[i]
+        if not ch then goto continue end
 
         local pcx = self:pedestalCenterX(i)
         local pLeft = pcx - PEDESTAL_W / 2
@@ -149,7 +170,10 @@ function WeaponAltar:draw(showHint)
             love.graphics.setColor(1, 1, 1, alpha)
         end
 
-        local rc = RARITY_COLORS[gun.rarity] or RARITY_COLORS.common
+        local rc = RARITY_COLORS.common
+        if ch.kind == "gun" then
+            rc = RARITY_COLORS[ch.def.rarity] or RARITY_COLORS.common
+        end
 
         -- Pedestal sprite (uniform scale, bottom-aligned)
         local pedSpr = getPedestalSprite()
@@ -167,21 +191,31 @@ function WeaponAltar:draw(showHint)
             love.graphics.rectangle("fill", pLeft - 2, self.y - 4, PEDESTAL_W + 4, self.h + 8, 4)
         end
 
-        -- Weapon sprite floating above pedestal
+        -- Gun sprite or icon tile above pedestal
         local weaponY = self.y + self.h - PEDESTAL_H - 18 + math.sin(self.glowTimer * 2 + i) * 3
-        local sprite = Guns.getSprite(gun)
-        local scale = 0.6
         local spriteHalfH = 10
-        if sprite then
-            local sw, sh = sprite:getDimensions()
-            spriteHalfH = sh * scale * 0.5
-            love.graphics.setColor(1, 1, 1)
-            love.graphics.draw(sprite, pcx, weaponY, 0, scale, scale, sw / 2, sh / 2)
-        else
-            -- Fallback colored block
-            love.graphics.setColor(rc[1], rc[2], rc[3], 0.9)
-            love.graphics.rectangle("fill", pcx - 8, weaponY - 4, 16, 8, 2)
-            spriteHalfH = 6
+        if ch.kind == "gun" then
+            local sprite = Guns.getSprite(ch.def)
+            local scale = 0.6
+            if sprite then
+                local sw, sh = sprite:getDimensions()
+                spriteHalfH = sh * scale * 0.5
+                love.graphics.setColor(1, 1, 1)
+                love.graphics.draw(sprite, pcx, weaponY, 0, scale, scale, sw / 2, sh / 2)
+            elseif ch.def.hud_icon then
+                local drawn = GearIcons.draw(ch.def.hud_icon, pLeft, weaponY - 14, PEDESTAL_W, 28, 2, 1)
+                if drawn then
+                    spriteHalfH = 14
+                else
+                    love.graphics.setColor(rc[1], rc[2], rc[3], 0.9)
+                    love.graphics.rectangle("fill", pcx - 8, weaponY - 4, 16, 8, 2)
+                    spriteHalfH = 6
+                end
+            else
+                love.graphics.setColor(rc[1], rc[2], rc[3], 0.9)
+                love.graphics.rectangle("fill", pcx - 8, weaponY - 4, 16, 8, 2)
+                spriteHalfH = 6
+            end
         end
 
         -- Rarity glow under weapon
@@ -191,9 +225,9 @@ function WeaponAltar:draw(showHint)
         local weaponTopY = weaponY - spriteHalfH
         local nameAlpha = (self.state == "chosen" and i ~= self.chosenIndex) and (1 - self.vanishTimer / 0.5) or 1
 
-        -- Interaction hint above the weapon (no per-gun name labels — guns are readable from sprites)
+        local hintText = (ch.kind == "gun" and ch.def and ch.def.name) and ("[E] Take — " .. ch.def.name) or "[E] Take"
         if selected and showHint then
-            WorldInteractLabel.drawAboveAnchor(pcx, weaponTopY, "[E] Take", {
+            WorldInteractLabel.drawAboveAnchor(pcx, weaponTopY, hintText, {
                 bobAmp = 1,
                 bobTime = love.timer.getTime(),
                 alpha = nameAlpha,

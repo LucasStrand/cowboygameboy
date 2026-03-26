@@ -1,4 +1,5 @@
 local StatRegistry = require("src.data.stat_registry")
+local Weapons = require("src.data.weapons")
 
 local StatRuntime = {}
 
@@ -179,6 +180,23 @@ function StatRuntime.compute_actor_stats(ctx)
         end
     end
 
+    if ctx.gun and ctx.gun.weapon_kind == "melee" and ctx.base_melee_stats then
+        local gun_stats = normalizeStatMap(ctx.gun.baseStats or {})
+        local base_melee = ctx.base_melee_stats
+        local melee_ids = { "melee_damage", "melee_range", "melee_cooldown", "melee_knockback" }
+        for _, stat_id in ipairs(melee_ids) do
+            local gun_value = gun_stats[stat_id]
+            local base_default = base_melee[stat_id]
+            local player_value = stats[stat_id]
+            if gun_value ~= nil and base_default ~= nil and type(player_value) == "number" then
+                local delta = player_value - base_default
+                local before = stats[stat_id]
+                stats[stat_id] = applyClampAndRounding(stat_id, gun_value + delta)
+                applyTrace(trace, "active_melee_weapon", stat_id, before, stats[stat_id], "override", gun_value + delta)
+            end
+        end
+    end
+
     if ctx.monster_move_bonus and ctx.monster_move_bonus ~= 0 then
         applyModifier(stats, trace, "monster_energy", "move_speed", "flat", ctx.monster_move_bonus)
     end
@@ -236,19 +254,10 @@ function StatRuntime.build_player_context(player, gun, base_gun_stats)
         end
     end
 
-    local secondary_is_melee = true
-    if player.getWeaponRuntime then
-        local slot2 = player:getWeaponRuntime(2)
-        secondary_is_melee = not slot2 or slot2.mode ~= "weapon"
-    else
-        -- Legacy fallback for callers that do not yet provide a runtime-backed player.
-        secondary_is_melee = not (player.weapons and player.weapons[2] and player.weapons[2].gun)
-    end
-
-    if secondary_is_melee then
-        local melee = player.gear and player.gear.melee
-        if melee and melee.stats then
-            flat_sources.gear_melee = cloneTable(melee.stats)
+    -- Unarmed fist stats when no melee weapon is active; knife uses weapon slot + active_melee_weapon merge.
+    if not (gun and gun.weapon_kind == "melee") then
+        if Weapons.defaults.unarmed and Weapons.defaults.unarmed.stats then
+            flat_sources.unarmed_melee = cloneTable(Weapons.defaults.unarmed.stats)
         end
     end
 
@@ -267,6 +276,7 @@ function StatRuntime.build_player_context(player, gun, base_gun_stats)
         flat_sources = flat_sources,
         gun = gun,
         base_gun_stats = base_gun_stats,
+        base_melee_stats = normalizeStatMap(Weapons.defaults.unarmed and Weapons.defaults.unarmed.stats or {}),
         monster_move_bonus = player.monsterMoveBonus or 0,
     }
 end

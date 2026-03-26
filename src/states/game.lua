@@ -8,6 +8,7 @@ local Mods = {
     Pickup = require("src.entities.pickup"),
     EnemyData = require("src.data.enemies"),
     Combat = require("src.systems.combat"),
+    WeaponRuntime = require("src.systems.weapon_runtime"),
     Progression = require("src.systems.progression"),
     RoomManager = require("src.systems.room_manager"),
     HUD = require("src.ui.hud"),
@@ -48,6 +49,8 @@ local Mods = {
     source_ref = require("src.systems.source_ref"),
 }
 
+local WeaponsData = require("src.data.weapons")
+
 local game = {}
 game._runtime = {}
 
@@ -86,9 +89,9 @@ local pauseMenu = {
     settingsSliderDragKey = nil,
 }
 local characterSheetOpen = false
---- Weapon floor pickups: hold/tap interact (see Combat.advanceWeaponPickupInteraction).
+--- Weapon floor: [interact] press equips nearest gun/knife; hold interact sells gun for scrap.
 local weaponPickupInteractState = {}
---- True for one stroke after tryInteractWorld handled the interact key (blocks equip-on-release).
+--- True after tryInteractWorld or tryInteractPickupLoot handled interact this frame.
 local worldInteractConsumed = false
 --- Set in update when death completes; next draw captures world → game over (see pendingGameOver block after camera:detach).
 local pendingGameOver = nil
@@ -173,6 +176,9 @@ local devPanelState = {
     scroll = 0,
     hover = nil,
     rows = nil,
+    rowsFull = nil,
+    searchQuery = "",
+    searchFocus = false,
     sections = nil,
 }
 local devNpcSpawn = nil
@@ -642,6 +648,10 @@ local function drawDevPanelOverlay()
     Mods.DevPanel.draw(devPanelState.rows, devPanelState.scroll, px, py, pw, ph, devPanelState.hover, {
         title = game.devPanelTitleFont,
         row = game.devPanelRowFont,
+    }, {
+        query = devPanelState.searchQuery or "",
+        focused = devPanelState.searchFocus,
+        hover = devPanelState.hover == Mods.DevPanel.HIT_SEARCH,
     })
 end
 
@@ -722,35 +732,11 @@ local function processPendingEnemySpawns(dt)
     end
 end
 
-local function refreshMouseAimOverride(pl, idleSec)
-    local t = love.timer.getTime()
-    if love.mouse.isDown(1) or love.mouse.isDown(2) then
-        pl.mouseAimOverrideUntil = t + idleSec
-    end
-end
-
---- Aim point when not using mouse: horizontal line from player in move / last-facing direction.
-local function keyboardFallbackAimPoint(pl)
-    local cx = pl.x + pl.w * 0.5
-    local cy = pl.y + pl.h * 0.5
-    local ml = love.keyboard.isDown("a") or love.keyboard.isDown("left")
-    local mr = love.keyboard.isDown("d") or love.keyboard.isDown("right")
-    local dir
-    if mr and not ml then
-        dir = 1
-    elseif ml and not mr then
-        dir = -1
-    else
-        dir = pl.facingRight and 1 or -1
-    end
-    return cx + dir * 240, cy
-end
-
 local function drawAimCrosshair()
     if not player then return end
     if not Mods.Settings.getShowCrosshair() then return end
-    -- Hide only in pure auto+keyboard mode; show again while mouse is active (even with auto on)
-    if player.autoGun and player.keyboardAimMode then return end
+    -- Hide in auto-gun mode when not holding primary (attack); show while LMB held so cursor aim is visible
+    if player:anyAutoWeaponSlot() and player.keyboardAimMode then return end
     local px = player.x + player.w * 0.5
     local py = player.y + player.h * 0.5
     local ax = player.effectiveAimX or player.aimWorldX
@@ -1057,9 +1043,12 @@ local function wireRoomEntities(roomDef)
             croupiers[#croupiers + 1] = m
         end
         for _, altar in ipairs(activities.weaponAltars or {}) do
-            altar.onChoose = function(gun)
-                if gun and player then
-                    player:equipWeapon(gun, player.activeWeaponSlot or 1)
+            altar.onChoose = function(choice)
+                if not choice or not player then
+                    return
+                end
+                if choice.kind == "gun" and choice.def then
+                    player:equipWeapon(choice.def)
                 end
             end
             weaponAltars[#weaponAltars + 1] = altar
@@ -1299,7 +1288,7 @@ end
 local function drawCharacterSheet()
     if not player then return end
     local pad = 14
-    local w, h = 332, 452
+    local w, h = 332, 508
     local x, y = 18, 56
     love.graphics.setColor(0.08, 0.06, 0.05, 0.92)
     love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -1385,10 +1374,18 @@ local function drawCharacterSheet()
     drawGearBlock("hat", "Hat")
     drawGearBlock("vest", "Vest")
     drawGearBlock("boots", "Boots")
-    drawGearBlock("melee", "Melee")
+    do
+        love.graphics.setColor(0.88, 0.82, 0.72)
+        love.graphics.print("Melee (fists): when your active slot is a gun",
+            x + pad, py)
+        py = py + 18
+        drawWrappedSectionLines(Mods.ContentTooltips.getLines("gear", WeaponsData.defaults.unarmed), { 0.75, 0.84, 0.74, 1 })
+    end
     drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
+    love.graphics.print("1 / 2 — drop weapon from that slot (floor pickup)", x + pad, py)
+    py = py + 18
     local ck = Mods.Keybinds.formatActionKey("character")
     love.graphics.print(string.format("%s to close  ·  ESC", ck), x + pad, py)
 end
@@ -1404,6 +1401,12 @@ devClampScroll = function()
     local _, _, pw, ph = getDevPanelLayout()
     local maxS = Mods.DevPanel.maxScroll(devPanelState.rows, game.devPanelTitleFont, game.devPanelRowFont, pw, ph)
     devPanelState.scroll = math.max(0, math.min(maxS, devPanelState.scroll))
+end
+
+local function devApplySearchFilter()
+    if not devPanelState.rowsFull then return end
+    devPanelState.rows = Mods.DevPanel.filterRows(devPanelState.rowsFull, devPanelState.searchQuery or "")
+    devClampScroll()
 end
 
 local function syncCurrentRoomNightMode()
@@ -1528,6 +1531,8 @@ devRebuildPanelRows = function()
             summary = metaSummary,
         },
     })
+    devPanelState.rowsFull = devPanelState.rows
+    devPanelState.rows = Mods.DevPanel.filterRows(devPanelState.rowsFull, devPanelState.searchQuery or "")
 end
 
 do
@@ -1563,6 +1568,8 @@ local function openDevPanel()
     characterSheetOpen = false
     devPanelState.scroll = 0
     devPanelState.hover = nil
+    devPanelState.searchQuery = ""
+    devPanelState.searchFocus = false
     devRebuildPanelRows()
     if not game.devPanelTitleFont then
         game.devPanelTitleFont = Mods.Font.new(16)
@@ -1571,6 +1578,7 @@ local function openDevPanel()
 end
 
 local function devApplyAction(id)
+    if not id or id == Mods.DevPanel.HIT_SEARCH then return end
     local r = game._runtime
     r.world = world
     r.player = player
@@ -1604,7 +1612,11 @@ local function initGameplaySessionState(opts)
     camCurrentX, camCurrentY = 400, 200
     camTargetX, camTargetY = 400, 200
     player = Mods.Player.new(50, 300)
-    player.autoGun = Mods.Settings.getDefaultAutoGun()
+    do
+        local d = Mods.Settings.getDefaultAutoGun()
+        player.autoGunSlot1 = d
+        player.autoGunSlot2 = d
+    end
     world:add(player, player.x, player.y, player.w, player.h)
     player.isPlayer = true
 
@@ -1647,6 +1659,10 @@ local function initGameplaySessionState(opts)
     devPanelState.open = false
     devPanelState.scroll = 0
     devPanelState.hover = nil
+    devPanelState.searchQuery = ""
+    devPanelState.searchFocus = false
+    devPanelState.rowsFull = nil
+    devPanelState.rows = nil
     devPanelState.sections = (opts and opts.devBoot) and devBootPanelSections() or defaultDevPanelSections()
     devNpcSpawn = defaultDevNpcSpawn()
     devShowHitboxes = true
@@ -1723,7 +1739,11 @@ local function initGameplayWorld()
     camTargetX, camTargetY = 400, 200
     player = Mods.Player.new(50, 300)
     player.runMetadata = game._runtime.runMetadata
-    player.autoGun = Mods.Settings.getDefaultAutoGun()
+    do
+        local d = Mods.Settings.getDefaultAutoGun()
+        player.autoGunSlot1 = d
+        player.autoGunSlot2 = d
+    end
     game._runtime.procRuntime = Mods.proc_runtime.init(player)
     game._runtime.presentationRuntime = Mods.presentation_runtime.init()
     world:add(player, player.x, player.y, player.w, player.h)
@@ -2142,10 +2162,12 @@ function game:update(dt)
             player.aimWorldY = wy
         end
 
-        local aimIdle = Mods.Settings.getMouseAimIdleSec()
-        refreshMouseAimOverride(player, aimIdle)
-        local tNow = love.timer.getTime()
-        mouseAimOn = tNow < (player.mouseAimOverrideUntil or 0)
+        mouseAimOn = love.mouse.isDown(1)
+        do
+            local agPf = player:getActiveGun()
+            local meleeW = agPf and agPf.weapon_kind == "melee"
+            primaryFireHeld = mouseAimOn or (meleeW and Mods.Keybinds.isDown("melee"))
+        end
         player.keyboardAimMode = not mouseAimOn
         local nightMode = currentRoom and currentRoom.nightMode
         autoTx, autoTy = Mods.Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB, camera, nightMode, 0, 0)
@@ -2154,8 +2176,23 @@ function game:update(dt)
         elseif autoTx then
             player.effectiveAimX, player.effectiveAimY = autoTx, autoTy
         else
-            player.effectiveAimX, player.effectiveAimY = keyboardFallbackAimPoint(player)
+            player.effectiveAimX, player.effectiveAimY = player:keyboardFallbackAimPoint()
         end
+
+        -- AK-47 (and any fire-held anim): sustained aim-fire vs keyboard-only auto-aim
+        do
+            local es = player:getEffectiveStats()
+            local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+            local ag = player:getActiveGun()
+            local meleeWeapon = ag and ag.weapon_kind == "melee"
+            local doGunShoot = player:anyAutoWeaponSlot() or (es.meleeDamage or 0) <= 0 or shiftShoot or meleeWeapon
+            -- Melee weapons: no sustained "fire held" (tap-only like fists; hold does not chain attacks).
+            player.inputFireHeld = not player.blocking and (
+                (not meleeWeapon and mouseAimOn and doGunShoot) or (not meleeWeapon and player:anyAutoWeaponSlot() and autoTx)
+            )
+        end
+    elseif player then
+        player.inputFireHeld = false
     end
 
     -- Mods.Player update
@@ -2215,8 +2252,8 @@ function game:update(dt)
 
     if not player.dying then
     local i, leveledUp -- hoisted for goto (cannot jump over `local` in same block)
-    -- Auto-fire: autoGun on, valid target (on-screen + LOS). Melee stance still fires primary (slot 1) via shootFromSlot.
-    if player.autoGun and not player.blocking then
+    -- Auto-fire: per-slot toggles; both slots try every frame (cooldown-gated); active tab does not matter.
+    if player:anyAutoWeaponSlot() and not player.blocking then
         local tx, ty
         if not autoTx then
             tx, ty = nil, nil
@@ -2226,35 +2263,89 @@ function game:update(dt)
             tx, ty = autoTx, autoTy
         end
         if tx then
-            local bulletData
             local gunForShake
             if player:isAkimbo() then
                 if player:canAnyAkimboGunFire() then
-                    bulletData = player:shoot(tx, ty)
+                    local bulletData = player:shoot(tx, ty)
                     gunForShake = player:getActiveGun()
-                end
-            else
-                local s = player:getWeaponSlotForAutoFire()
-                if s then
-                    local w = player:getWeaponRuntime(s)
-                    if w and w.mode == "weapon" and (w.reload_timer or 0) <= 0 and (w.cooldown_timer or 0) <= 0 and (w.ammo or 0) > 0 then
-                        bulletData = player:shootFromSlot(s, tx, ty)
-                        gunForShake = w.weapon_def
+                    if bulletData and #bulletData > 0 then
+                        emitPlayerNoise(PLAYER_GUNSHOT_NOISE_RADIUS, "gunshot")
+                        for _, data in ipairs(bulletData) do
+                            local b = Mods.Combat.spawnBullet(world, data)
+                            table.insert(bullets, b)
+                        end
+                        local gun = gunForShake
+                        local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+                        local shakeMult = math.min(1, cooldown / 0.38)
+                        shakeTimer = 0.08
+                        shakeIntensity = 2 * shakeMult
                     end
                 end
+            else
+                local pending = {}
+                for slotIdx = 1, 2 do
+                    local slotAuto = (slotIdx == 1) and player.autoGunSlot1 or player.autoGunSlot2
+                    if not slotAuto then
+                        -- skip
+                    else
+                    local w = player:getWeaponRuntime(slotIdx)
+                    if w and w.mode == "weapon" and w.weapon_def
+                        and (w.reload_timer or 0) <= 0 and (w.cooldown_timer or 0) <= 0 then
+                        local canFire = (w.ammo or 0) > 0
+                        if Mods.WeaponRuntime.isMeleeWeapon(w.weapon_def) then
+                            canFire = true
+                        end
+                        if canFire then
+                            local bulletData = player:shootFromSlot(slotIdx, tx, ty)
+                            if bulletData and #bulletData > 0 then
+                                gunForShake = gunForShake or w.weapon_def
+                                for _, data in ipairs(bulletData) do
+                                    pending[#pending + 1] = data
+                                end
+                            end
+                        end
+                    end
+                    end
+                end
+                if #pending > 0 then
+                    emitPlayerNoise(PLAYER_GUNSHOT_NOISE_RADIUS, "gunshot")
+                    for _, data in ipairs(pending) do
+                        local b = Mods.Combat.spawnBullet(world, data)
+                        table.insert(bullets, b)
+                    end
+                    local gun = gunForShake
+                    local cooldown = gun and gun.baseStats.shootCooldown or 0.38
+                    local shakeMult = math.min(1, cooldown / 0.38)
+                    shakeTimer = 0.08
+                    shakeIntensity = 2 * shakeMult
+                end
             end
-            if bulletData then
+        end
+    end
+
+    -- Manual hold-to-fire: ranged only. Equipped melee (knife) uses discrete taps (mouse/key) only — same as fists.
+    if mouseAimOn and not player.blocking and player:getActiveGun() then
+        local es = player:getEffectiveStats()
+        local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+        local ag = player:getActiveGun()
+        if ag and ag.weapon_kind ~= "melee" then
+        local doGunShoot = player:anyAutoWeaponSlot() or (es.meleeDamage or 0) <= 0 or shiftShoot
+        if doGunShoot and not (player:anyAutoWeaponSlot() and autoTx) then
+            local mx, my = player.aimWorldX, player.aimWorldY
+            local bulletData = player:shoot(mx, my)
+            if bulletData and #bulletData > 0 then
                 emitPlayerNoise(PLAYER_GUNSHOT_NOISE_RADIUS, "gunshot")
                 for _, data in ipairs(bulletData) do
                     local b = Mods.Combat.spawnBullet(world, data)
                     table.insert(bullets, b)
                 end
-                local gun = gunForShake
+                local gun = player:getActiveGun()
                 local cooldown = gun and gun.baseStats.shootCooldown or 0.38
                 local shakeMult = math.min(1, cooldown / 0.38)
                 shakeTimer = 0.08
                 shakeIntensity = 2 * shakeMult
             end
+        end
         end
     end
 
@@ -2362,9 +2453,8 @@ function game:update(dt)
         end
     end
 
-    -- Weapon pickups: hold interact to sell, short release to equip (after other uses clear worldInteractConsumed)
     weaponPickupInteractState = Mods.Combat.advanceWeaponPickupInteraction(
-        dt, pickups, player, world, weaponPickupInteractState, worldInteractConsumed
+        dt, pickups, player, world, weaponPickupInteractState
     )
     if not Mods.Keybinds.isDown("interact") then
         worldInteractConsumed = false
@@ -2408,6 +2498,7 @@ function game:update(dt)
             local loss = OUT_OF_BOUNDS_HP_PENALTY
             player.hp = math.max(0, player.hp - loss)
             player.iframes = math.max(player.iframes or 0, 1.0)
+            player.hurtBlinkTimer = math.max(player.hurtBlinkTimer or 0, 1.0)
             Mods.Sfx.play("hurt")
             local pcx = player.x + player.w / 2
             local pcy = player.y + player.h / 2
@@ -2460,7 +2551,7 @@ function game:update(dt)
     updateCamera(dt, false)
 end
 
-function game:keypressed(key)
+function game:keypressed(key, scancode, isrepeat)
     if introCD.active then
         if key == "f1" and devToolsEnabled() then
             openDevPanel()
@@ -2491,6 +2582,15 @@ function game:keypressed(key)
     end
 
     if devToolsEnabled() and devPanelState.open then
+        if devPanelState.searchFocus and key == "backspace" then
+            devPanelState.searchQuery = (devPanelState.searchQuery or ""):sub(1, -2)
+            devApplySearchFilter()
+            return
+        end
+        if devPanelState.searchFocus and key == "tab" then
+            devPanelState.searchFocus = false
+            return
+        end
         if key == "escape" then
             if devNpcSpawn and devNpcSpawn.placement then
                 clearDevNpcPlacement(true)
@@ -2499,11 +2599,13 @@ function game:keypressed(key)
             else
                 devPanelState.open = false
                 devPanelState.hover = nil
+                devPanelState.searchFocus = false
             end
             return
         elseif key == "f1" then
             devPanelState.open = false
             devPanelState.hover = nil
+            devPanelState.searchFocus = false
             clearDevNpcPlacement(false)
             return
         end
@@ -2604,6 +2706,16 @@ function game:keypressed(key)
         return
     end
 
+    if not paused and characterSheetOpen and player and world and pickups then
+        local dropSlot = (key == "1" or key == "kp1") and 1
+            or (key == "2" or key == "kp2") and 2
+            or nil
+        if dropSlot then
+            Mods.Combat.dropPlayerWeaponToFloor(player, world, pickups, dropSlot)
+            return
+        end
+    end
+
     if Mods.Keybinds.matches("character", key) then
         characterSheetOpen = not characterSheetOpen
         return
@@ -2649,10 +2761,8 @@ function game:keypressed(key)
             emitPlayerNoise(PLAYER_RELOAD_NOISE_RADIUS, "reload")
         end
     end
-    if Mods.Keybinds.matches("melee", key) then
-        if player:meleeAttack() then
-            emitPlayerNoise(PLAYER_MELEE_NOISE_RADIUS, "melee")
-        end
+    if Mods.Keybinds.matches("melee", key) and not isrepeat then
+        game:tryPrimaryMeleeTapFromPointer(true)
     end
     if key == "h" then
         player:spinHolster()
@@ -2662,6 +2772,11 @@ function game:keypressed(key)
     end
     if Mods.Keybinds.matches("interact", key) then
         worldInteractConsumed = tryInteractWorld() == true
+        if not worldInteractConsumed and player and world and pickups then
+            if Mods.Combat.tryInteractPickupLoot(pickups, player, world) then
+                worldInteractConsumed = true
+            end
+        end
     end
 end
 
@@ -2732,9 +2847,17 @@ function game:mousemoved(x, y, dx, dy)
         return
     end
     if not player then return end
-    if math.abs(dx) + math.abs(dy) > 0.25 then
-        player.mouseAimOverrideUntil = love.timer.getTime() + Mods.Settings.getMouseAimIdleSec()
-    end
+end
+
+--- Single implementation for primary melee tap: same pointer math for LMB and melee key (`tryMeleePrimaryMouseTap`).
+--- `fromMeleeKey`: true when the melee bind was pressed (F can melee with a ranged gun even if any weapon-slot auto is on).
+function game:tryPrimaryMeleeTapFromPointer(fromMeleeKey)
+    if not player or not camera or player.blocking then return end
+    local mx, my = love.mouse.getPosition()
+    local gx, gy = windowToGame(mx, my)
+    player:tryMeleePrimaryMouseTap(camera, gx, gy, GAME_WIDTH, GAME_HEIGHT, {
+        fromMeleeKey = fromMeleeKey == true,
+    })
 end
 
 function game:mousepressed(x, y, button)
@@ -2753,8 +2876,13 @@ function game:mousepressed(x, y, button)
         if insidePanel then
             if button == 1 then
                 local hit = Mods.DevPanel.hitTest(devPanelState.rows, gx, gy, devPanelState.scroll, px, py, pw, ph, game.devPanelTitleFont, game.devPanelRowFont)
-                if hit then
-                    devApplyAction(hit)
+                if hit == Mods.DevPanel.HIT_SEARCH then
+                    devPanelState.searchFocus = true
+                else
+                    devPanelState.searchFocus = false
+                    if hit then
+                        devApplyAction(hit)
+                    end
                 end
             end
             return
@@ -2816,44 +2944,21 @@ function game:mousepressed(x, y, button)
         end
         return
     end
-    if player then
-        player.mouseAimOverrideUntil = love.timer.getTime() + Mods.Settings.getMouseAimIdleSec()
-    end
-    if button == 1 and player and not player.blocking then
-        local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
-        if player:getActiveGun() then
-            local es = player:getEffectiveStats()
-            local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
-            if not player.autoGun and es.meleeDamage > 0 and not shiftShoot then
-                player:meleeAttack(mx, my)
-            else
-                local bulletData = player:shoot(mx, my)
-                if bulletData then
-                    emitPlayerNoise(PLAYER_GUNSHOT_NOISE_RADIUS, "gunshot")
-                    for _, data in ipairs(bulletData) do
-                        local b = Mods.Combat.spawnBullet(world, data)
-                        table.insert(bullets, b)
-                    end
-                    local gun = player:getActiveGun()
-                    local cooldown = gun and gun.baseStats.shootCooldown or 0.38
-                    local shakeMult = math.min(1, cooldown / 0.38)
-                    shakeTimer = 0.08
-                    shakeIntensity = 2 * shakeMult
-                end
-            end
-        else
-            local s = player:getEffectiveStats()
-            if s.meleeDamage > 0 then
-                player:meleeAttack(mx, my)
-            end
-        end
+    if button == 1 then
+        game:tryPrimaryMeleeTapFromPointer(false)
+        -- Gun fire: handled each frame while LMB held (see update: manual hold-to-fire)
     end
     if button == 2 then
         local slot = Mods.HUD.hitLoadout(gx, gy, GAME_HEIGHT)
-        if slot == "gun" then
-            player.autoGun = not player.autoGun
-        elseif slot == "melee" then
-            player.autoMelee = not player.autoMelee
+        if slot == "weapon1" then
+            player.autoGunSlot1 = not player.autoGunSlot1
+        elseif slot == "weapon2" then
+            local g2 = player.weapons[2] and player.weapons[2].gun
+            if g2 then
+                player.autoGunSlot2 = not player.autoGunSlot2
+            else
+                player.autoMelee = not player.autoMelee
+            end
         elseif slot == "shield" and player:shieldAllowsAutoBlock() then
             player.autoBlock = not player.autoBlock
         else
@@ -2869,6 +2974,16 @@ end
 function game:mousereleased(x, y, button)
     if button == 1 then
         pauseMenu.settingsSliderDragKey = nil
+    end
+end
+
+function game:textinput(t)
+    if not devToolsEnabled() or not devPanelState.open or not devPanelState.searchFocus then return end
+    if t and #t > 0 then
+        local q = (devPanelState.searchQuery or "") .. t
+        if #q > 256 then return end
+        devPanelState.searchQuery = q
+        devApplySearchFilter()
     end
 end
 
