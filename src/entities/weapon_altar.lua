@@ -1,6 +1,6 @@
 --- Weapon Altar entity: displays 3 weapon choices on pedestals.
 --- Player picks one with E, the others disappear.
---- Choices are guns (Guns.rollDrop pool) and/or one knife — same weighted mix as rare enemy weapon drops.
+--- Choices are weighted from `Guns.pool` (knife included as a normal weapon).
 
 local Guns = require("src.data.guns")
 local Combat = require("src.systems.combat")
@@ -42,20 +42,14 @@ function WeaponAltar.new(x, y, luck)
     self.y = y
     self.w = TOTAL_W
     self.h = PEDESTAL_H + 24  -- pedestal + weapon float space
-    -- Roll 3 offerings: guns + at most one knife (same pool as Combat.rollWeaponOrMeleeDrop).
     self.choices = {}
     local usedGunIds = {}
-    local knifeFree = true
     local lk = luck or 0
     for i = 1, 3 do
         local chosen = nil
         for _ = 1, 40 do
             local pick = Combat.rollWeaponOrMeleeDrop(lk)
-            if pick.kind == "melee" and pick.gear and knifeFree then
-                knifeFree = false
-                chosen = { kind = "melee", def = pick.gear }
-                break
-            elseif pick.kind == "gun" and pick.gun and not usedGunIds[pick.gun.id] then
+            if pick and pick.kind == "gun" and pick.gun and not usedGunIds[pick.gun.id] then
                 usedGunIds[pick.gun.id] = true
                 chosen = { kind = "gun", def = pick.gun }
                 break
@@ -89,7 +83,7 @@ function WeaponAltar.new(x, y, luck)
     self.glowTimer = math.random() * 6.28
     -- Vanish animation for unchosen weapons
     self.vanishTimer = 0
-    -- Callback: set by game.lua, called with ({ kind = "gun"|"melee", def = ... }) when player picks
+    -- Callback: set by game.lua, called with ({ kind = "gun", def = gunDef }) when player picks
     self.onChoose = nil
     return self
 end
@@ -179,8 +173,6 @@ function WeaponAltar:draw(showHint)
         local rc = RARITY_COLORS.common
         if ch.kind == "gun" then
             rc = RARITY_COLORS[ch.def.rarity] or RARITY_COLORS.common
-        elseif ch.kind == "melee" then
-            rc = RARITY_COLORS.uncommon
         end
 
         -- Pedestal sprite (uniform scale, bottom-aligned)
@@ -199,7 +191,7 @@ function WeaponAltar:draw(showHint)
             love.graphics.rectangle("fill", pLeft - 2, self.y - 4, PEDESTAL_W + 4, self.h + 8, 4)
         end
 
-        -- Gun sprite or knife tile above pedestal
+        -- Gun sprite or icon tile above pedestal
         local weaponY = self.y + self.h - PEDESTAL_H - 18 + math.sin(self.glowTimer * 2 + i) * 3
         local spriteHalfH = 10
         if ch.kind == "gun" then
@@ -210,16 +202,15 @@ function WeaponAltar:draw(showHint)
                 spriteHalfH = sh * scale * 0.5
                 love.graphics.setColor(1, 1, 1)
                 love.graphics.draw(sprite, pcx, weaponY, 0, scale, scale, sw / 2, sh / 2)
-            else
-                love.graphics.setColor(rc[1], rc[2], rc[3], 0.9)
-                love.graphics.rectangle("fill", pcx - 8, weaponY - 4, 16, 8, 2)
-                spriteHalfH = 6
-            end
-        else
-            local icon = ch.def and ch.def.icon
-            local drawn = icon and GearIcons.draw(icon, pLeft, weaponY - 14, PEDESTAL_W, 28, 2, 1)
-            if drawn then
-                spriteHalfH = 14
+            elseif ch.def.hud_icon then
+                local drawn = GearIcons.draw(ch.def.hud_icon, pLeft, weaponY - 14, PEDESTAL_W, 28, 2, 1)
+                if drawn then
+                    spriteHalfH = 14
+                else
+                    love.graphics.setColor(rc[1], rc[2], rc[3], 0.9)
+                    love.graphics.rectangle("fill", pcx - 8, weaponY - 4, 16, 8, 2)
+                    spriteHalfH = 6
+                end
             else
                 love.graphics.setColor(rc[1], rc[2], rc[3], 0.9)
                 love.graphics.rectangle("fill", pcx - 8, weaponY - 4, 16, 8, 2)
@@ -234,7 +225,7 @@ function WeaponAltar:draw(showHint)
         local weaponTopY = weaponY - spriteHalfH
         local nameAlpha = (self.state == "chosen" and i ~= self.chosenIndex) and (1 - self.vanishTimer / 0.5) or 1
 
-        local hintText = (ch.kind == "melee" and ch.def and ch.def.name) and ("[E] Take — " .. ch.def.name) or "[E] Take"
+        local hintText = (ch.kind == "gun" and ch.def and ch.def.name) and ("[E] Take — " .. ch.def.name) or "[E] Take"
         if selected and showHint then
             WorldInteractLabel.drawAboveAnchor(pcx, weaponTopY, hintText, {
                 bobAmp = 1,

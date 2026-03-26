@@ -122,6 +122,16 @@ local pauseSettingsBindCapture = nil
 local pauseSettingsSliderDragKey = nil
 local characterSheetOpen = false
 
+--- Same pointer path as `game:tryPrimaryMeleeTapFromPointer` (LMB + melee key).
+local function tryPrimaryMeleeTapFromPointer(fromMeleeKey)
+    if not player or not camera or player.blocking or characterSheetOpen then return end
+    local mx, my = love.mouse.getPosition()
+    local gx, gy = windowToGame(mx, my)
+    player:tryMeleePrimaryMouseTap(camera, gx, gy, GAME_WIDTH, GAME_HEIGHT, {
+        fromMeleeKey = fromMeleeKey == true,
+    })
+end
+
 local devPanelOpen = false
 local devPanelScroll = 0
 local devPanelHover = nil
@@ -520,20 +530,16 @@ local function drawCharacterSheet()
     drawGearBlock("vest", "Vest")
     drawGearBlock("boots", "Boots")
     do
-        local mg = player.gear.melee
-        local show = mg and mg.name or "Fists"
         love.graphics.setColor(0.88, 0.82, 0.72)
-        love.graphics.print(string.format("Melee: %s", show), x + pad, py)
+        love.graphics.print("Melee (fists): when your active slot is a gun",
+            x + pad, py)
         py = py + 18
-        local tipGear = mg or WeaponsData.defaults.unarmed
-        drawWrappedSectionLines(Mods.ContentTooltips.getLines("gear", tipGear), { 0.75, 0.84, 0.74, 1 })
+        drawWrappedSectionLines(Mods.ContentTooltips.getLines("gear", WeaponsData.defaults.unarmed), { 0.75, 0.84, 0.74, 1 })
     end
     drawGearBlock("shield", "Shield")
     py = py + 22
     love.graphics.setColor(0.45, 0.45, 0.48)
     love.graphics.print("1 / 2 — drop weapon from that slot (floor pickup)", x + pad, py)
-    py = py + 18
-    love.graphics.print("M — drop melee gear (e.g. knife) to the floor", x + pad, py)
     py = py + 18
     local ck = Mods.Keybinds.formatActionKey("character")
     love.graphics.print(string.format("%s to close  ·  ESC", ck), x + pad, py)
@@ -648,7 +654,7 @@ local function nearSlotMachine()
     return dx * dx + dy * dy <= sm.r * sm.r
 end
 
---- Weapon floor pickups (tap/hold interact)
+--- Weapon floor: interact press picks up; hold sells gun for scrap
 local weaponPickupInteractState = {}
 local saloonWalkInteractConsumed = false
 
@@ -964,7 +970,8 @@ function saloon:update(dt)
             local wx, wy = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
             player.aimWorldX = wx
             player.aimWorldY = wy
-            if love.mouse.isDown(1) then
+            local mouseAimOn = love.mouse.isDown(1)
+            if mouseAimOn then
                 player.effectiveAimX, player.effectiveAimY = wx, wy
                 player.keyboardAimMode = false
             else
@@ -974,24 +981,29 @@ function saloon:update(dt)
             do
                 local es = player:getEffectiveStats()
                 local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
-                local doGunShoot = player.autoGun or (es.meleeDamage or 0) <= 0 or shiftShoot
+                local ag = player:getActiveGun()
+                local meleeWeapon = ag and ag.weapon_kind == "melee"
+                local doGunShoot = player:anyAutoWeaponSlot() or (es.meleeDamage or 0) <= 0 or shiftShoot or meleeWeapon
                 player.inputFireHeld = not player.blocking and not characterSheetOpen
-                    and love.mouse.isDown(1) and doGunShoot
+                    and (not meleeWeapon and mouseAimOn and doGunShoot)
             end
         end
 
         player:update(dt, world, {})
 
-        -- Manual hold-to-fire while LMB held (weapon cadence from runtime cooldown)
-        if love.mouse.isDown(1) and not characterSheetOpen and not player.blocking and player:getActiveGun() then
-            local es = player:getEffectiveStats()
-            local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
-            if player.autoGun or (es.meleeDamage or 0) <= 0 or shiftShoot then
-                local bulletData = player:shoot(player.aimWorldX, player.aimWorldY)
-                if bulletData then
-                    for _, data in ipairs(bulletData) do
-                        local b = Mods.Combat.spawnBullet(world, data)
-                        table.insert(bullets, b)
+        -- Manual hold-to-fire: ranged only (melee / knife = tap-only, same as game state)
+        if love.mouse.isDown(1) and not characterSheetOpen and not player.blocking then
+            local agHold = player:getActiveGun()
+            if agHold and agHold.weapon_kind ~= "melee" then
+                local es = player:getEffectiveStats()
+                local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+                if player:anyAutoWeaponSlot() or (es.meleeDamage or 0) <= 0 or shiftShoot then
+                    local bulletData = player:shoot(player.aimWorldX, player.aimWorldY)
+                    if bulletData and #bulletData > 0 then
+                        for _, data in ipairs(bulletData) do
+                            local b = Mods.Combat.spawnBullet(world, data)
+                            table.insert(bullets, b)
+                        end
                     end
                 end
             end
@@ -1024,7 +1036,7 @@ function saloon:update(dt)
             end
         end
         weaponPickupInteractState = Mods.Combat.advanceWeaponPickupInteraction(
-            dt, pickups, player, world, weaponPickupInteractState, saloonWalkInteractConsumed
+            dt, pickups, player, world, weaponPickupInteractState
         )
         if not Mods.Keybinds.isDown("interact") then
             saloonWalkInteractConsumed = false
@@ -1103,7 +1115,7 @@ end
 ---------------------------------------------------------------------------
 -- Input
 ---------------------------------------------------------------------------
-function saloon:keypressed(key)
+function saloon:keypressed(key, scancode, isrepeat)
     local _, _, _, consoleH = getDebugConsoleLayout()
     if devToolsEnabled() and devPanelOpen then
         if devPanelSearchFocus and key == "backspace" then
@@ -1238,10 +1250,6 @@ function saloon:keypressed(key)
             Mods.Combat.dropPlayerWeaponToFloor(player, world, pickups, dropSlot)
             return
         end
-        if key == "m" then
-            Mods.Combat.dropPlayerMeleeGear(player, world, pickups)
-            return
-        end
     end
 
     if Mods.Keybinds.matches("character", key) then
@@ -1252,6 +1260,10 @@ function saloon:keypressed(key)
     if mode == "walking" then
         if trySaloonWalkingInteract(key) then
             saloonWalkInteractConsumed = true
+        elseif Mods.Keybinds.matches("interact", key) and player and world and pickups then
+            if Mods.Combat.tryInteractPickupLoot(pickups, player, world) then
+                saloonWalkInteractConsumed = true
+            end
         end
 
         if Mods.Keybinds.matches("jump", key) or key == "w" or key == "up" then
@@ -1266,8 +1278,8 @@ function saloon:keypressed(key)
         if Mods.Keybinds.matches("reload", key) then
             player:reload()
         end
-        if Mods.Keybinds.matches("melee", key) then
-            player:meleeAttack()
+        if Mods.Keybinds.matches("melee", key) and not isrepeat then
+            tryPrimaryMeleeTapFromPointer(true)
         end
         if key == "h" then
             player:spinHolster()
@@ -1524,25 +1536,25 @@ function saloon:mousepressed(x, y, button)
     end
 
     if mode == "walking" and player and camera and world and not characterSheetOpen then
-        if button == 1 and not player.blocking then
-            local mx, my = camera:worldCoords(gx, gy, 0, 0, GAME_WIDTH, GAME_HEIGHT)
-            player.aimWorldX = mx
-            player.aimWorldY = my
-            if player:getActiveGun() then
-                local es = player:getEffectiveStats()
-                local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
-                if not player.autoGun and es.meleeDamage > 0 and not shiftShoot then
-                    player:meleeAttack(mx, my)
-                end
-                -- Gun fire: handled each frame while LMB held (see saloon:update)
-            else
-                local s = player:getEffectiveStats()
-                if s.meleeDamage > 0 then
-                    player:meleeAttack(mx, my)
-                end
-            end
+        if button == 1 then
+            tryPrimaryMeleeTapFromPointer(false)
+            -- Gun fire: handled each frame while LMB held (see saloon:update)
         elseif button == 2 then
-            player:reload()
+            local slot = Mods.HUD.hitLoadout(gx, gy, GAME_HEIGHT)
+            if slot == "weapon1" then
+                player.autoGunSlot1 = not player.autoGunSlot1
+            elseif slot == "weapon2" then
+                local g2 = player.weapons[2] and player.weapons[2].gun
+                if g2 then
+                    player.autoGunSlot2 = not player.autoGunSlot2
+                else
+                    player.autoMelee = not player.autoMelee
+                end
+            elseif slot == "shield" and player:shieldAllowsAutoBlock() then
+                player.autoBlock = not player.autoBlock
+            else
+                player:reload()
+            end
         end
     end
 end
@@ -2375,6 +2387,8 @@ function drawShop(screenW, screenH)
             local desc = item.description
             if item.type == "gear" and item.gearData then
                 desc = Mods.ContentTooltips.getJoinedText("gear", item.gearData)
+            elseif item.type == "weapon" and item.gunData then
+                desc = Mods.ContentTooltips.getJoinedText("gun", item.gunData)
             elseif item.tooltip_key or item.tooltip_override then
                 desc = Mods.ContentTooltips.getJoinedText("offer", item)
             end

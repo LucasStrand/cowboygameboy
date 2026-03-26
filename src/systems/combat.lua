@@ -58,71 +58,22 @@ function Combat.cloneMeleeGearDef(g)
     return out
 end
 
---- Weighted pick: guns (Guns.rollDrop pool) or knife — same rarity event as a gun floor drop.
+--- Weighted pick from `Guns.pool` (includes knife as a normal droppable weapon).
 function Combat.rollWeaponOrMeleeDrop(luck)
-    luck = luck or 0
-    local Weapons = require("src.data.weapons")
-    local meleeDef = Weapons.defaults and Weapons.defaults.melee
-    if not meleeDef then
-        local g = Guns.rollDrop(luck)
-        if g then
-            return { kind = "gun", gun = g }
-        end
-        return nil
+    local g = Guns.rollDrop(luck or 0)
+    if g then
+        return { kind = "gun", gun = g }
     end
-
-    local entries = {}
-    for _, gun in ipairs(Guns.pool) do
-        if gun.dropWeight > 0 then
-            local w = gun.dropWeight
-            if gun.rarity == "rare" then
-                w = w * (1 + luck)
-            elseif gun.rarity == "uncommon" then
-                w = w * (1 + luck * 0.5)
-            end
-            entries[#entries + 1] = { kind = "gun", weight = w, gun = gun }
-        end
-    end
-    -- Same band as blunderbuss (8): knife competes fairly in the shared weapon drop roll.
-    local knifeWeight = 8
-    local kw = knifeWeight * (1 + luck * 0.5)
-    entries[#entries + 1] = {
-        kind = "melee",
-        weight = kw,
-        gear = Combat.cloneMeleeGearDef(meleeDef),
-    }
-
-    local totalWeight = 0
-    for _, e in ipairs(entries) do
-        totalWeight = totalWeight + e.weight
-    end
-    if totalWeight <= 0 then
-        return nil
-    end
-    local roll = GameRng.randomFloat("combat.enemy_drop.weapon_pick", 0, totalWeight)
-    local cumulative = 0
-    for _, e in ipairs(entries) do
-        cumulative = cumulative + e.weight
-        if roll <= cumulative then
-            return e
-        end
-    end
-    return entries[#entries]
+    return nil
 end
 
---- Pickup type + value for any world "weapon" spawn (guns + knife — same pool as enemy weapon drops).
---- @return string|nil pickupType  "weapon" | "melee_gear"
---- @return table|nil payload      gun def or cloned melee gear def
+--- Pickup type + value for any world "weapon" spawn (guns + knife).
+--- @return string|nil pickupType  "weapon"
+--- @return table|nil payload      gun def
 function Combat.pickWeaponDropPickup(luck)
     local pick = Combat.rollWeaponOrMeleeDrop(luck)
-    if not pick then
-        return nil, nil
-    end
-    if pick.kind == "gun" and pick.gun then
+    if pick and pick.kind == "gun" and pick.gun then
         return "weapon", pick.gun
-    end
-    if pick.kind == "melee" and pick.gear then
-        return "melee_gear", pick.gear
     end
     return nil, nil
 end
@@ -167,9 +118,9 @@ local function splitEnemyXPIntoValues(total)
     return vals
 end
 
--- Weapon floor pickups: tap interact to equip, hold interact to sell for scrap gold.
+-- Weapon floor: interact press equips (tryInteractPickupLoot); hold interact sells for scrap.
 local WEAPON_SELL_HOLD = 0.45
-local WEAPON_TAP_MAX = 0.32
+local WEAPON_TAP_MAX = 0.32 -- legacy export (UI); equip is on keypress now
 
 Combat.WEAPON_SELL_HOLD = WEAPON_SELL_HOLD
 Combat.WEAPON_TAP_MAX = WEAPON_TAP_MAX
@@ -193,14 +144,36 @@ function Combat.findClosestGroundedWeaponIndex(pickups, player)
     return bestI
 end
 
---- Equip the nearest grounded weapon pickup in range (call from interact tap).
---- @return boolean true if a weapon was picked up
-function Combat.tryEquipWeaponPickup(pickups, player, world)
+local function pickupCenterDistSq(p, player)
+    local px = player.x + player.w / 2
+    local py = player.y + player.h / 2
+    local dx = (p.x + p.w / 2) - px
+    local dy = (p.y + p.h / 2) - py
+    return dx * dx + dy * dy
+end
+
+--- Nearest grounded weapon pickup (knife uses the same "weapon" pickup type).
+function Combat.findClosestGroundedWeaponOrMeleeIndex(pickups, player)
+    return Combat.findClosestGroundedWeaponIndex(pickups, player)
+end
+
+--- Press interact: pick up nearest grounded weapon in range.
+function Combat.tryInteractPickupLoot(pickups, player, world)
     local i = Combat.findClosestGroundedWeaponIndex(pickups, player)
     if not i then return false end
     local p = pickups[i]
-    local slotIdx = player.activeWeaponSlot
-    player:equipWeapon(p.gunDef, slotIdx)
+    if p.pickupType == "weapon" and p.gunDef then
+        return Combat.tryEquipWeaponPickupAtIndex(pickups, player, world, i)
+    end
+    return false
+end
+
+function Combat.tryEquipWeaponPickupAtIndex(pickups, player, world, i)
+    local p = pickups[i]
+    if not p or p.pickupType ~= "weapon" or not p.gunDef then return false end
+    player:equipWeapon(p.gunDef)
+    player:playPickupAnim()
+    local slotIdx = player.activeWeaponSlot or 1
     if p.droppedAmmo ~= nil then
         local slot = WeaponRuntime.getSlot(player, slotIdx)
         if slot and slot.mode == "weapon" then
@@ -219,6 +192,14 @@ function Combat.tryEquipWeaponPickup(pickups, player, world)
     end
     table.remove(pickups, i)
     return true
+end
+
+--- Equip the nearest grounded weapon pickup in range (legacy name — uses same path as interact press).
+--- @return boolean true if a weapon was picked up
+function Combat.tryEquipWeaponPickup(pickups, player, world)
+    local i = Combat.findClosestGroundedWeaponIndex(pickups, player)
+    if not i then return false end
+    return Combat.tryEquipWeaponPickupAtIndex(pickups, player, world, i)
 end
 
 --- Spawn the player's weapon from a slot onto the floor (Character sheet: 1 / 2).
@@ -252,34 +233,6 @@ function Combat.dropPlayerWeaponToFloor(player, world, pickups, slotIndex)
     return true
 end
 
---- Drop equipped melee gear (knife) to the floor. Character sheet: M while open.
-function Combat.dropPlayerMeleeGear(player, world, pickups)
-    if not player or not world or not pickups then
-        return false
-    end
-    if Buffs.getControlState(player.statuses).stunned then
-        return false
-    end
-    if not player.gear or not player.gear.melee then
-        return false
-    end
-
-    local gearCopy = Combat.cloneMeleeGearDef(player.gear.melee)
-    player.gear.melee = nil
-    player:syncLegacyWeaponViews()
-
-    local toss = player.facingRight and 88 or -88
-    local px = player.x + player.w * 0.5 - 6 + (player.facingRight and 6 or -6)
-    local py = player.y + player.h - 10
-    local p = Pickup.new(px, py, "melee_gear", gearCopy)
-    p.vx = toss
-    p.vy = -95
-    world:add(p, p.x, p.y, p.w, p.h)
-    table.insert(pickups, p)
-    Sfx.play("reload", { volume = 0.35 })
-    return true
-end
-
 --- Sell the nearest grounded weapon pickup for scrap gold (call when hold threshold reached).
 --- @return boolean true if a weapon was sold
 function Combat.trySellWeaponPickup(pickups, player, world)
@@ -300,10 +253,9 @@ function Combat.trySellWeaponPickup(pickups, player, world)
     return true
 end
 
---- Per-frame weapon pickup input: hold to sell, short release to equip.
---- `state` is a table you keep across frames: { downPrev, held, sellDone }.
---- @param worldInteractConsumed boolean if true, skip equip on this release (another system handled interact keypress).
-function Combat.advanceWeaponPickupInteraction(dt, pickups, player, world, state, worldInteractConsumed)
+--- Per-frame weapon pickup input: hold interact to sell for scrap (equip uses keypress: tryInteractPickupLoot).
+--- `state` is a table you keep across frames: { held, sellDone }.
+function Combat.advanceWeaponPickupInteraction(dt, pickups, player, world, state)
     state = state or {}
     local Keybinds = require("src.systems.keybinds")
     local down = Keybinds.isDown("interact")
@@ -315,15 +267,9 @@ function Combat.advanceWeaponPickupInteraction(dt, pickups, player, world, state
             end
         end
     else
-        if state.downPrev and (state.held or 0) > 0 and (state.held or 0) < WEAPON_TAP_MAX and not state.sellDone then
-            if not worldInteractConsumed then
-                Combat.tryEquipWeaponPickup(pickups, player, world)
-            end
-        end
         state.held = 0
         state.sellDone = false
     end
-    state.downPrev = down
     return state
 end
 
@@ -562,7 +508,7 @@ function Combat.onEnemyKilled(enemy, player)
         elseif kind == "health" then
             t.vx = GameRng.randomFloat(ch .. ".vx", -150, 150)
             t.vy = GameRng.randomFloat(ch .. ".vy", -340, -200)
-        elseif kind == "weapon" or kind == "melee_gear" then
+        elseif kind == "weapon" then
             t.vx = GameRng.randomFloat(ch .. ".vx", -120, 120)
             t.vy = GameRng.randomFloat(ch .. ".vy", -400, -250)
         end
@@ -629,7 +575,7 @@ function Combat.onEnemyKilled(enemy, player)
         table.insert(drops, t)
     end
 
-    -- Weapon drop (rare): gun or knife — one weighted pick from the same event as before.
+    -- Weapon drop (rare): weighted gun pool (includes knife).
     local luck = player:getEffectiveStats().luck or 0
     local weaponDropChance = 0.04 + luck * 0.02
     if GameRng.randomChance("combat.enemy_drop.weapon", weaponDropChance) then
@@ -642,15 +588,6 @@ function Combat.onEnemyKilled(enemy, player)
                 value = pick.gun,
             }
             burst("weapon", t)
-            table.insert(drops, t)
-        elseif pick and pick.kind == "melee" and pick.gear then
-            local t = {
-                x = baseX,
-                y = baseY - 8,
-                type = "melee_gear",
-                value = pick.gear,
-            }
-            burst("melee_gear", t)
             table.insert(drops, t)
         end
     end
@@ -772,11 +709,12 @@ end
 
 function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB, camera, nightMode, shakeX, shakeY)
     if not player.autoMelee or player.blocking then return end
-    -- Only when the active slot has no gun (melee stance); gun slot uses auto-fire instead
-    if player:getActiveGun() then return end
-    local s = player:getEffectiveStats()
-    if s.meleeDamage <= 0 then return end
-    if player.meleeCooldown > 0 or player.meleeSwingTimer > 0 then return end
+    -- Active knife: cadence is shoot/F; do not run fist auto in parallel
+    local ag = player:getActiveGun()
+    if ag and ag.weapon_kind == "melee" then
+        return
+    end
+
     local tx, ty = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB, camera, nightMode, shakeX, shakeY)
     if not tx then
         return
@@ -784,6 +722,38 @@ function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB,
     local cx = player.x + player.w * 0.5
     local cy = player.y + player.h * 0.5
     local ang = math.atan2(ty - cy, tx - cx)
+
+    -- Off-hand melee weapon (e.g. knife) while a ranged weapon is active
+    -- When that slot's auto is on, game state fires it via shootFromSlot — skip duplicate swings here.
+    local meleeWSlot = player:findMeleeWeaponSlotIndex()
+    if meleeWSlot and meleeWSlot ~= player.activeWeaponSlot then
+        local slotAuto = (meleeWSlot == 1) and player.autoGunSlot1 or player.autoGunSlot2
+        if slotAuto then
+            return
+        end
+        local w = player:getWeaponRuntime(meleeWSlot)
+        if w and WeaponRuntime.isMeleeWeapon(w.weapon_def) then
+            if (w.cooldown_timer or 0) > 0 or (w.reload_timer or 0) > 0 then
+                return
+            end
+            if player.meleeSwingTimer > 0 then
+                return
+            end
+            local rs = player:getResolvedWeaponStats(meleeWSlot)
+            if not rs or (rs.meleeDamage or 0) <= 0 then
+                return
+            end
+            local hx, hy, hw, hh = player:getMeleeHitboxAABB(ang, meleeWSlot)
+            if not enemyListOverlapsMeleeAABB(enemies, hx, hy, hw, hh) then
+                return
+            end
+            return player:shootFromSlot(meleeWSlot, tx, ty) ~= nil
+        end
+    end
+
+    local s = player:getEffectiveStats()
+    if s.meleeDamage <= 0 then return end
+    if player.meleeCooldown > 0 or player.meleeSwingTimer > 0 then return end
     local hx, hy, hw, hh = player:getMeleeHitboxAABB(ang)
     if not enemyListOverlapsMeleeAABB(enemies, hx, hy, hw, hh) then
         return
@@ -797,7 +767,10 @@ end
 function Combat.checkPlayerMelee(player, enemies)
     if player.meleeSwingTimer <= 0 then return end
 
-    local s   = player:getEffectiveStats()
+    local s = player:getEffectiveStats()
+    if player.meleeSwingDamageSlot then
+        s = player:getResolvedWeaponStats(player.meleeSwingDamageSlot) or s
+    end
     local base_dmg = math.floor(s.meleeDamage)
     local hx, hy, hw, hh = player:getMeleeHitbox()
 
@@ -941,10 +914,14 @@ function Combat.checkPickups(pickups, player, world)
                     collected = true
                 end
             elseif p.pickupType == "melee_gear" and p.gearDef then
-                player:equipGear(Combat.cloneMeleeGearDef(p.gearDef))
-                DamageNumbers.spawnPickup(cx, cy, p.gearDef.name or "Melee", "weapon")
-                Sfx.play("reload", { volume = 0.5 })
-                collected = true
+                -- Legacy floor drops: old knife gear → equip as weapon-slot knife.
+                local k = Guns.getById("knife")
+                if k then
+                    player:equipWeapon(k)
+                    DamageNumbers.spawnPickup(cx, cy, k.name or "Knife", "weapon")
+                    Sfx.play("reload", { volume = 0.5 })
+                    collected = true
+                end
             end
             if p.pickupType == "xp" or p.pickupType == "gold" or p.pickupType == "silver" then
                 collected = true

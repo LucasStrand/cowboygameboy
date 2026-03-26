@@ -14,6 +14,7 @@ local RunMetadata = require("src.systems.run_metadata")
 local SourceRef = require("src.systems.source_ref")
 local StatRuntime = require("src.systems.stat_runtime")
 local WeaponRuntime = require("src.systems.weapon_runtime")
+local GearIcons = require("src.ui.gear_icons")
 local Perks = require("src.data.perks")
 
 -- Monster Energy (saloon): each drink heals to full; walk-speed bonus stacks with diminishing returns.
@@ -69,7 +70,6 @@ local DASH_SPEED = math.floor(520 * 0.12 / DASH_DURATION + 0.5) -- ~312
 local DASH_COOLDOWN = 0.52
 -- Melee swing: hit window (longer than melee anim tail for combat resolution)
 local MELEE_SWING_DURATION = 0.30
-local DASH_MELEE_SWING_DURATION = 0.26  -- dash strike: linger past dash motion for hit checks
 
 -- Original player base gun stats — used to compute perk deltas when a
 -- non-default weapon is equipped.  These MUST match the values in Player.new().
@@ -247,7 +247,7 @@ function Player.new(x, y)
         hat    = nil,
         vest   = nil,
         boots  = nil,
-        melee  = nil, -- knife / melee gear from pickups, shop, or saloon
+        melee  = nil, -- reserved; knife is a weapon-slot item (Guns.knife)
         shield = nil,
     }
 
@@ -266,6 +266,8 @@ function Player.new(x, y)
     self.meleeHitEnemies  = {}       -- enemies already hit in the current swing
     self.meleeHitDecor    = {}       -- decor props already hit in the current swing
     self.meleeHitFlashTimer = 0      -- HUD / strike feedback after a connecting hit
+    -- While `meleeSwingTimer` > 0: which weapon slot this swing uses (off-hand knife vs active gun + fists).
+    self.meleeSwingDamageSlot = nil
     self.meleeAimAngle = 0           -- radians, set when a swing starts (same basis as :shoot)
 
     -- Updated each frame in game state — world position under cursor (like shooting).
@@ -281,10 +283,13 @@ function Player.new(x, y)
     self.inputFireHeld = false
     -- AK-47 body anim: "startup" | "loop" | "end" while using shoot_ak47_* anims
     self.ak47ShootPhase = nil
+    -- Previous frame grounded state (for land impact anim on air → ground)
+    self._animGroundedPrev = true
 
-    -- Loadout automation (toggled via HUD right-click). Auto gun uses cursor aim only while primary (attack) button held.
+    -- Loadout automation (toggled via HUD right-click per weapon slot). Any slot on = auto-aim / sustained fire semantics apply.
     -- Shield auto-block only applies when equipped shield has stats.allowAutoBlock.
-    self.autoGun   = true
+    self.autoGunSlot1 = true
+    self.autoGunSlot2 = true
     self.autoMelee = true
     self.autoBlock = false
 
@@ -333,6 +338,7 @@ function Player:beginDeath()
     self.vy = 0
     self.blocking = false
     self.meleeSwingTimer = 0
+    self.meleeSwingDamageSlot = nil
     if self.anim.quads.death then
         self.anim:play("death", true)
     else
@@ -392,6 +398,22 @@ function Player:getOffhandGun()
     return slot and slot.weapon_def or nil
 end
 
+--- Slot index (1 or 2) with an equipped melee weapon (e.g. knife), or nil.
+function Player:findMeleeWeaponSlotIndex()
+    for i = 1, 2 do
+        local w = self:getWeaponRuntime(i)
+        if w and w.mode == "weapon" and w.weapon_def and WeaponRuntime.isMeleeWeapon(w.weapon_def) then
+            return i
+        end
+    end
+    return nil
+end
+
+--- True if either weapon slot has auto-fire toggled on (crosshair, inputFireHeld, manual hold gating).
+function Player:anyAutoWeaponSlot()
+    return self.autoGunSlot1 or self.autoGunSlot2
+end
+
 --- Slot index for automatic gunfire: active slot when a gun is in hand; in melee stance, primary (1) then secondary.
 function Player:getWeaponSlotForAutoFire()
     if self:getActiveSlotMode() == "weapon" then
@@ -409,8 +431,8 @@ function Player:isAkimbo()
     local slot1 = self:getWeaponRuntime(1)
     local slot2 = self:getWeaponRuntime(2)
     return self.stats.akimbo
-        and slot1 and slot1.mode == "weapon"
-        and slot2 and slot2.mode == "weapon"
+        and slot1 and slot1.mode == "weapon" and WeaponRuntime.isRangedWeapon(slot1.weapon_def)
+        and slot2 and slot2.mode == "weapon" and WeaponRuntime.isRangedWeapon(slot2.weapon_def)
 end
 
 function Player:getEffectiveStats()
@@ -439,7 +461,8 @@ end
 function Player:canAnyAkimboGunFire()
     for i = 1, 2 do
         local w = self:getWeaponRuntime(i)
-        if w and w.mode == "weapon" and (w.ammo or 0) > 0 and (w.reload_timer or 0) <= 0 and (w.cooldown_timer or 0) <= 0 then
+        if w and w.mode == "weapon" and WeaponRuntime.isRangedWeapon(w.weapon_def)
+            and (w.ammo or 0) > 0 and (w.reload_timer or 0) <= 0 and (w.cooldown_timer or 0) <= 0 then
             return true
         end
     end
@@ -508,6 +531,7 @@ function Player:update(dt, world, enemies)
         if self.meleeSwingTimer <= 0 then
             self.meleeHitEnemies = {}
             self.meleeHitDecor = {}
+            self.meleeSwingDamageSlot = nil
         end
     end
 
@@ -708,6 +732,11 @@ function Player:update(dt, world, enemies)
     local anim = self.anim
     anim:update(dt)
 
+    -- Air → ground (before AK/air one-shots so landing isn’t skipped e.g. by AK fire held)
+    local wasGroundedAnim = self._animGroundedPrev
+    local justLanded = self.grounded and not wasGroundedAnim and not self.dying
+    self._animGroundedPrev = self.grounded
+
     local agun = self:getActiveGun()
     if not agun or agun.id ~= "ak47" then
         if self.ak47ShootPhase then
@@ -716,6 +745,8 @@ function Player:update(dt, world, enemies)
                 anim:play("idle", true)
             end
         end
+    elseif justLanded and anim.quads.land then
+        -- Land impact plays this frame; do not advance AK shoot cycle (e.g. fire held while touching down).
     else
         local held = self.inputFireHeld
         if held then
@@ -739,19 +770,25 @@ function Player:update(dt, world, enemies)
     local ak47AnimBusy = (anim.current == "shoot_ak47_loop")
         or (anim.current == "shoot_ak47_startup" and not anim.done)
         or (anim.current == "shoot_ak47_end" and not anim.done)
-    local oneShotPlaying = ak47AnimBusy or (
+    local landPlaying = anim.current == "land" and not anim.done
+    local oneShotPlaying = ak47AnimBusy or landPlaying or (
         (anim.current == "shoot" or anim.current == "shoot_rifle"
         or anim.current == "melee" or anim.current == "jab"
         or anim.current == "knife_jab" or anim.current == "melee_fist"
-        or anim.current == "drinking") and not anim.done
+        or anim.current == "drinking" or anim.current == "pickup") and not anim.done
     )
+
     -- Dash body anim must win over shoot/melee one-shots so the dash strip is visible for the whole dash.
     if self.dashTimer > 0 then
         anim:play("dash")
         self.idleTimer = 0
         self.smokeSessionTimer = 0
     elseif not oneShotPlaying then
-        if not self.grounded then
+        if justLanded and anim.quads.land then
+            anim:play("land", true)
+            self.idleTimer = 0
+            self.smokeSessionTimer = 0
+        elseif not self.grounded then
             if self.vy < 0 then anim:play("jump") else anim:play("fall") end
             self.idleTimer = 0
             self.smokeSessionTimer = 0
@@ -773,7 +810,11 @@ function Player:update(dt, world, enemies)
                 self.smokeCooldownTimer = math.max(0, self.smokeCooldownTimer - dt)
             end
 
-            local meleeFight = self:getActiveSlotMode() == "melee" and anim.quads.idle_melee
+            -- Fists (slot mode "melee") or equipped melee weapon (e.g. knife) — not just ranged "weapon" slot.
+            local meleeFight = anim.quads.idle_melee and (
+                self:getActiveSlotMode() == "melee"
+                or WeaponRuntime.isMeleeWeapon(agun)
+            )
 
             if meleeFight then
                 self.smokeSessionTimer = 0
@@ -835,15 +876,6 @@ function Player:tryDash()
     self.dashTimer = DASH_DURATION
     self.iframes = math.max(self.iframes, 0.2)
     Sfx.play("dash")
-
-    -- Dash strike: active melee hitbox for the full dash
-    if s.meleeDamage > 0 then
-        self.meleeAimAngle  = dir == 1 and 0 or math.pi
-        self.meleeSwingTimer = DASH_MELEE_SWING_DURATION
-        self.meleeCooldown   = 0           -- dash resets cooldown so it always fires
-        self.meleeHitEnemies = {}
-        self.meleeHitDecor = {}
-    end
 end
 
 --- Pick the right shoot animation based on the active gun's weapon tag.
@@ -867,6 +899,13 @@ function Player:shootFromSlot(slotIndex, mx, my)
     end
     local fired = WeaponRuntime.fireSlot(self, slotIndex, mx, my)
     if not fired then return nil end
+
+    if fired.is_melee_weapon then
+        self:meleeAttack(mx, my, { fromWeaponFire = true, slotIndex = slotIndex })
+        self:syncLegacyWeaponViews()
+        -- Sentinel: truthy for callers that check `~= nil`, but `#t == 0` so gun spawn/noise loops skip.
+        return { __melee_swing = true }
+    end
 
     if not self:isAkimbo() then
         if not fired.weapon_def or fired.weapon_def.id ~= "ak47" then
@@ -965,8 +1004,14 @@ function Player:getMeleeAimAngleLive()
 end
 
 -- Axis-aligned bounds of the oriented melee stroke at `angle` (radians).
-function Player:getMeleeHitboxAABB(angle)
+-- `statsSlotIndex`: optional weapon slot (1|2) for range/damage when previewing a specific weapon (e.g. off-hand knife).
+function Player:getMeleeHitboxAABB(angle, statsSlotIndex)
     local s = self:getEffectiveStats()
+    if self.meleeSwingTimer > 0 and self.meleeSwingDamageSlot then
+        s = self:getResolvedWeaponStats(self.meleeSwingDamageSlot) or s
+    elseif statsSlotIndex then
+        s = self:getResolvedWeaponStats(statsSlotIndex) or s
+    end
     local range = s.meleeRange
     if range <= 0 then
         return 0, 0, 0, 0
@@ -1001,17 +1046,80 @@ function Player:spinHolster()
     -- Holster spin animation disabled for now (saloon / weapon prompts still call this hook)
 end
 
-function Player:meleeAttack(aimX, aimY)
+--- One-shot bend/reach when equipping a weapon from the floor (interact / E). No-op if skin has no `pickup` strip.
+function Player:playPickupAnim()
+    local anim = self.anim
+    if anim and anim.quads.pickup then
+        anim:play("pickup", true)
+    end
+end
+
+--- Primary melee tap (called from `tryPrimaryMeleeTapFromPointer` — same pointer math for LMB and melee key).
+--- `opts.fromMeleeKey`: with a ranged gun out, F swings an equipped knife in the other slot (`shootFromSlot`); if no knife, fists. LMB tap rules unchanged.
+--- Uses cursor position `(gx, gy)` in game/canvas space. Returns true if a swing started.
+function Player:tryMeleePrimaryMouseTap(camera, gx, gy, viewW, viewH, opts)
+    opts = opts or {}
+    if not camera then
+        return false
+    end
+    if Buffs.getControlState(self.statuses).stunned then
+        return false
+    end
+    if self.blocking then
+        return false
+    end
+    local wx, wy = camera:worldCoords(gx, gy, 0, 0, viewW, viewH)
+    if self:getActiveGun() then
+        local ag = self:getActiveGun()
+        if ag.weapon_kind == "melee" then
+            -- Same path as hold-LMB: weapon slot fire (cooldown + meleeAttack from shoot).
+            return self:shoot(wx, wy) ~= nil
+        end
+        -- Ranged in hand: F swings equipped knife (other slot) via same path as knife-primary; else fists.
+        if opts.fromMeleeKey then
+            local meleeSlot = self:findMeleeWeaponSlotIndex()
+            if meleeSlot and meleeSlot ~= self.activeWeaponSlot then
+                return self:shootFromSlot(meleeSlot, wx, wy) ~= nil
+            end
+        end
+        local es = self:getEffectiveStats()
+        local shiftShoot = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+        local allowGunStanceMelee = (not self:anyAutoWeaponSlot()) or opts.fromMeleeKey
+        if allowGunStanceMelee and es.meleeDamage > 0 and not shiftShoot then
+            return self:meleeAttack(wx, wy)
+        end
+    else
+        local s = self:getEffectiveStats()
+        if s.meleeDamage > 0 then
+            return self:meleeAttack(wx, wy)
+        end
+    end
+    return false
+end
+
+function Player:meleeAttack(aimX, aimY, opts)
+    opts = opts or {}
     if Buffs.getControlState(self.statuses).stunned then return false end
-    local s = self:getEffectiveStats()
-    if self.meleeCooldown > 0 or s.meleeDamage <= 0 then return false end
+    local slotIndex = opts.slotIndex or self.activeWeaponSlot
+    local slot = self:getWeaponRuntime(slotIndex)
+    local s = self:getResolvedWeaponStats(slotIndex) or self:getEffectiveStats()
+    local activeMeleeW = slot and slot.mode == "weapon" and WeaponRuntime.isMeleeWeapon(slot.weapon_def)
+    if activeMeleeW then
+        if not opts.fromWeaponFire then
+            if (slot.reload_timer or 0) > 0 or (slot.cooldown_timer or 0) > 0 then
+                return false
+            end
+        end
+    elseif self.meleeCooldown > 0 then
+        return false
+    end
+    if s.meleeDamage <= 0 then return false end
     local cx = self.x + self.w * 0.5
     local cy = self.y + self.h * 0.5
     if aimX ~= nil and aimY ~= nil then
         self.meleeAimAngle = math.atan2(aimY - cy, aimX - cx)
     else
-        -- Key melee (F): aim at mouse in world — effectiveAim still follows move/LMB rules, so
-        -- you can run one way and swing "behind" toward the cursor without holding LMB.
+        -- Melee without world aim args: use cursor in world — same idea as LMB tap aim.
         local wx, wy = self.aimWorldX, self.aimWorldY
         if wx and wy then
             local dx, dy = wx - cx, wy - cy
@@ -1024,14 +1132,20 @@ function Player:meleeAttack(aimX, aimY)
             self.meleeAimAngle = self:getMeleeAimAngleLive()
         end
     end
-    self.meleeCooldown   = s.meleeCooldown
+    if activeMeleeW and not opts.fromWeaponFire then
+        slot.cooldown_timer = s.meleeCooldown
+    elseif not activeMeleeW then
+        self.meleeCooldown = s.meleeCooldown
+    end
+    self.meleeSwingDamageSlot = slotIndex
     self.meleeSwingTimer = MELEE_SWING_DURATION
     self.meleeHitEnemies = {}
     self.meleeHitDecor = {}
     do
         local anim = self.anim
         local animName = "melee"
-        if self.gear and self.gear.melee then
+        local ag = slot and slot.weapon_def
+        if ag and ag.id == "knife" then
             if anim.quads.knife_jab then
                 animName = "knife_jab"
             end
@@ -1057,6 +1171,9 @@ end
 -- Center, rotation, size for drawing the swipe (world space).
 function Player:getMeleeSwingDrawParams()
     local s = self:getEffectiveStats()
+    if self.meleeSwingTimer > 0 and self.meleeSwingDamageSlot then
+        s = self:getResolvedWeaponStats(self.meleeSwingDamageSlot) or s
+    end
     local range = s.meleeRange
     local thick = MELEE_HIT_THICKNESS
     local angle = self.meleeSwingTimer > 0 and self.meleeAimAngle or self:getMeleeAimAngleLive()
@@ -1315,11 +1432,15 @@ end
 
 --- Equip a gun definition into a weapon slot (1 or 2). Resets ammo to full.
 --- Auto-switches to the new weapon slot for immediate feedback.
+--- Omit `slotIndex` for floor/shop pickups: uses the empty slot when only one is free.
 function Player:equipWeapon(gunDef, slotIndex)
     if Buffs.getControlState(self.statuses).stunned then
         return
     end
-    slotIndex = slotIndex or 2
+    if slotIndex == nil then
+        slotIndex = WeaponRuntime.slotIndexForNewWeapon(self)
+    end
+    slotIndex = slotIndex or self.activeWeaponSlot or 1
     WeaponRuntime.equipWeapon(self, gunDef, slotIndex)
     self:syncLegacyWeaponViews()
 end
@@ -1437,28 +1558,6 @@ function Player:draw()
         love.graphics.push()
         love.graphics.translate(jx, jy)
 
-        --- AK-47 slung on back when carried in the non-active slot (not akimbo — both hands hold guns).
-        local function drawAkOnBack()
-            local off = self:getOffhandGun()
-            if not off or off.id ~= "ak47" then return end
-            local gun = Guns.getById("ak47")
-            if not gun then return end
-            local sprite = Guns.getSprite(gun)
-            if not sprite then return end
-            local scale = (gun.spriteScale or 0.72) * 0.52
-            local origin = gun.spriteOrigin or { x = 0.25, y = 0.5 }
-            local sw, sh = sprite:getDimensions()
-            local ox = sw * origin.x
-            local oy = sh * origin.y
-            local ang = self.facingRight and math.rad(-102) or math.rad(102)
-            local bx = cx + (self.facingRight and -10 or 10)
-            local by = self.y + self.h * 0.30
-            local sy = scale
-            if not self.facingRight then sy = -scale end
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(sprite, bx, by, ang, scale, sy, ox, oy)
-        end
-
         -- Smash-style energy bubble while blocking (drawn behind the fighter)
         if self.blocking and self.gear.shield then
             local scx = self.x + self.w / 2
@@ -1475,14 +1574,11 @@ function Player:draw()
             love.graphics.ellipse("line", scx, scy, rx * 0.88, ry * 0.88)
         end
 
-        if not self:isAkimbo() then
-            drawAkOnBack()
-        end
-
         self.anim:drawCentered(cx, footY, self.facingRight)
 
         -- Weapon sprite overlay (gun — hidden during melee swing and rifle-shoot body anim; AK never uses overlay)
         local hideGunOverlay = self.meleeSwingTimer > 0 or self.anim.current == "shoot_rifle"
+            or self.anim.current == "pickup"
         if not hideGunOverlay then
             local aimAngle = self:getAimAngle()
             local handX = cx + (self.facingRight and 2 or -2)
@@ -1491,6 +1587,15 @@ function Player:draw()
             local function drawGunSprite(gun, yOff)
                 if gun.id == "revolver" then return end  -- cowboy animation already has a revolver
                 if gun.id == "ak47" then return end     -- body animation holds the AK; no duplicate sprite
+                -- Melee weapons (knife): body strips (knife_jab / jab / fists) already show the weapon — no HUD overlay
+                if gun.weapon_kind == "melee" then return end
+                if gun.hud_icon then
+                    GearIcons.drawHeld(gun.hud_icon, handX, baseHandY + yOff, aimAngle, {
+                        scale = (gun.spriteScale or 1.0) * 1.35,
+                        flipY = not self.facingRight,
+                    })
+                    return
+                end
                 local sprite = Guns.getSprite(gun)
                 if not sprite then return end
                 local scale = gun.spriteScale or 0.7

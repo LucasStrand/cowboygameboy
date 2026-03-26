@@ -1,4 +1,3 @@
-local GearData = require("src.data.gear")
 local ContentTooltips = require("src.systems.content_tooltips")
 local RewardRuntime = require("src.systems.reward_runtime")
 local RunMetadata = require("src.systems.run_metadata")
@@ -56,6 +55,8 @@ function Shop:generateItems()
     for _, item in ipairs(self.items or {}) do
         if item.type == "gear" and item.gearData then
             item.description = ContentTooltips.getJoinedText("gear", item.gearData)
+        elseif item.type == "weapon" and item.gunData then
+            item.description = ContentTooltips.getJoinedText("gun", item.gunData)
         elseif item.tooltip_key or item.tooltip_override then
             item.description = ContentTooltips.getJoinedText("offer", item)
         end
@@ -85,6 +86,8 @@ function Shop:reroll(player)
     for _, item in ipairs(self.items or {}) do
         if item.type == "gear" and item.gearData then
             item.description = ContentTooltips.getJoinedText("gear", item.gearData)
+        elseif item.type == "weapon" and item.gunData then
+            item.description = ContentTooltips.getJoinedText("gun", item.gunData)
         elseif item.tooltip_key or item.tooltip_override then
             item.description = ContentTooltips.getJoinedText("offer", item)
         end
@@ -102,6 +105,8 @@ function Shop.applyOfferItem(item, player)
         player:heal(healAmount)
     elseif item.type == "gear" then
         player:equipGear(item.gearData)
+    elseif item.type == "weapon" and item.gunData then
+        player:equipWeapon(item.gunData)
     elseif item.type == "ammo" then
         player.stats.cylinderSize = player.stats.cylinderSize + 2
         player:addAmmoToActiveSlot(2, "shop:ammo_upgrade")

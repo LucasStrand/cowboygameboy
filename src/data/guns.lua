@@ -125,6 +125,46 @@ Guns.pool = {
             inaccuracy    = 0.08,
         },
     },
+
+    ---------------------------------------------------------------------------
+    -- Knife — melee weapon; occupies a weapon slot like any gun (no ammo).
+    ---------------------------------------------------------------------------
+    {
+        id          = "knife",
+        name        = "Knife",
+        rarity      = "uncommon",
+        dropWeight  = 8,
+        weapon_kind = "melee",
+        ammoType    = "melee",
+        tooltip_key = "gun_knife",
+        tags        = { "attack:melee", "weapon:knife" },
+        capabilities = {},
+        rules       = {},
+        -- Items.png tile (same art as old melee gear); HUD / loadout use this when sprite is nil.
+        hud_icon    = {
+            sheet = "assets/weapons/Items.png",
+            tile  = 16,
+            col   = 1,
+            row   = 0,
+        },
+        sprite      = nil,
+        spriteOrigin = { x = 0.4, y = 0.55 },
+        spriteScale  = 1.0,
+        baseStats   = {
+            cylinderSize  = 0,
+            reloadSpeed   = 0,
+            bulletSpeed   = 0,
+            bulletDamage  = 0,
+            bulletCount   = 0,
+            spreadAngle   = 0,
+            shootCooldown = 0.5,
+            inaccuracy    = 0,
+            meleeDamage   = 20,
+            meleeRange    = 36,
+            meleeCooldown = 0.42, -- match `Weapons.defaults.unarmed` fist cadence
+            meleeKnockback = 130,
+        },
+    },
 }
 
 -- Quick lookup table (built once on require)

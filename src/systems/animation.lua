@@ -34,7 +34,7 @@ SKIN_ANIMS["cowboy"] = {
 -- Jab: generic 3×48 strip; knife uses knife-jab.png when present (see Animator.new).
 local COWBOY_V2_JAB = { file = "jab.png", frames = 3, fps = 10, loop = false, footYOffset = 5 }
 local COWBOY_V2_KNIFE_JAB = { file = "knife-jab.png", frames = 3, fps = 10, loop = false, footYOffset = 5 }
--- Only if jab.png is missing from disk (normal case: melee uses jab.png; pickup uses quickdraw.png).
+-- Only if jab.png is missing from disk (normal case: melee uses jab.png).
 local COWBOY_V2_MELEE_FILE_FALLBACK = { file = "quickdraw.png", frames = 6, fps = 14, loop = false, startFrame = 1, footYOffset = 5 }
 
 SKIN_ANIMS["cowboy_v2"] = {
@@ -42,17 +42,20 @@ SKIN_ANIMS["cowboy_v2"] = {
     idle         = { file = "idle.png",         frames = 8,  fps = 6,  loop = true,  footYOffset = 5 },
     -- Standing ready when active slot is melee (gun holstered / empty slot).
     idle_melee   = { file = "fightstance.png",  frames = 8,  fps = 6,  loop = true,  footYOffset = 5 },
-    -- Loot magnet + weapon equip from floor (reach at end of strip).
-    pickup       = { file = "quickdraw.png",    frames = 6,  fps = 14, loop = false, footYOffset = 5 },
+    -- Interact (E): equip weapon from floor — dedicated 5-frame bend/reach strip.
+    pickup       = { file = "pickup.png",       frames = 5,  fps = 12, loop = false, footYOffset = 5 },
     smoking      = { file = "smoking.png",       frames = 8,  fps = 5,  loop = true,  footYOffset = 5 },
     run          = { file = "run.png",           frames = 8,  fps = 10, loop = true,  footYOffset = 5 },
     -- Air: same idea as original v2 `draw.png` — one pose rising, one pose falling (not a looping jump cycle).
     -- draw.png was removed; `jumping-1` per-frame pack is stitched to a strip; columns match frame_000.. order.
     jump         = { stripFromDir = "animations/jumping-1/east", frames = 1, fps = 1,  loop = true,  startFrame = 1, footYOffset = 5 },
     fall         = { stripFromDir = "animations/jumping-1/east", frames = 1, fps = 1,  loop = true,  startFrame = 5, footYOffset = 5 },
+    -- Landing pose: frame_002 (deep crouch impact). Single frame held ~0.22s via fps so it doesn’t flash away.
+    land         = { stripFromDir = "animations/jumping-1/east", frames = 1, fps = 1 / 0.22, loop = false, startFrame = 3, footYOffset = 5 },
     -- 3-frame strip plays in DASH_STRIP_TIME; rest of Player DASH_DURATION holds last frame (longer dash pose).
     dash         = { file = "dash.png",          frames = 3,  fps = 3 / 0.10, loop = false, footYOffset = 5 },
-    shoot        = { file = "shoot.png",         frames = 6,  fps = 14, loop = false, footYOffset = 5 },
+    -- shoot.png: 8×56px frames (448 wide). Recoil/muzzle frames shift the body in-cell; anchorFeet pins bottom-center so the cowboy doesn’t moonwalk.
+    shoot        = { file = "shoot.png",         frames = 8,  fps = 14, loop = false, footYOffset = 5, cellH = 48, inferCellWidth = true, anchorFeet = true },
     -- Rifle/long-gun shoot: custom 16-frame strip built from per-frame PNGs.
     shoot_rifle  = { stripFromDir = "animations/rifle-shoot/east", frames = 16, fps = 20, loop = false, footYOffset = 5 },
     -- AK-47: 512×64 cells, drawn 1:1. Startup foot align: ~16 sank into floor, ~12 floated — split at 14.
@@ -133,6 +136,9 @@ function Animator.new()
             v2.melee = COWBOY_V2_MELEE_FILE_FALLBACK
             v2.melee_fist = COWBOY_V2_MELEE_FILE_FALLBACK
         end
+        if not love.filesystem.getInfo(STRIP_DIR .. "pickup.png") then
+            v2.pickup = { file = "quickdraw.png", frames = 6, fps = 14, loop = false, footYOffset = 5 }
+        end
     end
 
     local self = setmetatable({}, Animator)
@@ -154,6 +160,9 @@ function Animator.new()
         local sw, sh = sheet:getDimensions()
         local cellW = def.cellW or FRAME_H
         local cellH = def.cellH or FRAME_H
+        if def.inferCellWidth then
+            cellW = math.floor(sw / def.frames)
+        end
         -- Frame index along the strip (each cell is cellW wide)
         local totalCols = math.floor(sw / cellW)
         local startCol  = (def.startFrame or 1) - 1  -- 0-indexed
@@ -217,6 +226,10 @@ function Animator:drawCentered(cx, footY, facingRight, yOffset, alpha)
     local sheet   = self.sheets[self.current]
     local cellW = def.cellW or FRAME_H
     local cellH = def.cellH or FRAME_H
+    if def.inferCellWidth then
+        local sw = sheet:getDimensions()
+        cellW = math.floor(sw / def.frames)
+    end
     -- Default: squash tall cells down to FRAME_H world height (uniform scale). Optional off for 1:1 texels (AK vs idle).
     local squash = def.scaleCellToFrameHeight
     if squash == nil then squash = true end
@@ -228,14 +241,28 @@ function Animator:drawCentered(cx, footY, facingRight, yOffset, alpha)
     local scaledW = cellW * sm
     local scaledH = cellH * sm
 
-    local drawX   = cx - scaledW / 2
-    local drawY   = footY - scaledH + (yOffset or 0) + footDy
-
-    local sx        = facingRight and sm or -sm
-    local flipShift = facingRight and 0 or scaledW
-
     love.graphics.setColor(1, 1, 1, alpha or 1)
-    love.graphics.draw(sheet, quad, drawX + flipShift, drawY, 0, sx, sm)
+    local yWorld = footY + footDy + (yOffset or 0)
+
+    -- Pin bottom-center of the frame to (cx, yWorld): recoil art shifts inside the cell; centering the whole cell slides the body.
+    if def.anchorFeet then
+        if facingRight then
+            love.graphics.draw(sheet, quad, cx, yWorld, 0, sm, sm, cellW / 2, cellH)
+        else
+            -- Flip around the foot anchor (negative sx + origin can smear on some drivers).
+            love.graphics.push()
+            love.graphics.translate(cx, yWorld)
+            love.graphics.scale(-1, 1)
+            love.graphics.draw(sheet, quad, 0, 0, 0, sm, sm, cellW / 2, cellH)
+            love.graphics.pop()
+        end
+    else
+        local sx = facingRight and sm or -sm
+        local drawX = cx - scaledW / 2
+        local drawY = footY - scaledH + (yOffset or 0) + footDy
+        local flipShift = facingRight and 0 or scaledW
+        love.graphics.draw(sheet, quad, drawX + flipShift, drawY, 0, sx, sm)
+    end
 end
 
 return Animator

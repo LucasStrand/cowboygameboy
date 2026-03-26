@@ -373,7 +373,9 @@ function SettingsPanel.applyHit(hit, player)
             Settings.save()
             Settings.apply()
             if player and row.resetType == "all" then
-                player.autoGun = Settings.getDefaultAutoGun()
+                local d = Settings.getDefaultAutoGun()
+                player.autoGunSlot1 = d
+                player.autoGunSlot2 = d
             end
             return {}
         elseif row.kind == "toggle" then
@@ -396,7 +398,9 @@ function SettingsPanel.applyHit(hit, player)
         Settings.save()
         Settings.apply()
         if player and row.key == "defaultAutoGun" then
-            player.autoGun = Settings.getDefaultAutoGun()
+            local d = Settings.getDefaultAutoGun()
+            player.autoGunSlot1 = d
+            player.autoGunSlot2 = d
         end
         return {}
     end

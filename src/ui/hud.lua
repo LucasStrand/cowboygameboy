@@ -1,5 +1,6 @@
 local Font = require("src.ui.font")
 local Guns = require("src.data.guns")
+local WeaponRuntime = require("src.systems.weapon_runtime")
 local GearIcons = require("src.ui.gear_icons")
 local GoldCoin = require("src.ui.gold_coin")
 local RewardRuntime = require("src.systems.reward_runtime")
@@ -29,7 +30,7 @@ local SPRITE_RECTS = {
 local BAR_SCALE    = 0.35   -- 1024×0.35 ≈ 358,  64×0.35 ≈ 22
 local ICON_SCALE   = 0.25   -- 64×0.25 = 16
 
--- Slot layout: one horizontal row (gun → melee → shield), ult to the right — compact, bottom-anchored
+-- Slot layout: two weapon slots (any weapon type) → shield; ult to the right — compact, bottom-anchored
 local SLOT_SCALE   = 0.40   -- 256×0.40 = 102,  208×0.40 = 83
 local SLOT_W       = math.floor(256 * SLOT_SCALE)  -- 102
 local SLOT_H       = math.floor(208 * SLOT_SCALE)  -- 83
@@ -81,7 +82,7 @@ end
 -- Check back-to-front so topmost (last-drawn) slot wins on overlap
 function HUD.hitLoadout(mx, my, screenH)
     local baseY = slotRowY(screenH)
-    local order = { "gun", "melee", "shield" }
+    local order = { "weapon1", "weapon2", "shield" }
     for i = #order, 1, -1 do
         local s = SLOT_OFFSETS[i]
         local x = SLOT_BASE_X + s.dx
@@ -382,6 +383,17 @@ end
 local function drawAmmoDisplay(cx, cy, player, effectiveStats)
     local gun = player:getActiveGun()
     if not gun then return 0 end
+    if gun.weapon_kind == "melee" then
+        love.graphics.setColor(0.82, 0.78, 0.72, 0.88)
+        if not HUD._fontLoadout then
+            HUD._fontLoadout = Font.new(14)
+        end
+        local prev = love.graphics.getFont()
+        love.graphics.setFont(HUD._fontLoadout)
+        love.graphics.print("—", cx - 5, cy - 8)
+        love.graphics.setFont(prev)
+        return 20
+    end
 
     local cap = gunCapacity(gun, player, player.activeWeaponSlot)
     local ammoType = gun.ammoType
@@ -400,6 +412,17 @@ end
 
 local function drawAmmoForGun(cx, cy, gun, capacity, loadedCount, reloading)
     if not gun then return end
+    if gun.weapon_kind == "melee" then
+        love.graphics.setColor(0.82, 0.78, 0.72, 0.88)
+        if not HUD._fontLoadout then
+            HUD._fontLoadout = Font.new(14)
+        end
+        local prev = love.graphics.getFont()
+        love.graphics.setFont(HUD._fontLoadout)
+        love.graphics.print("—", cx - 5, cy - 8)
+        love.graphics.setFont(prev)
+        return
+    end
     local ammoType = gun.ammoType
     if ammoType == "cylinder" then
         drawRevolverCylinder(cx, cy, capacity, loadedCount, reloading)
@@ -586,6 +609,7 @@ function HUD.draw(player)
 
             local function ammoR(gun)
                 if not gun then return 20 end
+                if gun.weapon_kind == "melee" then return 18 end
                 if gun.ammoType == "cylinder" then
                     return drumOuterRadius(gunCapacity(gun, player, gun == gun1 and 1 or 2))
                 elseif gun.ammoType == "double_barrel" then return 24
@@ -614,7 +638,9 @@ function HUD.draw(player)
         else
             local displayR = 36
             local gun = player:getActiveGun()
-            if gun and gun.ammoType == "cylinder" then
+            if gun and gun.weapon_kind == "melee" then
+                displayR = 20
+            elseif gun and gun.ammoType == "cylinder" then
                 displayR = drumOuterRadius(gunCapacity(gun, player, player.activeWeaponSlot))
             elseif gun and gun.ammoType == "double_barrel" then
                 displayR = 24
@@ -638,22 +664,21 @@ function HUD.draw(player)
 
         local slot2Auto
         if gun2 then
-            slot2Auto = player.autoGun and player:getWeaponSlotForAutoFire() == 2
+            slot2Auto = player.autoGunSlot2
         else
             slot2Auto = player.autoMelee
         end
 
-        local meleeLabel = gun2 and gun2.name
-            or (player.gear.melee and player.gear.melee.name) or "Fists"
+        local label2 = gun2 and gun2.name or "Slot 2"
         local shieldLabel = (player.gear.shield and player.gear.shield.name) or "—"
 
         local slots = {
-            { id = "gun",   label = gun1 and gun1.name or "Gun",  gun = gun1,
-              auto = player.autoGun and player:getWeaponSlotForAutoFire() == 1,
+            { id = "weapon1", label = gun1 and gun1.name or "Slot 1", gun = gun1,
+              auto = player.autoGunSlot1 and gun1,
               isActive = player.activeWeaponSlot == 1 },
 
-            { id = "melee", label = meleeLabel, gun = gun2,
-              gearIcon = (not gun2) and player.gear.melee or nil,
+            { id = "weapon2", label = label2, gun = gun2,
+              gearIcon = nil,
               auto = slot2Auto,
               isActive = player.activeWeaponSlot == 2 },
 
@@ -686,16 +711,11 @@ function HUD.draw(player)
                 love.graphics.setLineWidth(1)
             end
 
-            -- Auto border (green)
-            if borderOn then
-                love.graphics.setColor(0.25, 0.85, 0.48, 0.55)
-                love.graphics.setLineWidth(2)
-                love.graphics.rectangle("line", x - 1, y - 1, SLOT_W + 2, SLOT_H + 2)
-                love.graphics.setLineWidth(1)
-            end
-
-            -- Melee hit flash
-            if slot.id == "melee" and player.meleeHitFlashTimer > 0 then
+            -- Melee hit flash (active slot — either weapon slot can be melee)
+            local flashMelee = player.meleeHitFlashTimer > 0
+                and ((slot.id == "weapon1" and player.activeWeaponSlot == 1)
+                    or (slot.id == "weapon2" and player.activeWeaponSlot == 2))
+            if flashMelee then
                 local p = player.meleeHitFlashTimer / 0.2
                 love.graphics.setColor(1, 0.45, 0.2, 0.35 + 0.45 * p)
                 love.graphics.setLineWidth(2)
@@ -707,7 +727,10 @@ function HUD.draw(player)
             local sprite = slot.gun and Guns.getSprite(slot.gun)
             local pad = 4  -- tight fit, frame border provides visual padding
             local drawn = false
-            if sprite then
+            if not sprite and slot.gun and slot.gun.hud_icon then
+                drawn = GearIcons.draw(slot.gun.hud_icon, x, y, SLOT_W, SLOT_H, pad,
+                    borderOn and 1 or 0.88)
+            elseif sprite then
                 local sw, sh = sprite:getDimensions()
                 local maxW = SLOT_W - pad * 2
                 local maxH = SLOT_H - pad * 2
@@ -726,6 +749,17 @@ function HUD.draw(player)
                 love.graphics.setFont(HUD._fontLoadout)
                 shadowPrintf(slot.label, x, y + (SLOT_H - HUD._fontLoadout:getHeight()) / 2,
                     SLOT_W, "center", 0.9, 0.85, 0.78, borderOn and 1 or 0.65)
+            end
+
+            -- Auto-attack (per-slot weapon auto / fists auto / shield auto block): green tint over the whole slot
+            if borderOn then
+                love.graphics.setColor(0.22, 0.88, 0.42, 0.32)
+                love.graphics.rectangle("fill", x, y, SLOT_W, SLOT_H, 3, 3)
+                love.graphics.setColor(0.35, 1, 0.55, 0.5)
+                love.graphics.setLineWidth(2)
+                love.graphics.rectangle("line", x - 1, y - 1, SLOT_W + 2, SLOT_H + 2, 3, 3)
+                love.graphics.setLineWidth(1)
+                love.graphics.setColor(1, 1, 1, 1)
             end
         end
 
