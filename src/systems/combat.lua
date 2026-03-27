@@ -714,10 +714,8 @@ end
 
 function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB, camera, nightMode, shakeX, shakeY)
     if not player.autoMelee or player.blocking then return end
-    -- Active knife: cadence is shoot/F; do not run fist auto in parallel
-    local ag = player:getActiveGun()
-    if ag and ag.weapon_kind == "melee" then
-        return
+    local function isSlotAutoEnabled(slotIndex)
+        return (slotIndex == 1 and player.autoGunSlot1) or (slotIndex == 2 and player.autoGunSlot2)
     end
 
     local tx, ty = Combat.findAutoTarget(enemies, player, world, viewL, viewT, viewR, viewB, camera, nightMode, shakeX, shakeY)
@@ -728,12 +726,40 @@ function Combat.tryAutoMelee(player, enemies, world, viewL, viewT, viewR, viewB,
     local cy = player.y + player.h * 0.5
     local ang = math.atan2(ty - cy, tx - cx)
 
+    -- Active melee weapon (e.g. knife): allow auto cadence through the same slot-fire path
+    -- used by manual taps so cooldowns and damage source stay consistent.
+    local activeSlot = player.activeWeaponSlot
+    local activeW = player:getWeaponRuntime(activeSlot)
+    if activeW and activeW.mode == "weapon" and WeaponRuntime.isMeleeWeapon(activeW.weapon_def) then
+        if not isSlotAutoEnabled(activeSlot) then
+            return
+        end
+        if (activeW.cooldown_timer or 0) > 0 or (activeW.reload_timer or 0) > 0 then
+            return
+        end
+        if player.meleeSwingTimer > 0 then
+            return
+        end
+        local activeRs = player:getResolvedWeaponStats(activeSlot)
+        if not activeRs or (activeRs.meleeDamage or 0) <= 0 then
+            return
+        end
+        local hx, hy, hw, hh = player:getMeleeHitboxAABB(ang, activeSlot)
+        if not enemyListOverlapsMeleeAABB(enemies, hx, hy, hw, hh) then
+            return
+        end
+        return player:shootFromSlot(activeSlot, tx, ty, { enemies = enemies }) ~= nil
+    end
+
     -- Off-hand melee weapon (e.g. knife) while a ranged weapon is active
     -- When that slot's auto is on, game state fires it via shootFromSlot — skip duplicate swings here.
     local meleeWSlot = player:findMeleeWeaponSlotIndex()
     if meleeWSlot and meleeWSlot ~= player.activeWeaponSlot then
         local w = player:getWeaponRuntime(meleeWSlot)
         if w and WeaponRuntime.isMeleeWeapon(w.weapon_def) then
+            if not isSlotAutoEnabled(meleeWSlot) then
+                return
+            end
             if (w.cooldown_timer or 0) > 0 or (w.reload_timer or 0) > 0 then
                 return
             end

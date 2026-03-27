@@ -594,6 +594,7 @@ function Player:update(dt, world, enemies)
         local ctrlDown = love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl")
         local crouchCtrl = ctrlDown and not (blockOnCtrl and shieldEquipped)
         self.crouching = love.keyboard.isDown("down")
+            or love.keyboard.isDown("s")
             or Keybinds.isDown("drop")
             or crouchCtrl
     end
