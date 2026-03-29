@@ -55,8 +55,7 @@ local pixelDecorSizes = {} -- [name] = { w, h } in source pixels
 local pixelInteriorCabinetImg = nil
 local pixelCabinetQuads = {}
 local pixelCabinetSizes = {} -- [name] = { w, h } in source pixels
--- Glow Y: old `bsmtFloorY - qh*s*0.68` sat ~32% down the frame; LRK shade centroid is ~9px below quad top
-local BASEMENT_FLOOR_LAMP_GLOW_FROM_TOP_PX = { floor_lamp = 9, floor_lamp_b = 9, floor_lamp_c = 9 }
+-- (basement lighting is now procedural: torches, hanging lanterns, candles)
 
 -- Per-visit state
 local player = nil
@@ -633,6 +632,9 @@ local function loadDecorations()
     loadDecorSprite("gen_spittoon", "assets/saloon_props/spittoon.png")
     loadDecorSprite("gen_chair", "assets/saloon_props/chair.png")
     loadDecorSprite("gen_lantern", "assets/saloon_props/lantern.png")
+    loadDecorSprite("gen_torch_sconce", "assets/saloon_props/torch_sconce.png")
+    loadDecorSprite("gen_hanging_lantern", "assets/saloon_props/hanging_lantern.png")
+    loadDecorSprite("gen_candle", "assets/saloon_props/candle.png")
     loadDecorSprite("gen_antler", "assets/saloon_props/antler.png")
 
     do
@@ -800,24 +802,32 @@ function Atmos.drawBasement(roomW, floorY, floorH)
     love.graphics.rectangle("fill", roomW - 14, baseY + 5, 12, 2)
     love.graphics.rectangle("fill", roomW - 12, baseY + 7, 8, 1)
 
-    -- A few barrels/crates stored in basement
-    love.graphics.setColor(0.18, 0.12, 0.06)
-    -- Barrel 1
-    love.graphics.rectangle("fill", 40, bsmtFloorY - 14, 10, 14)
-    love.graphics.setColor(0.12, 0.08, 0.04)
-    love.graphics.rectangle("fill", 40, bsmtFloorY - 10, 10, 2)
-    love.graphics.rectangle("fill", 40, bsmtFloorY - 5, 10, 2)
-    -- Barrel 2
-    love.graphics.setColor(0.16, 0.10, 0.05)
-    love.graphics.rectangle("fill", 56, bsmtFloorY - 12, 9, 12)
-    love.graphics.setColor(0.11, 0.07, 0.03)
-    love.graphics.rectangle("fill", 56, bsmtFloorY - 8, 9, 2)
-    -- Crate
-    love.graphics.setColor(0.20, 0.14, 0.07)
-    love.graphics.rectangle("fill", 600, bsmtFloorY - 16, 14, 16)
-    love.graphics.setColor(0.14, 0.09, 0.04)
-    love.graphics.rectangle("fill", 606, bsmtFloorY - 16, 2, 16)
-    love.graphics.rectangle("fill", 600, bsmtFloorY - 9, 14, 2)
+    -- Basement storage: dense barrel stacks (same procedural style as main floor)
+    local function drawBasementBarrelPile(centerX, footY, s, baseCount, rows)
+        local bh = math.floor(24 * s)
+        local bw = math.floor(18 * s)
+        local step = math.max(bw - 2, 8)
+        local rise = math.max(7, math.floor(bh * 0.74))
+        for r = 0, rows - 1 do
+            local n = math.max(1, baseCount - r)
+            local footR = footY - r * rise
+            if footR - bh < baseY + 2 then
+                break
+            end
+            local rowW = (n - 1) * step
+            local sx = centerX - math.floor(rowW / 2) + (r % 2) * math.floor(step * 0.42)
+            for i = 0, n - 1 do
+                Atmos.drawBarrel(sx + i * step + ((i + r) % 3) - 1, footR, s)
+            end
+        end
+    end
+    -- Main pile (center–right) + second pile (left) — rows clamped by ceiling height
+    local bh0 = math.floor(24 * 0.52)
+    local rise0 = math.max(7, math.floor(bh0 * 0.74))
+    local maxRows = math.max(4, math.min(9, math.floor((bsmtH - bh0 - 8) / rise0)))
+    drawBasementBarrelPile(math.floor(roomW * 0.58), bsmtFloorY, 0.52, 16, maxRows)
+    drawBasementBarrelPile(math.floor(roomW * 0.22), bsmtFloorY, 0.48, 11, maxRows - 1)
+    drawBasementBarrelPile(math.floor(roomW * 0.82), bsmtFloorY, 0.45, 7, math.max(3, maxRows - 2))
 
     -- Basement floor (stone)
     love.graphics.setColor(0.12, 0.09, 0.06)
@@ -851,37 +861,138 @@ function Atmos.drawPixelCabinetTop(quadName, x, topY, s)
     love.graphics.draw(img, quad, x, topY, 0, s, s)
 end
 
--- LRK floor lamp quad (default floor_lamp); falls back to gen_lantern on floor
-function Atmos.drawBasementFloorLamp(x, bsmtFloorY, s, quadName)
-    s = s or 1.08
-    quadName = quadName or "floor_lamp"
-    local quad = pixelDecorQuads[quadName]
-    local sz = pixelDecorSizes[quadName]
-    if pixelInteriorDecorImg and quad and sz then
-        local qw, qh = sz[1], sz[2]
-        love.graphics.setColor(1, 1, 1)
-        local topY = bsmtFloorY - qh * s
-        love.graphics.draw(pixelInteriorDecorImg, quad, x, topY, 0, s, s)
-        local glowTy = BASEMENT_FLOOR_LAMP_GLOW_FROM_TOP_PX[quadName] or 9
-        Atmos.drawLampGlow(x + qw * s * 0.5, topY + glowTy * s, s)
-    elseif decor.gen_lantern then
-        Atmos.drawAssetFromBottom("gen_lantern", x, bsmtFloorY, s * 1.15)
-        local img = decor.gen_lantern
-        local iw, ih = img:getDimensions()
-        local ss = s * 1.15
-        local topY = bsmtFloorY - ih * ss
-        Atmos.drawLampGlow(x + iw * ss * 0.5, topY + math.min(12, ih * 0.22) * ss, ss)
+-- Animated procedural flame: draws a flickering multi-layered flame at (fx, fy) growing upward
+local function drawLivingFlame(fx, fy, s, seed, big)
+    local t = love.timer.getTime()
+    seed = seed or 0
+    local f1 = math.sin(t * 8.2 + seed) * 0.5 + 0.5
+    local f2 = math.sin(t * 11.7 + seed * 0.7) * 0.5 + 0.5
+    local f3 = math.sin(t * 6.1 + seed * 1.3) * 0.5 + 0.5
+    local baseH = big and 6 or 4
+    local baseW = big and 3.5 or 2.2
+    local fh = (baseH + f1 * 2.5 + f3 * 1.0) * s
+    local fw = (baseW + f2 * 1.0) * s
+    -- Lean with wind
+    local lean = math.sin(t * 2.3 + seed * 0.5) * 1.5 * s
+    -- Outer flame (orange-red)
+    love.graphics.setColor(0.95, 0.45 + f1 * 0.2, 0.08, 0.75 + f2 * 0.2)
+    love.graphics.polygon("fill",
+        fx - fw * 0.5, fy,
+        fx + fw * 0.5, fy,
+        fx + lean + f2 * s * 0.4, fy - fh)
+    -- Mid flame (orange-yellow)
+    love.graphics.setColor(1.0, 0.72 + f2 * 0.12, 0.18, 0.85)
+    local mfh = fh * 0.7
+    local mfw = fw * 0.6
+    love.graphics.polygon("fill",
+        fx - mfw * 0.5, fy,
+        fx + mfw * 0.5, fy,
+        fx + lean * 0.7 + f1 * s * 0.2, fy - mfh)
+    -- Inner core (bright yellow-white)
+    love.graphics.setColor(1.0, 0.95, 0.55, 0.9)
+    local ifh = fh * 0.38
+    local ifw = fw * 0.3
+    love.graphics.polygon("fill",
+        fx - ifw * 0.5, fy,
+        fx + ifw * 0.5, fy,
+        fx + lean * 0.3, fy - ifh)
+    -- Warm glow
+    love.graphics.setBlendMode("add")
+    local layers = big and 4 or 3
+    for i = 1, layers do
+        local r = ((big and 8 or 5) + i * (big and 7 or 4)) * s
+        local a = (big and 0.07 or 0.05) - i * (big and 0.015 or 0.014)
+        if a > 0 then
+            love.graphics.setColor(1.0, 0.75, 0.30, a * (0.8 + f1 * 0.2))
+            love.graphics.circle("fill", fx + lean * 0.3, fy - fh * 0.35, r, 12)
+        end
     end
+    love.graphics.setBlendMode("alpha")
 end
 
-function Atmos.drawBasementWallLantern(x, y, s)
-    local img = decor.gen_lantern
+-- Wall-mounted candle sconce: sprite + animated flame
+function Atmos.drawWallTorchSconce(x, y, s)
+    s = s or 1.0
+    local img = decor.gen_torch_sconce
     if not img then return end
-    s = s or 0.35
     local iw, ih = img:getDimensions()
+    local drawX = x - iw * s * 0.5
+    local drawY = y - ih * s * 0.7
     love.graphics.setColor(1, 1, 1)
-    love.graphics.draw(img, x, y, 0, s, s)
-    Atmos.drawLampGlow(x + iw * s * 0.5, y + ih * s * 0.22)
+    love.graphics.draw(img, drawX, drawY, 0, s, s)
+    -- Animated flame at candle wick (top center of sprite)
+    local flameX = drawX + iw * s * 0.5
+    local flameY = drawY + ih * s * 0.12
+    drawLivingFlame(flameX, flameY, s * 0.9, x)
+end
+
+-- Hanging oil lantern: procedural chain + sprite + gentle sway + warm glow
+function Atmos.drawHangingOilLantern(x, ceilingY, s)
+    s = s or 1.0
+    local img = decor.gen_hanging_lantern
+    if not img then return end
+    local iw, ih = img:getDimensions()
+    local t = love.timer.getTime()
+    local sway = math.sin(t * 1.5 + x * 0.1) * 0.8 * s
+    -- Draw lantern sprite hanging from chain
+    local chainGap = 16 * s
+    local drawX = x - iw * s * 0.5 + sway
+    local drawY = ceilingY + chainGap
+    -- Chain links from ceiling into the lantern handle (~30% into sprite)
+    local chainEndY = drawY + ih * s * 0.3
+    local chainCx = drawX + iw * s * 0.5
+    local linkH = 4 * s
+    local linkGap = 1.5 * s
+    local linkW = 3 * s
+    local cy = ceilingY
+    local dark = true
+    while cy < chainEndY do
+        if dark then
+            love.graphics.setColor(0.25, 0.22, 0.20)
+        else
+            love.graphics.setColor(0.38, 0.34, 0.30)
+        end
+        -- Oval-ish link: left edge, right edge, top bar, bottom bar
+        local lx = chainCx - linkW * 0.5
+        love.graphics.rectangle("fill", lx, cy, 1 * s, linkH)                     -- left side
+        love.graphics.rectangle("fill", lx + linkW - 1 * s, cy, 1 * s, linkH)     -- right side
+        love.graphics.rectangle("fill", lx, cy, linkW, 1 * s)                     -- top bar
+        love.graphics.rectangle("fill", lx, cy + linkH - 1 * s, linkW, 1 * s)     -- bottom bar
+        cy = cy + linkH + linkGap
+        dark = not dark
+    end
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.draw(img, drawX, drawY, 0, s, s)
+    -- Warm flickering glow at lantern body center
+    local flicker = math.sin(t * 7.0 + x) * 0.08
+    local glowX = drawX + iw * s * 0.5
+    local glowY = drawY + ih * s * 0.5
+    love.graphics.setBlendMode("add")
+    for i = 1, 4 do
+        local r = (8 + i * 6) * s
+        local a = 0.06 - i * 0.013
+        if a > 0 then
+            love.graphics.setColor(1.0, 0.80, 0.35, a * (0.82 + flicker + math.sin(t * 11 + x) * 0.04))
+            love.graphics.circle("fill", glowX, glowY, r, 14)
+        end
+    end
+    love.graphics.setBlendMode("alpha")
+end
+
+-- Small candle on a surface (barrel/crate top): sprite + animated flame
+function Atmos.drawBarrelCandle(x, surfaceY, s)
+    s = s or 1.0
+    local img = decor.gen_candle
+    if not img then return end
+    local iw, ih = img:getDimensions()
+    local drawX = x - iw * s * 0.5
+    local drawY = surfaceY - ih * s
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.draw(img, drawX, drawY, 0, s, s)
+    -- Animated flame at candle wick top
+    local flameX = drawX + iw * s * 0.5
+    local flameY = drawY + ih * s * 0.08
+    drawLivingFlame(flameX, flameY, s * 0.7, x * 1.3)
 end
 
 function Atmos.drawBasementLighting(roomW, floorY, floorH)
@@ -892,21 +1003,33 @@ function Atmos.drawBasementLighting(roomW, floorY, floorH)
     local bsmtH = bsmtFloorY - baseY
     if bsmtH < 8 then return end
 
-    if L.basementWallLanterns then
-        for _, wl in ipairs(L.basementWallLanterns) do
-            local lx = wl.x
+    -- Wall-mounted torch sconces
+    if L.basementTorchSconces then
+        for _, ts in ipairs(L.basementTorchSconces) do
+            local lx = ts.x
             if lx and lx >= 0 and lx <= roomW then
-                local ly = baseY + bsmtH * (wl.yFrac or 0.32)
-                Atmos.drawBasementWallLantern(lx, ly, wl.scale or 0.35)
+                local ly = baseY + bsmtH * (ts.yFrac or 0.30)
+                Atmos.drawWallTorchSconce(lx, ly, ts.scale or 1.0)
             end
         end
     end
 
-    if L.basementFloorLamps then
-        for _, fl in ipairs(L.basementFloorLamps) do
-            local fx = fl.x
-            if fx and fx >= 0 and fx <= roomW then
-                Atmos.drawBasementFloorLamp(fx, bsmtFloorY, fl.scale or 1.08, fl.quad)
+    -- Hanging oil lanterns from basement ceiling
+    if L.basementHangingLanterns then
+        for _, hl in ipairs(L.basementHangingLanterns) do
+            local hx = hl.x
+            if hx and hx >= 0 and hx <= roomW then
+                Atmos.drawHangingOilLantern(hx, baseY + 2, hl.scale or 1.0)
+            end
+        end
+    end
+
+    -- Candles on barrel/crate surfaces
+    if L.basementCandles then
+        for _, bc in ipairs(L.basementCandles) do
+            local cx = bc.x
+            if cx and cx >= 0 and cx <= roomW then
+                Atmos.drawBarrelCandle(cx, bc.y or (bsmtFloorY - 16), bc.scale or 1.0)
             end
         end
     end
@@ -1090,13 +1213,15 @@ end
 ---------------------------------------------------------------------------
 -- Helpers
 ---------------------------------------------------------------------------
+local setMode
+
 local function applyOutcome(outcome)
     if not outcome then return end
     if outcome.message then message = outcome.message end
     if outcome.messageTimer then messageTimer = outcome.messageTimer end
     if outcome.perkOptions then perkOptions = outcome.perkOptions end
     if outcome.mode then
-        mode = (outcome.mode == "main") and "walking" or outcome.mode
+        setMode(outcome.mode)
     end
 end
 
@@ -1140,6 +1265,50 @@ local function nearSlotMachine()
     return dx * dx + dy * dy <= sm.r * sm.r
 end
 
+local function clearInteractionFacing()
+    if player and player.clearInteractionFacing then
+        player:clearInteractionFacing()
+    end
+end
+
+setMode = function(nextMode)
+    nextMode = (nextMode == "main") and "walking" or nextMode
+    mode = nextMode
+    if mode == "walking" then
+        clearInteractionFacing()
+    end
+end
+
+local function octantFacingName(dx, dy)
+    if dx * dx + dy * dy <= 1e-6 then
+        return nil
+    end
+    local octants = {
+        "east",
+        "south-east",
+        "south",
+        "south-west",
+        "west",
+        "north-west",
+        "north",
+        "north-east",
+    }
+    local a = math.atan2(dy, dx)
+    local idx = math.floor((a + math.pi / 8) / (math.pi / 4)) + 1
+    idx = ((idx - 1) % 8) + 1
+    return octants[idx]
+end
+
+local function facePlayerToward(tx, ty, holdSeconds)
+    if not player or not player.setInteractionFacing then return end
+    local pcx = player.x + player.w / 2
+    local pcy = player.y + player.h / 2
+    local facing = octantFacingName(tx - pcx, ty - pcy)
+    if facing then
+        player:setInteractionFacing(facing, holdSeconds)
+    end
+end
+
 --- Weapon floor: interact press picks up; hold sells gun for scrap
 local weaponPickupInteractState = {}
 local saloonWalkInteractConsumed = false
@@ -1147,6 +1316,8 @@ local saloonWalkInteractConsumed = false
 local function trySaloonWalkingInteract(key)
     if not Mods.Keybinds.matches("interact", key) then return false end
     if nearSlotMachine() and slotsGame then
+        local sm = Mods.saloonRoom.slotMachine
+        facePlayerToward(sm.cx, sm.cy - 28)
         applyOutcome(slotsGame:enterTable(player.gold, "walking"))
         return true
     end
@@ -1174,14 +1345,16 @@ local function trySaloonWalkingInteract(key)
         local dx = pcx - qx
         local dy = pcy - qy
         if (dx * dx + dy * dy) <= wantedPoster.r2 then
+            facePlayerToward(wantedPoster.cx, wantedPoster.y + 10, 0.28)
             wantedQuestStage = "pending"
             -- TODO: later: show quest info UI, allow accept, and close.
             return true
         end
     end
     if nearbyNPC then
+        facePlayerToward(nearbyNPC.x + nearbyNPC.w / 2, nearbyNPC.y + nearbyNPC.h * 0.25)
         if nearbyNPC.type == "dealer" then
-            mode = "casino_menu"
+            setMode("casino_menu")
         elseif nearbyNPC.type == "bartender" then
             if player and player.runMetadata then
                 local RunMetadata = require("src.systems.run_metadata")
@@ -1191,7 +1364,7 @@ local function trySaloonWalkingInteract(key)
                     gold_before = player.gold,
                 })
             end
-            mode = "shop"
+            setMode("shop")
         end
         return true
     end
@@ -1204,6 +1377,7 @@ local function trySaloonWalkingInteract(key)
         local tdx = pcx - tcx
         local tdy = pcy - tcy
         if tdx * tdx + tdy * tdy < 50 * 50 then
+            facePlayerToward(tcx, testDoor.y + testDoor.h * 0.28, 0.18)
             enterTestRoom()
             return true
         end
@@ -1213,6 +1387,7 @@ local function trySaloonWalkingInteract(key)
     local dx = pcx - dcx
     local dy = pcy - dcy
     if dx * dx + dy * dy < 50 * 50 then
+        facePlayerToward(dcx, exitDoor.y + exitDoor.h * 0.28, 0.18)
         continueGame()
         return true
     end
@@ -1435,7 +1610,7 @@ function saloon:enter(_, _player, _roomManager)
         monster.x = math.floor(bx + totalBarW * 0.5 - mw * MONSTER_CAN_SCALE * 0.5 + 0.5 + mOffX)
     end
 
-    mode = "walking"
+    setMode("walking")
     message = ""
     messageTimer = 0
     perkOptions = nil
@@ -1818,13 +1993,13 @@ function saloon:keypressed(key, scancode, isrepeat)
         elseif key == "3" then
             applyOutcome(slotsGame:enterTable(player.gold, "casino_menu"))
         elseif key == "escape" or key == "backspace" then
-            mode = "walking"
+            setMode("walking")
         end
 
     elseif mode == "blackjack" then
         if key == "escape" or key == "backspace" then
             if blackjackGame.state == "betting" then
-                mode = "walking"
+                setMode("walking")
                 return
             end
         end
@@ -1833,7 +2008,7 @@ function saloon:keypressed(key, scancode, isrepeat)
     elseif mode == "roulette" then
         if key == "escape" or key == "backspace" then
             if rouletteGame.state == "betting" then
-                mode = "walking"
+                setMode("walking")
                 return
             end
         end
@@ -1865,7 +2040,7 @@ function saloon:keypressed(key, scancode, isrepeat)
                     gold_after = player.gold,
                 })
             end
-            mode = "walking"
+            setMode("walking")
         end
 
     elseif mode == "perk_selection" then
@@ -1873,7 +2048,7 @@ function saloon:keypressed(key, scancode, isrepeat)
         if num and num >= 1 and num <= #perkOptions then
             Mods.Progression.applyPerk(player, perkOptions[num])
             local nextMode = blackjackGame:completePerkSelection()
-            mode = (nextMode == "main") and "walking" or nextMode
+            setMode(nextMode)
             perkOptions = nil
         end
     end
@@ -2026,7 +2201,7 @@ function saloon:mousepressed(x, y, button)
     if mode == "perk_selection" and button == 1 and hoveredPerk then
         Mods.Progression.applyPerk(player, perkOptions[hoveredPerk])
         local nextMode = blackjackGame:completePerkSelection()
-        mode = (nextMode == "main") and "walking" or nextMode
+        setMode(nextMode)
         perkOptions = nil
         return
     end
@@ -2041,7 +2216,7 @@ function saloon:mousepressed(x, y, button)
                 elseif r.id == "slots" then
                     applyOutcome(slotsGame:enterTable(player.gold, "casino_menu"))
                 elseif r.id == "back" then
-                    mode = "walking"
+                    setMode("walking")
                 end
                 return
             end
@@ -2124,6 +2299,22 @@ local function drawSpriteFromBottom(name, x, footY, sx, sy)
     local _, h = img:getDimensions()
     love.graphics.setColor(1, 1, 1)
     love.graphics.draw(img, x, footY - h * (sy or 1), 0, sx or 1, sy or 1)
+end
+
+local function drawStackedSpriteFromBottom(name, x, footY, sx, sy, layers)
+    if not layers or #layers == 0 then
+        drawSpriteFromBottom(name, x, footY, sx, sy)
+        return
+    end
+    for _, layer in ipairs(layers) do
+        drawSpriteFromBottom(
+            name,
+            x + (layer.dx or 0),
+            footY - (layer.dy or 0),
+            layer.sx or sx,
+            layer.sy or sy
+        )
+    end
 end
 
 -- Wall doors: draw before floor props so plants / furniture stay in front (saloon:draw)
@@ -2272,8 +2463,9 @@ function saloon:draw()
     if L.antlerX then
         Atmos.drawAntler(L.antlerX, floorY)
     end
-    -- Wanted posters on left wall
-    drawSprite("wanted", L.wantedX, floorY - 55, 0.35, 0.35)
+    if L.wantedX then
+        drawSprite("wanted", L.wantedX, floorY - 55, 0.35, 0.35)
+    end
 
     -- === LAYER 4: Floor with depth shading ===
     if decor.floor_wood then
@@ -2311,19 +2503,19 @@ function saloon:draw()
     drawSaloonDoorSprites()
 
     -- === LAYER 5: Floor-level props ===
+    -- Crates first, then barrels on top (barrels in front of boxes)
+    if L.crates then
+        for _, c in ipairs(L.crates) do
+            local s = c.scale or 0.65
+            drawStackedSpriteFromBottom("boxes", c.x, floorY, s, s, c.layers)
+        end
+    end
+
     -- Barrels (procedural — matches pixel art style better)
     if L.barrels then
         for _, b in ipairs(L.barrels) do
             local s = b.scale or 0.6
             Atmos.drawBarrel(b.x, floorY, s)
-        end
-    end
-
-    -- Crate stacks (boxes asset at bigger scale)
-    if L.crates then
-        for _, c in ipairs(L.crates) do
-            local s = c.scale or 0.65
-            drawSpriteFromBottom("boxes", c.x, floorY, s, s)
         end
     end
 

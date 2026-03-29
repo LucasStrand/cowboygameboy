@@ -323,6 +323,8 @@ function Player.new(x, y)
     self.idleTimer = 0          -- seconds standing still before smoking can start
     self.smokeSessionTimer = 0  -- seconds in current smoking bout
     self.smokeCooldownTimer = 0 -- seconds still to wait after a bout before smoking again
+    self.interactionFacing = nil
+    self.interactionFacingTimer = 0
 
     self.dying = false
     self.deathTimer = 0
@@ -507,6 +509,13 @@ function Player:update(dt, world, enemies)
     -- Dead eye timer
     if self.deadEyeTimer > 0 then
         self.deadEyeTimer = self.deadEyeTimer - dt
+    end
+
+    if (self.interactionFacingTimer or 0) > 0 then
+        self.interactionFacingTimer = math.max(0, self.interactionFacingTimer - dt)
+        if self.interactionFacingTimer <= 0 then
+            self.interactionFacing = nil
+        end
     end
 
     if (self.monsterJitteryTimer or 0) > 0 then
@@ -1098,6 +1107,25 @@ function Player:playPickupAnim()
     end
 end
 
+function Player:setInteractionFacing(name, holdSeconds)
+    if not name or not self.anim or not self.anim.getRotation or not self.anim:getRotation(name) then
+        return false
+    end
+    self.interactionFacing = name
+    self.interactionFacingTimer = math.max(0, holdSeconds or 0)
+    if name == "east" or name == "north-east" or name == "south-east" then
+        self.facingRight = true
+    elseif name == "west" or name == "north-west" or name == "south-west" then
+        self.facingRight = false
+    end
+    return true
+end
+
+function Player:clearInteractionFacing()
+    self.interactionFacing = nil
+    self.interactionFacingTimer = 0
+end
+
 --- Primary melee tap (called from `tryPrimaryMeleeTapFromPointer` — same pointer math for LMB and melee key).
 --- `opts.fromMeleeKey`: with a ranged gun out, F swings an equipped knife in the other slot (`shootFromSlot`); if no knife, fists. LMB tap rules unchanged.
 --- Uses cursor position `(gx, gy)` in game/canvas space. Returns true if a swing started.
@@ -1660,8 +1688,17 @@ function Player:draw()
         local running = self.grounded and math.abs(self.vx or 0) > 10 and not self.crouching and self.dashTimer <= 0
         local firingRanged = self.inputFireHeld and ag and ag.weapon_kind ~= "melee"
         local useRunGunSplit = running and firingRanged and isShootAnimName(self.anim.current)
+        local usingInteractionFacing = self.interactionFacing
+            and self.anim.drawRotation
+            and not self.inputFireHeld
+            and self.meleeSwingTimer <= 0
+            and self.dashTimer <= 0
+            and self.anim.current ~= "pickup"
+            and self.anim.current ~= "drinking"
 
-        if useRunGunSplit and self.anim.drawCenteredSlice and self.anim.getFrameCap then
+        if usingInteractionFacing then
+            self.anim:drawRotation(self.interactionFacing, cx, footY)
+        elseif useRunGunSplit and self.anim.drawCenteredSlice and self.anim.getFrameCap then
             local runCap = self.anim:getFrameCap("run") or 1
             local runFps = 10
             local runFrame = math.floor((self.runGunLegTimer or 0) * runFps) % math.max(1, runCap) + 1
@@ -1682,7 +1719,7 @@ function Player:draw()
         end
 
         -- Weapon sprite overlay (gun — hidden during melee swing and rifle-shoot body anim; AK never uses overlay)
-        local hideGunOverlay = self.meleeSwingTimer > 0 or self.anim.current == "shoot_rifle"
+        local hideGunOverlay = usingInteractionFacing or self.meleeSwingTimer > 0 or self.anim.current == "shoot_rifle"
             or self.anim.current == "pickup"
         if not hideGunOverlay then
             local aimAngle = self:getAimAngle()

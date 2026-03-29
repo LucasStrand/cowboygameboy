@@ -78,7 +78,7 @@ return {
         bottlesX = BAR_X + 10,
         jarsX = BAR_X + 32,
         greenboardX = math.floor(ROOM_WIDTH * 0.42),
-        wantedX = 12,
+        wantedX = nil,
         -- Umbrella: left end of bar (patron side), leans on counter — keep offset small; large negative x lands on the fridge (fridgeX = barCounterX - 22)
         umbrellaBarOffsetX = -5,
         umbrellaLeanRad = 0.22,
@@ -101,15 +101,22 @@ return {
         -- Poker table removed (generated asset didn't fit)
         pokerTableX = nil,
         barrels = {
-            { x = 68, scale = 0.70 },
             { x = 690, scale = 0.65 },
             { x = 910, scale = 0.75 },
             { x = 925, scale = 0.55 },
         },
         -- Crate stacks (boxes asset at bigger scale)
         crates = {
-            { x = 4, scale = 1.15 },
-            { x = 895, scale = 1.0 },
+            {
+                x = 880,
+                scale = 1.0,
+                layers = {
+                    { dx = 0, dy = 0 },
+                    { dx = 14, dy = 0 },
+                    { dx = 7, dy = 9 },
+                    { dx = 3, dy = 19 },
+                },
+            },
         },
         spittoonX = 235,
         -- Chairs near dealer area
@@ -118,15 +125,20 @@ return {
             { x = 290, flip = true },
         },
 
-        -- Basement: each LRK floor lamp is ~16×46px — scale ~1.05–1.15 reads near player height; quads are per-column
-        basementFloorLamps = {
-            { x = 124, quad = "floor_lamp", scale = 1.10 },
-            { x = 432, quad = "floor_lamp_b", scale = 1.06 },
-            { x = 804, quad = "floor_lamp_c", scale = 1.12 },
+        -- Basement lighting: frontier-style (torches, hanging lanterns, candles)
+        basementTorchSconces = {
+            { x = 180, yFrac = 0.55, scale = 0.7 },
+            { x = 520, yFrac = 0.58, scale = 0.7 },
+            { x = 860, yFrac = 0.52, scale = 0.7 },
         },
-        basementWallLanterns = {
-            { x = 228, yFrac = 0.30, scale = 0.36 },
-            { x = 612, yFrac = 0.34, scale = 0.34 },
+        basementHangingLanterns = {
+            { x = 320, scale = 0.85 },
+            { x = 680, scale = 0.85 },
+        },
+        basementCandles = {
+            { x = 695, y = BASEMENT_FLOOR_Y, scale = 0.55 },
+            { x = 915, y = BASEMENT_FLOOR_Y, scale = 0.6 },
+            { x = 888, y = BASEMENT_FLOOR_Y, scale = 0.5 },
         },
         -- Main saloon floor — one of each LRK plant quad, grouped (bar vase stays on counter in saloon.lua)
         saloonPlants = {

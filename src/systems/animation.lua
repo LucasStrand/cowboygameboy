@@ -38,8 +38,8 @@ local COWBOY_V2_KNIFE_JAB = { file = "knife-jab.png", frames = 3, fps = 10, loop
 local COWBOY_V2_MELEE_FILE_FALLBACK = { file = "quickdraw.png", frames = 6, fps = 14, loop = false, startFrame = 1, footYOffset = 5 }
 
 SKIN_ANIMS["cowboy_v2"] = {
-    -- idle.png: 48px-tall cells; frame count = image width / 48 (Animator clamps if data overshoots).
-    idle         = { file = "idle.png",         frames = 8,  fps = 6,  loop = true,  footYOffset = 5 },
+    -- idle.png: current strip is 288x48, so the idle loop is 6 frames at 48px each.
+    idle         = { file = "idle.png",         frames = 6,  fps = 6,  loop = true,  footYOffset = 5 },
     -- Standing ready when active slot is melee (gun holstered / empty slot).
     idle_melee   = { file = "fightstance.png",  frames = 8,  fps = 6,  loop = true,  footYOffset = 5 },
     -- Interact (E): equip weapon from floor — dedicated 5-frame bend/reach strip.
@@ -85,6 +85,7 @@ local EPSILON = 0.0001
 
 -- Shared sheet cache so each PNG is loaded once across all players / animators.
 local _sheetCache = {}
+local _rotationCache = {}
 
 local function loadSheet(filename)
     if not _sheetCache[filename] then
@@ -119,6 +120,21 @@ local function loadSheetFromDir(dirRel, frameCount)
     img:setFilter("nearest", "nearest")
     _sheetCache[cacheKey] = img
     return img
+end
+
+local function loadRotationSprite(name)
+    if _rotationCache[name] ~= nil then
+        return _rotationCache[name] or nil
+    end
+    local path = STRIP_DIR .. "rotations/" .. name .. ".png"
+    local ok, img = pcall(love.graphics.newImage, path)
+    if ok and img then
+        img:setFilter("nearest", "nearest")
+        _rotationCache[name] = img
+        return img
+    end
+    _rotationCache[name] = false
+    return nil
 end
 
 function Animator.new()
@@ -291,6 +307,24 @@ function Animator:drawCentered(cx, footY, facingRight, yOffset, alpha)
         local flipShift = facingRight and 0 or scaledW
         love.graphics.draw(sheet, quad, drawX + flipShift, drawY, 0, sx, sym)
     end
+end
+
+function Animator:getRotation(name)
+    if not name then return nil end
+    return loadRotationSprite(name)
+end
+
+function Animator:drawRotation(name, cx, footY, alpha)
+    local img = self:getRotation(name)
+    if not img then return false end
+    local iw, ih = img:getDimensions()
+    local idleDef = ANIMS.idle or {}
+    local footDy = idleDef.footYOffset or 0
+    local norm = FRAME_H / math.max(1, ih)
+    local sm = SPRITE_SCALE * norm
+    love.graphics.setColor(1, 1, 1, alpha or 1)
+    love.graphics.draw(img, cx, footY + footDy, 0, sm, sm, iw / 2, ih)
+    return true
 end
 
 local function drawCenteredInternal(self, animName, frameIndex, cx, footY, facingRight, yOffset, alpha, sliceTop, sliceHeight)
