@@ -1,15 +1,15 @@
 -- Saloon hub: two-level side-view platformer layout (main floor + basement).
 -- Bump `ROOM_WIDTH` to widen the space; `decor` + prop positions derive from it.
 
-local ROOM_WIDTH = 960
+local ROOM_WIDTH = 992
 local FLOOR_TOP = 168
 local FLOOR_H = 32
 local BASEMENT_GAP = 80   -- vertical space between main floor bottom and basement floor
 local BASEMENT_FLOOR_Y = FLOOR_TOP + FLOOR_H + BASEMENT_GAP
 local BASEMENT_FLOOR_H = 20
 
--- Bar cluster anchored from the right wall.
-local BAR_X = ROOM_WIDTH - 200
+-- Keep a narrow gap at the far right so the exit door can sit clear of the bar.
+local BAR_X = 760
 
 return {
     id = "saloon_hub",
@@ -66,21 +66,24 @@ return {
     decor = {
         -- bar.png 127x47
         barCounterScale = 0.52,
-        barCounterSegments = 3,
+        barCounterSegments = 2,
         monsterCanOffsetX = 10,  -- shifted left from 48
         -- Stools: placed with sporadic offsets in draw code
-        stoolCount = 7,
+        stoolCount = 5,
         stoolGapBetween = 8,
-        stoolStartOffsetX = -30,  -- shift stools left so they cover more of the counter
+        stoolStartOffsetX = 0,
         barCounterX = BAR_X,
         fridgeX = BAR_X - 22,
-        shelfX = BAR_X + 10,
-        bottlesX = BAR_X + 18,
-        jarsX = BAR_X + 40,
+        shelfX = BAR_X + 2,
+        bottlesX = BAR_X + 10,
+        jarsX = BAR_X + 32,
         greenboardX = math.floor(ROOM_WIDTH * 0.42),
         wantedX = 12,
-        umbrellaX = 135,
-        shelfSecondOffsetX = 66,
+        -- Umbrella: left end of bar (patron side), leans on counter — keep offset small; large negative x lands on the fridge (fridgeX = barCounterX - 22)
+        umbrellaBarOffsetX = -5,
+        umbrellaLeanRad = 0.22,
+        umbrellaScale = 0.55,
+        shelfSecondOffsetX = 70,
 
         -- === Structural / depth ===
         -- Pillars: SWAPPED — old foreground positions are now back, old back are now foreground
@@ -105,14 +108,32 @@ return {
         },
         -- Crate stacks (boxes asset at bigger scale)
         crates = {
-            { x = 4, scale = 1.0 },
-            { x = 895, scale = 0.85 },
+            { x = 4, scale = 1.15 },
+            { x = 895, scale = 1.0 },
         },
         spittoonX = 235,
         -- Chairs near dealer area
         chairs = {
             { x = 245, flip = false },
             { x = 290, flip = true },
+        },
+
+        -- Basement: each LRK floor lamp is ~16×46px — scale ~1.05–1.15 reads near player height; quads are per-column
+        basementFloorLamps = {
+            { x = 124, quad = "floor_lamp", scale = 1.10 },
+            { x = 432, quad = "floor_lamp_b", scale = 1.06 },
+            { x = 804, quad = "floor_lamp_c", scale = 1.12 },
+        },
+        basementWallLanterns = {
+            { x = 228, yFrac = 0.30, scale = 0.36 },
+            { x = 612, yFrac = 0.34, scale = 0.34 },
+        },
+        -- Main saloon floor — one of each LRK plant quad, grouped (bar vase stays on counter in saloon.lua)
+        saloonPlants = {
+            { quad = "plant_potted_mid_a", x = 448, scale = 0.90 },
+            { quad = "plant_potted_small", x = 478, scale = 0.90 },
+            { quad = "plant_potted_mid_b", x = 508, scale = 0.88 },
+            { quad = "plant_potted_low", x = 538, scale = 0.95 },
         },
     },
 }

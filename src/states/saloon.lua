@@ -48,6 +48,15 @@ local DOOR_FRAME_SIZE = 48
 local decor = {}
 local rouletteTableQuad = nil
 local slotMachineQuad = nil
+-- Pixel Interior LRK — decorations sheet (floor lamp + plants share one atlas)
+local pixelInteriorDecorImg = nil
+local pixelDecorQuads = {}
+local pixelDecorSizes = {} -- [name] = { w, h } in source pixels
+local pixelInteriorCabinetImg = nil
+local pixelCabinetQuads = {}
+local pixelCabinetSizes = {} -- [name] = { w, h } in source pixels
+-- Glow Y: old `bsmtFloorY - qh*s*0.68` sat ~32% down the frame; LRK shade centroid is ~9px below quad top
+local BASEMENT_FLOOR_LAMP_GLOW_FROM_TOP_PX = { floor_lamp = 9, floor_lamp_b = 9, floor_lamp_c = 9 }
 
 -- Per-visit state
 local player = nil
@@ -626,6 +635,44 @@ local function loadDecorations()
     loadDecorSprite("gen_lantern", "assets/saloon_props/lantern.png")
     loadDecorSprite("gen_antler", "assets/saloon_props/antler.png")
 
+    do
+        local pi = require("src.data.saloon_pixelinterior")
+        local path = pi.sheets and pi.sheets.decor
+        if path and not pixelInteriorDecorImg then
+            local ok, img = pcall(love.graphics.newImage, path)
+            if ok and img then
+                img:setFilter("nearest", "nearest")
+                pixelInteriorDecorImg = img
+                local sw, sh = img:getDimensions()
+                for quadName, qdef in pairs(pi.quads or {}) do
+                    if qdef.sheet == "decor" then
+                        pixelDecorQuads[quadName] = love.graphics.newQuad(qdef.x, qdef.y, qdef.w, qdef.h, sw, sh)
+                        pixelDecorSizes[quadName] = { qdef.w, qdef.h }
+                    end
+                end
+            end
+        end
+    end
+
+    do
+        local pi = require("src.data.saloon_pixelinterior")
+        local path = pi.sheets and pi.sheets.cabinets
+        if path and not pixelInteriorCabinetImg then
+            local ok, img = pcall(love.graphics.newImage, path)
+            if ok and img then
+                img:setFilter("nearest", "nearest")
+                pixelInteriorCabinetImg = img
+                local sw, sh = img:getDimensions()
+                for quadName, qdef in pairs(pi.quads or {}) do
+                    if qdef.sheet == "cabinets" then
+                        pixelCabinetQuads[quadName] = love.graphics.newQuad(qdef.x, qdef.y, qdef.w, qdef.h, sw, sh)
+                        pixelCabinetSizes[quadName] = { qdef.w, qdef.h }
+                    end
+                end
+            end
+        end
+    end
+
     -- Wall panel for visible side walls
     loadDecorSprite("wall_bar", "assets/Bar_by_Styl0o/individuals sprite/wall_bar.png")
 end
@@ -782,6 +829,89 @@ function Atmos.drawBasement(roomW, floorY, floorH)
     end
 end
 
+-- Quad anchored with bottom edge at footY (world Y)
+function Atmos.drawPixelDecorFoot(quadName, x, footY, s)
+    local img = pixelInteriorDecorImg
+    local quad = pixelDecorQuads[quadName]
+    local sz = pixelDecorSizes[quadName]
+    if not (img and quad and sz) then return end
+    local qh = sz[2]
+    s = s or 1
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.draw(img, quad, x, footY - qh * s, 0, s, s)
+end
+
+function Atmos.drawPixelCabinetTop(quadName, x, topY, s)
+    local img = pixelInteriorCabinetImg
+    local quad = pixelCabinetQuads[quadName]
+    local sz = pixelCabinetSizes[quadName]
+    if not (img and quad and sz) then return end
+    s = s or 1
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.draw(img, quad, x, topY, 0, s, s)
+end
+
+-- LRK floor lamp quad (default floor_lamp); falls back to gen_lantern on floor
+function Atmos.drawBasementFloorLamp(x, bsmtFloorY, s, quadName)
+    s = s or 1.08
+    quadName = quadName or "floor_lamp"
+    local quad = pixelDecorQuads[quadName]
+    local sz = pixelDecorSizes[quadName]
+    if pixelInteriorDecorImg and quad and sz then
+        local qw, qh = sz[1], sz[2]
+        love.graphics.setColor(1, 1, 1)
+        local topY = bsmtFloorY - qh * s
+        love.graphics.draw(pixelInteriorDecorImg, quad, x, topY, 0, s, s)
+        local glowTy = BASEMENT_FLOOR_LAMP_GLOW_FROM_TOP_PX[quadName] or 9
+        Atmos.drawLampGlow(x + qw * s * 0.5, topY + glowTy * s, s)
+    elseif decor.gen_lantern then
+        Atmos.drawAssetFromBottom("gen_lantern", x, bsmtFloorY, s * 1.15)
+        local img = decor.gen_lantern
+        local iw, ih = img:getDimensions()
+        local ss = s * 1.15
+        local topY = bsmtFloorY - ih * ss
+        Atmos.drawLampGlow(x + iw * ss * 0.5, topY + math.min(12, ih * 0.22) * ss, ss)
+    end
+end
+
+function Atmos.drawBasementWallLantern(x, y, s)
+    local img = decor.gen_lantern
+    if not img then return end
+    s = s or 0.35
+    local iw, ih = img:getDimensions()
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.draw(img, x, y, 0, s, s)
+    Atmos.drawLampGlow(x + iw * s * 0.5, y + ih * s * 0.22)
+end
+
+function Atmos.drawBasementLighting(roomW, floorY, floorH)
+    local L = Mods.saloonRoom.decor
+    if not L then return end
+    local baseY = floorY + floorH
+    local bsmtFloorY = Mods.saloonRoom.basementFloorY or (baseY + 80)
+    local bsmtH = bsmtFloorY - baseY
+    if bsmtH < 8 then return end
+
+    if L.basementWallLanterns then
+        for _, wl in ipairs(L.basementWallLanterns) do
+            local lx = wl.x
+            if lx and lx >= 0 and lx <= roomW then
+                local ly = baseY + bsmtH * (wl.yFrac or 0.32)
+                Atmos.drawBasementWallLantern(lx, ly, wl.scale or 0.35)
+            end
+        end
+    end
+
+    if L.basementFloorLamps then
+        for _, fl in ipairs(L.basementFloorLamps) do
+            local fx = fl.x
+            if fx and fx >= 0 and fx <= roomW then
+                Atmos.drawBasementFloorLamp(fx, bsmtFloorY, fl.scale or 1.08, fl.quad)
+            end
+        end
+    end
+end
+
 function Atmos.drawPillar(x, ceilingY, floorY)
     -- BACKGROUND pillar: darker/muted, behind player
     local pillarW = 6
@@ -898,10 +1028,11 @@ function Atmos.drawWindowGlow(wx, floorY, s)
     love.graphics.setBlendMode("alpha")
 end
 
-function Atmos.drawLampGlow(x, y)
+function Atmos.drawLampGlow(x, y, radiusScale)
+    radiusScale = radiusScale or 1
     love.graphics.setBlendMode("add")
     for i = 1, 4 do
-        local r = 12 + i * 8
+        local r = (12 + i * 8) * radiusScale
         local a = 0.06 - i * 0.012
         if a > 0 then
             love.graphics.setColor(1.0, 0.85, 0.45, a)
@@ -1995,6 +2126,38 @@ local function drawSpriteFromBottom(name, x, footY, sx, sy)
     love.graphics.draw(img, x, footY - h * (sy or 1), 0, sx or 1, sy or 1)
 end
 
+-- Wall doors: draw before floor props so plants / furniture stay in front (saloon:draw)
+local function drawSaloonDoorSprites()
+    if exitDoor then
+        if doorSheet and #doorQuads > 0 then
+            love.graphics.setColor(1, 1, 1)
+            local scale = exitDoor.h / DOOR_FRAME_SIZE
+            local drawX = exitDoor.x + exitDoor.w / 2 - (DOOR_FRAME_SIZE * scale) / 2
+            local drawY = exitDoor.y + exitDoor.h - DOOR_FRAME_SIZE * scale
+            love.graphics.draw(doorSheet, doorQuads[8], drawX, drawY, 0, scale, scale)
+        else
+            love.graphics.setColor(0.4, 0.25, 0.1)
+            love.graphics.rectangle("fill", exitDoor.x, exitDoor.y, exitDoor.w, exitDoor.h)
+            love.graphics.setColor(0.7, 0.5, 0.2)
+            love.graphics.rectangle("line", exitDoor.x, exitDoor.y, exitDoor.w, exitDoor.h)
+        end
+    end
+    if testDoor then
+        if doorSheet and #doorQuads > 0 then
+            love.graphics.setColor(1, 1, 1)
+            local scale = testDoor.h / DOOR_FRAME_SIZE
+            local drawX = testDoor.x + testDoor.w / 2 - (DOOR_FRAME_SIZE * scale) / 2
+            local drawY = testDoor.y + testDoor.h - DOOR_FRAME_SIZE * scale
+            love.graphics.draw(doorSheet, doorQuads[8], drawX, drawY, 0, scale, scale)
+        else
+            love.graphics.setColor(0.4, 0.25, 0.1)
+            love.graphics.rectangle("fill", testDoor.x, testDoor.y, testDoor.w, testDoor.h)
+            love.graphics.setColor(0.7, 0.5, 0.2)
+            love.graphics.rectangle("line", testDoor.x, testDoor.y, testDoor.w, testDoor.h)
+        end
+    end
+end
+
 ---------------------------------------------------------------------------
 -- Main draw
 ---------------------------------------------------------------------------
@@ -2086,6 +2249,14 @@ function saloon:draw()
         drawSprite("bottles", L.bottlesX, floorY - 52, 0.7, 0.7)
         drawSprite("jars", L.jarsX, floorY - 50, 0.7, 0.7)
     end
+    if L.backBarCabinets then
+        for _, cab in ipairs(L.backBarCabinets) do
+            local cabX = cab.x
+            if cab.quad and cabX and cabX >= 0 and cabX <= roomW then
+                Atmos.drawPixelCabinetTop(cab.quad, cabX, floorY + (cab.yOffset or -56), cab.scale or 1.0)
+            end
+        end
+    end
     -- Greenboard in lounge zone
     drawSprite("greenboard", L.greenboardX, floorY - 70, 0.6, 0.6)
     -- Wall clock (generated asset, NOT on shelves)
@@ -2134,13 +2305,12 @@ function saloon:draw()
 
     -- === LAYER 4b: Basement beneath floor ===
     Atmos.drawBasement(roomW, floorY, floorH)
+    Atmos.drawBasementLighting(roomW, floorY, floorH)
+
+    -- === LAYER 4c: Door sprites (back wall — before floor props so props draw on top) ===
+    drawSaloonDoorSprites()
 
     -- === LAYER 5: Floor-level props ===
-    -- Coat rack / umbrella
-    if decor.umbrella then
-        drawSpriteFromBottom("umbrella", L.umbrellaX, floorY, 0.55, 0.55)
-    end
-
     -- Barrels (procedural — matches pixel art style better)
     if L.barrels then
         for _, b in ipairs(L.barrels) do
@@ -2176,6 +2346,17 @@ function saloon:draw()
                 Atmos.drawAssetFromBottomFlip("gen_chair", ch.x, floorY, 0.4)
             else
                 Atmos.drawAssetFromBottom("gen_chair", ch.x, floorY, 0.4)
+            end
+        end
+    end
+
+    -- Potted plants (Pixel Interior LRK decorations sheet)
+    if L.saloonPlants then
+        for _, sp in ipairs(L.saloonPlants) do
+            local qn = sp.quad
+            local px = sp.x
+            if qn and px and px >= 0 and px <= roomW then
+                Atmos.drawPixelDecorFoot(qn, px, floorY, sp.scale or 0.92)
             end
         end
     end
@@ -2231,6 +2412,24 @@ function saloon:draw()
         end
     end
 
+    -- Umbrella: left end of bar, leans on counter (drawn after bar so it sits on the front edge)
+    if decor.umbrella then
+        local uScale = (L.umbrellaScale) or 0.55
+        local lean = (L.umbrellaLeanRad) or 0.2
+        local offX = (L.umbrellaBarOffsetX ~= nil) and L.umbrellaBarOffsetX or -5
+        local img = decor.umbrella
+        local iw, ih = img:getDimensions()
+        local uw, uh = iw * uScale, ih * uScale
+        local footX = L.barCounterX + offX
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.push()
+        love.graphics.translate(footX + uw * 0.5, floorY)
+        love.graphics.rotate(lean)
+        love.graphics.translate(-uw * 0.5, -uh)
+        love.graphics.draw(img, 0, 0, 0, uScale, uScale)
+        love.graphics.pop()
+    end
+
     -- Stools — sporadic placement (slight random-looking offsets baked in)
     if decor.stool then
         local stoolScale = 0.5
@@ -2261,7 +2460,7 @@ function saloon:draw()
 
     -- Vase on bar counter
     if decor.vase then
-        local vaseS = 0.42
+        local vaseS = 0.62
         local vw = decor.vase:getWidth() * vaseS
         local vaseX = bx0 + math.floor(totalBarW * 0.50) - math.floor(vw * 0.5)
         drawSpriteFromBottom("vase", vaseX, glassFootY, vaseS, vaseS)
@@ -2273,20 +2472,8 @@ function saloon:draw()
         love.graphics.draw(monster.img, monster.x, monster.y, 0, MONSTER_CAN_SCALE, MONSTER_CAN_SCALE)
     end
 
-    -- === LAYER 8: Doors ===
+    -- === LAYER 8: Door interaction labels (sprites drawn in LAYER 4c) ===
     if exitDoor then
-        if doorSheet and #doorQuads > 0 then
-            love.graphics.setColor(1, 1, 1)
-            local scale = exitDoor.h / DOOR_FRAME_SIZE
-            local drawX = exitDoor.x + exitDoor.w / 2 - (DOOR_FRAME_SIZE * scale) / 2
-            local drawY = exitDoor.y + exitDoor.h - DOOR_FRAME_SIZE * scale
-            love.graphics.draw(doorSheet, doorQuads[8], drawX, drawY, 0, scale, scale)
-        else
-            love.graphics.setColor(0.4, 0.25, 0.1)
-            love.graphics.rectangle("fill", exitDoor.x, exitDoor.y, exitDoor.w, exitDoor.h)
-            love.graphics.setColor(0.7, 0.5, 0.2)
-            love.graphics.rectangle("line", exitDoor.x, exitDoor.y, exitDoor.w, exitDoor.h)
-        end
         if mode == "walking" and player then
             local pcx = player.x + player.w / 2
             local pcy = player.y + player.h / 2
@@ -2306,18 +2493,6 @@ function saloon:draw()
         end
     end
     if testDoor then
-        if doorSheet and #doorQuads > 0 then
-            love.graphics.setColor(1, 1, 1)
-            local scale = testDoor.h / DOOR_FRAME_SIZE
-            local drawX = testDoor.x + testDoor.w / 2 - (DOOR_FRAME_SIZE * scale) / 2
-            local drawY = testDoor.y + testDoor.h - DOOR_FRAME_SIZE * scale
-            love.graphics.draw(doorSheet, doorQuads[8], drawX, drawY, 0, scale, scale)
-        else
-            love.graphics.setColor(0.4, 0.25, 0.1)
-            love.graphics.rectangle("fill", testDoor.x, testDoor.y, testDoor.w, testDoor.h)
-            love.graphics.setColor(0.7, 0.5, 0.2)
-            love.graphics.rectangle("line", testDoor.x, testDoor.y, testDoor.w, testDoor.h)
-        end
         if mode == "walking" and player then
             local pcx = player.x + player.w / 2
             local pcy = player.y + player.h / 2
@@ -2480,15 +2655,9 @@ function saloon:draw()
         end
     end
 
-    -- HUD — same pipeline as game state (saloon is another map)
-    Mods.HUD.draw(player)
     if not DEBUG then
         Mods.DevLog.drawOverlay(screenW, screenH)
     end
-    if roomManager then
-        Mods.HUD.drawRoomInfo(roomManager.currentRoomIndex, #roomManager.roomSequence)
-    end
-    Mods.HUD.drawDeadEye(player)
 
     -- Message toast
     if messageTimer > 0 then
